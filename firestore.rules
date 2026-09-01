@@ -1,0 +1,125 @@
+rules_version = '2';
+
+// Règles de sécurité — application d'entraînement des commerciaux Médéré.
+// Référence : README.md, section 4. Toute modification passe par les tests
+// d'émulateur (`npm test`) avant déploiement. Jamais de mode test.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Prédicats -------------------------------------------------------
+
+    // Le domaine est écrit en dur : les règles n'ont pas accès aux variables
+    // d'environnement. Il doit rester aligné sur ALLOWED_EMAIL_DOMAIN
+    // (voir src/lib/auth/domaine.ts, qui porte la même valeur côté serveur).
+    function domaineAutorise() {
+      return request.auth != null
+        && request.auth.token.get('email_verified', false) == true
+        && request.auth.token.get('email', '') is string
+        && request.auth.token.get('email', '').lower().matches('^[^@]+@medere[.]fr$');
+    }
+
+    // Le rôle administrateur est un custom claim, jamais un champ Firestore.
+    function estAdmin() {
+      return domaineAutorise() && request.auth.token.get('admin', false) == true;
+    }
+
+    function estProprietaire(uid) {
+      return domaineAutorise() && request.auth.uid == uid;
+    }
+
+    function estAnimateur(sessionId) {
+      return estAdmin()
+        && get(/databases/$(database)/documents/sessions/$(sessionId)).data.animateurUid == request.auth.uid;
+    }
+
+    // --- Référentiel : formations et questions ---------------------------
+    // Lecture par tout utilisateur authentifié du domaine, écriture réservée
+    // au custom claim administrateur.
+
+    match /formations/{formationId} {
+      allow read: if domaineAutorise();
+      allow write: if estAdmin();
+    }
+
+    match /questions/{questionId} {
+      allow read: if domaineAutorise();
+      allow write: if estAdmin();
+    }
+
+    // --- Utilisateurs ----------------------------------------------------
+    // Propriétaire uniquement, aucune exception administrateur.
+    // Le document est créé et tenu à jour par le serveur (SDK Admin, qui
+    // contourne ces règles). Le client ne peut toucher qu'à sa progression :
+    // il ne peut ni s'attribuer un rôle, ni changer son adresse.
+
+    function majUtilisateurAutorisee() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['etoiles', 'seriesTerminees', 'vuLe'])
+        && request.resource.data.etoiles is int
+        && request.resource.data.etoiles >= 0
+        && request.resource.data.seriesTerminees is int
+        && request.resource.data.seriesTerminees >= 0;
+    }
+
+    match /users/{uid} {
+      allow get: if estProprietaire(uid);
+      allow list: if false;
+      allow create: if false;
+      allow update: if estProprietaire(uid) && majUtilisateurAutorisee();
+      allow delete: if false;
+
+      // Les réponses individuelles sont privées. Aucune lecture croisée,
+      // administrateur compris. Les requêtes de groupe de collections sur
+      // « reponses » ne correspondent à aucune règle et sont donc refusées.
+      match /reponses/{reponseId} {
+        allow read: if estProprietaire(uid);
+        allow create: if estProprietaire(uid)
+          && request.resource.data.questionId is string
+          && request.resource.data.correcte is bool
+          && request.resource.data.origine in ['entrainement', 'session'];
+        allow update, delete: if false;
+      }
+    }
+
+    // --- Statistiques agrégées -------------------------------------------
+    // Écrites exclusivement par la Cloud Function d'agrégation, qui utilise
+    // le SDK Admin et n'est pas soumise à ces règles.
+
+    match /questionStats/{questionId} {
+      allow read: if estAdmin();
+      allow write: if false;
+    }
+
+    // --- Sessions collectives --------------------------------------------
+
+    match /sessions/{sessionId} {
+      allow read: if domaineAutorise();
+      allow create: if estAdmin()
+        && request.resource.data.animateurUid == request.auth.uid;
+      allow update: if estAdmin()
+        && resource.data.animateurUid == request.auth.uid
+        && request.resource.data.animateurUid == resource.data.animateurUid;
+      allow delete: if estAdmin() && resource.data.animateurUid == request.auth.uid;
+
+      // Chaque participant n'écrit que sa propre réponse, une seule fois,
+      // sous un identifiant qui porte son uid. Il ne relit que la sienne :
+      // seul l'animateur voit l'ensemble, pour établir la répartition.
+      match /reponses/{reponseId} {
+        allow get: if estAnimateur(sessionId)
+          || (domaineAutorise() && resource.data.uid == request.auth.uid);
+        allow list: if estAnimateur(sessionId);
+        allow create: if domaineAutorise()
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.questionId is string
+          && reponseId == request.auth.uid + '_' + request.resource.data.questionId;
+        allow update, delete: if false;
+      }
+    }
+
+    // Tout le reste est refusé.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
