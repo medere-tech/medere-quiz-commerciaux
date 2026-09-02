@@ -232,24 +232,46 @@ describe('Traçabilité de la fiche source', () => {
     );
   });
 
-  it('REFUS — une question sans champ sourceFiche', async () => {
-    await assertFails(ecrireQuestion(sans(question(), 'sourceFiche'), 'f1'));
+  it('une question sans aucun des deux champs est acceptée', async () => {
+    const sansSource = sans(sans(question(), 'sourceFiche'), 'sourceVersion');
+    await assertSucceeds(ecrireQuestion(sansSource, 'absents'));
   });
 
-  it('REFUS — une question sans champ sourceVersion', async () => {
-    await assertFails(ecrireQuestion(sans(question(), 'sourceVersion'), 'f2'));
+  it('une question sans champ sourceFiche est acceptée', async () => {
+    await assertSucceeds(ecrireQuestion(sans(question(), 'sourceFiche'), 'sans-fiche'));
   });
 
-  it('REFUS — une fiche source vide', async () => {
-    await assertFails(ecrireQuestion(question({ sourceFiche: '' }), 'f3'));
+  it('une question sans champ sourceVersion est acceptée', async () => {
+    await assertSucceeds(ecrireQuestion(sans(question(), 'sourceVersion'), 'sans-version'));
   });
 
-  it('REFUS — une version de fiche vide', async () => {
-    await assertFails(ecrireQuestion(question({ sourceVersion: '   ' }), 'f4'));
+  it('une fiche source vide est acceptée', async () => {
+    await assertSucceeds(ecrireQuestion(question({ sourceFiche: '' }), 'fiche-vide'));
+  });
+
+  it('une version de fiche vide est acceptée', async () => {
+    await assertSucceeds(ecrireQuestion(question({ sourceVersion: '' }), 'version-vide'));
+  });
+
+  it('une fiche déclarée sans numéro de version est acceptée', async () => {
+    await assertSucceeds(
+      ecrireQuestion(
+        question({ sourceFiche: 'Argumentaire Endodontie', sourceVersion: '' }),
+        'fiche-sans-version',
+      ),
+    );
+  });
+
+  it("REFUS — une fiche source qui n'est pas une chaîne", async () => {
+    await assertFails(ecrireQuestion(question({ sourceFiche: 12 }), 'f1'));
   });
 
   it("REFUS — une version de fiche qui n'est pas une chaîne", async () => {
-    await assertFails(ecrireQuestion(question({ sourceVersion: 3 }), 'f5'));
+    await assertFails(ecrireQuestion(question({ sourceVersion: 3 }), 'f2'));
+  });
+
+  it('REFUS — une fiche source à null : absente ou vide, pas nulle', async () => {
+    await assertFails(ecrireQuestion(question({ sourceFiche: null }), 'f3'));
   });
 
   it('la version de la fiche peut être mise à jour', async () => {

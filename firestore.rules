@@ -141,12 +141,21 @@ service cloud.firestore {
     function champsQuestion() {
       return ['type', 'contexte', 'enonce', 'options', 'ordreOptions', 'bonnesReponses',
               'explication', 'formationIds', 'theme', 'difficulte', 'statut',
-              'sourceFiche', 'sourceVersion',
               'creeeLe', 'modifieeLe', 'creeePar'];
     }
 
+    // Traçabilité de la fiche d'argumentaire : facultative, et elle doit le
+    // rester. L'exiger reviendrait à supposer que toute fiche porte un numéro
+    // de version — vrai de la trame d'aujourd'hui, pas du produit. Le jour où
+    // la trame change, l'application bloquerait pour une raison qui ne la
+    // regarde pas. Absents ou vides, ces champs passent ; renseignés, ils
+    // sont bornés comme les autres.
+    function champsQuestionFacultatifs() {
+      return ['sourceFiche', 'sourceVersion'];
+    }
+
     function questionValide(donnees) {
-      return donnees.keys().hasOnly(champsQuestion())
+      return donnees.keys().hasOnly(champsQuestion().concat(champsQuestionFacultatifs()))
         && donnees.keys().hasAll(champsQuestion())
         && donnees.type in ['vf', 'qcm', 'scenario']
         && texteBorne(donnees.enonce, 500)
@@ -184,13 +193,11 @@ service cloud.firestore {
         && (donnees.type == 'scenario'
               ? texteBorne(donnees.contexte, 1000)
               : donnees.contexte == null)
-        // Traçabilité de la source. Les fiches d'argumentaire sont
-        // versionnées et évoluent : sans ces deux champs, une question
-        // devient fausse en silence le jour où sa fiche est mise à jour, et
-        // rien ne permet de retrouver laquelle relire. Ils sont obligatoires
-        // et non vides — une question sans provenance n'est pas vérifiable.
-        && texteBorne(donnees.sourceFiche, 200)
-        && texteBorne(donnees.sourceVersion, 40)
+        // Traçabilité de la source, facultative : absente ou vide, elle
+        // passe ; renseignée, elle est bornée comme le reste. Une question
+        // qui la porte se retrouve d'une requête le jour où sa fiche change.
+        && (!('sourceFiche' in donnees) || texteFacultatifBorne(donnees.sourceFiche, 200))
+        && (!('sourceVersion' in donnees) || texteFacultatifBorne(donnees.sourceVersion, 40))
         && identifiantBorne(donnees.creeePar)
         && horodatagePasse(donnees.creeeLe)
         && horodatagePasse(donnees.modifieeLe);
