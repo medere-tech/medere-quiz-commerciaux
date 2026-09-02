@@ -44,8 +44,17 @@ Le client parle directement à Firestore pour tout ce qui est couvert par les r�
 ## 3. Modèle de données
 
 ```
-formations/{formationId}
-  airtableId, nom, cible, format : string
+formations/{formationId}          // identifiant du document = airtableId
+  airtableId : string              // « rec... », clé de rapprochement Airtable
+  numeroActionDpc : string         // identifiant métier, champ primaire Airtable
+  nom : string
+  cibles : string[]                // sélection multiple, jamais une chaîne
+  format : string                  // peut être vide
+  modalite : string                // peut être vide
+  blocsCertification : string[]    // options réelles : 1 à 4. Stocké tel quel,
+                                   // aucune logique applicative ne s'y appuie
+  dureeTotale : string             // peut être vide
+  urlWebflow : string              // peut être vide
   actif : boolean
   syncLe : timestamp
 
@@ -61,6 +70,8 @@ questions/{questionId}
   theme : string
   difficulte : 1 | 2 | 3
   statut : 'brouillon' | 'publiee'
+  sourceFiche : string?            // facultatif : fiche d'argumentaire d'origine
+  sourceVersion : string?          // facultatif : version de cette fiche
   creeeLe, modifieeLe : timestamp
   creeePar : string
 
@@ -97,9 +108,17 @@ sessions/{sessionId}/reponses/{uid_questionId}
   repondueLe : timestamp
 ```
 
+Le modèle `formations` est fixé par `docs/airtable-formations.md`, qui fait foi : il est relevé du schéma réel de la base. L'identifiant du document Firestore est l'identifiant d'enregistrement Airtable, ce qui rend la synchronisation idempotente — relancée deux fois, elle produit le même état.
+
 **Pourquoi les réponses sont sous le document utilisateur.** C'est ce qui rend l'isolation des scores applicable par les règles de sécurité, et pas seulement par un filtre d'affichage. Noémie ne peut pas voir qui rate quoi, même en ouvrant la console Firebase. Elle voit les statistiques par question via `questionStats`, qui ne contient aucun identifiant.
 
 Cette décision peut être révisée si Noémie ou la direction demandent le nominatif. C'est alors une décision managériale explicite, à assumer comme telle, avec une évolution du modèle. Ne pas l'anticiper dans le code.
+
+**Pourquoi une question peut déclarer sa source.** Les fiches d'argumentaire évoluent. Une formation change de durée, un tarif d'indemnisation bouge, une contre-indication est reformulée — et la question rédigée d'après la version précédente devient fausse. Sans trace de la provenance, cette bascule est silencieuse : rien ne signale qu'une question est périmée, et surtout rien ne permet de retrouver *lesquelles* relire quand une fiche est mise à jour. Renseignés, `sourceFiche` et `sourceVersion` répondent à cette question d'une requête.
+
+**Les deux champs sont facultatifs, et doivent le rester.** Les exiger reviendrait à supposer que toute fiche porte un numéro de version. C'est vrai de la trame d'aujourd'hui, ce n'est pas une propriété du produit : le jour où la trame change, l'application refuserait des questions valides pour une raison qui ne la regarde pas. Absents ou vides, ils passent ; renseignés, ils sont bornés comme les autres champs.
+
+**Principe général : rien dans l'application ne dépend de la structure des fiches d'argumentaire.** Ni leur format, ni leur numérotation, ni la présence d'une version, ni le vocabulaire de leurs rubriques. Les fiches sont un outil de travail de Noémie, elles changeront sans nous prévenir et c'est leur droit. L'application en accepte une trace quand elle existe, elle n'en tire aucune règle. Toute fonctionnalité qui exigerait qu'une fiche soit faite d'une certaine manière est à signaler avant d'être codée.
 
 **Pourquoi les options sont une map et non une liste.** Les règles de sécurité ne savent pas parcourir une liste. Avec `options : [{ id, texte }]`, vérifier que chaque bonne réponse désigne une option existante obligeait à énumérer les positions une à une, donc à plafonner arbitrairement le nombre d'options. La map expose ses clés d'un bloc : `bonnesReponses.toSet().hasOnly(options.keys().toSet())` valide l'ensemble sans limite de taille. L'ordre d'affichage, que la map ne conserve pas, passe dans `ordreOptions`, dont les règles vérifient qu'il décrit exactement les mêmes identifiants.
 
@@ -168,7 +187,7 @@ Le custom claim est posé par une fonction d'administration à partir d'une list
 Les règles ne se contentent pas de dire qui écrit, elles disent quoi. C'est la seule validation qui tienne face à un client modifié ou à un import mal formé : celle du navigateur se contourne, celle du serveur ne couvre que les chemins qui passent par lui.
 
 - **Jeu de champs exact.** Chaque document est comparé à la liste des champs de son modèle : ni champ libre ajouté, ni champ manquant.
-- **Questions.** Explication et énoncé non vides, type parmi `vf`/`qcm`/`scenario`, `formationIds` non vide et sans doublon, difficulté dans 1-3, statut parmi `brouillon`/`publiee`. Le contexte est obligatoire pour une mise en situation et interdit ailleurs. `bonnesReponses` désigne des options existantes, `ordreOptions` décrit exactement les clés de la map. L'auteur ne peut être que celui qui écrit, et `creeePar` comme `creeeLe` ne sont plus modifiables ensuite.
+- **Questions.** Explication et énoncé non vides, type parmi `vf`/`qcm`/`scenario`, `formationIds` non vide et sans doublon, difficulté dans 1-3, statut parmi `brouillon`/`publiee`. Le contexte est obligatoire pour une mise en situation et interdit ailleurs. `bonnesReponses` désigne des options existantes, `ordreOptions` décrit exactement les clés de la map. L'auteur ne peut être que celui qui écrit, et `creeePar` comme `creeeLe` ne sont plus modifiables ensuite. `sourceFiche` et `sourceVersion` sont facultatifs : absents ou vides, ils passent ; renseignés, ils doivent être des chaînes bornées.
 - **Réponses, individuelles et en session.** Le verdict n'est pas déclaratif : les règles relisent la question par `get()` et recalculent `correcte` en comparant les ensembles. Une réponse partielle à un QCM multiple est fausse, et une réponse exacte déclarée fausse est refusée aussi — elle fausserait `questionStats` autant que l'inverse. La question doit exister et être publiée, et aucune option choisie ne peut sortir de la map des options.
 - **Progression.** `etoiles` ne peut que monter, de 0 à 3 par écriture ; `seriesTerminees` de 0 à 1. Le client ne touche à rien d'autre sur son document.
 - **Sessions.** Code, liste de questions sans doublon, index courant compris dans cette liste, statut parmi `attente`/`encours`/`terminee`.
@@ -187,10 +206,16 @@ Sans plafond, une seule écriture peut approcher le document maximal d'un mégao
 | `questions.explication` | 1000 | quelques phrases de correction, pas un cours |
 | `questions.contexte` | 1000 | une mise en situation tient en un paragraphe |
 | `questions.theme` | 60 | c'est un libellé de filtre |
+| `questions.sourceFiche` (facultatif) | 200 | un titre de fiche d'argumentaire |
+| `questions.sourceVersion` (facultatif) | 40 | un numéro de version ou une date |
 | `questions.creeePar`, `sessions.animateurUid`, `reponses.uid`, `reponses.questionId` | 128 | longueur maximale d'un identifiant Firebase Authentication ; un identifiant Firestore généré en fait 20 |
 | `formations.airtableId` | 64 | un identifiant d'enregistrement Airtable en fait 17 |
+| `formations.numeroActionDpc` | 60 | un numéro d'action DPC en fait onze |
 | `formations.nom` | 200 | un intitulé de formation DPC |
-| `formations.cible`, `formations.format` | 60 | libellés courts, issus du référentiel |
+| `formations.format`, `formations.modalite`, `formations.dureeTotale` | 60 | libellés courts, issus de sélections Airtable |
+| `formations.urlWebflow` | 500 | une URL de fiche publique |
+| `formations.cibles` (cumul) | 500 | sept publics possibles au référentiel |
+| `formations.blocsCertification` (cumul) | 200 | quatre options au référentiel — `1` à `4` |
 | `sessions.code` | 12 | il est lu à voix haute puis saisi à la main |
 | `questions.formationIds` (cumul) | 1000 | une question se rattache à quelques formations, pas à cinquante |
 | `questions.bonnesReponses` (cumul) | 1000 | sous-ensemble des options, borné par elles |
@@ -259,11 +284,42 @@ Le jeton doit être créé avec les seuls scopes `data.records:read` et `schema.
 
 Deux points à connaître : les jetons Airtable n'expirent pas, et le nom du jeton apparaît dans l'historique de révision des enregistrements. Le nommer explicitement, par exemple « quiz-commerciaux — lecture seule ».
 
-**Prérequis : revalider la forme côté serveur.** La synchronisation écrit avec le SDK Admin, qui n'est pas soumis aux règles de sécurité. Les contraintes de forme des `formations` — jeu de champs exact, textes non vides, plafonds de 64 caractères pour `airtableId`, 200 pour `nom`, 60 pour `cible` et `format`, `actif` booléen, `syncLe` non postérieur à l'instant courant — ne s'appliquent donc pas à elle. **Elles doivent être réécrites dans le code de synchronisation**, et une formation venue d'Airtable qui les viole doit être rejetée et signalée, jamais écrite en silence. Sans cela, la validation des règles ne couvre que la retouche manuelle en console, c'est-à-dire le cas qui n'arrive jamais.
+`docs/airtable-formations.md` fait foi sur le modèle et sur les identifiants. Il est relevé du schéma de la base, pas déduit.
 
-Synchronisation : une route serveur lit la table et met à jour la collection `formations`. Création des nouvelles, mise à jour des existantes par `airtableId`, passage à `actif: false` pour celles qui ont disparu. **Jamais de suppression**, pour ne pas casser les questions rattachées.
+### Lecture par identifiants
 
-Déclenchement toutes les six heures, plus un bouton de synchronisation manuelle dans le back-office. Le résultat est mis en cache : ne pas appeler l'API à chaque chargement de page.
+Tous les appels passent `returnFieldsByFieldId=true` et lisent les champs par leur identifiant `fld...`. Un nom de champ se renomme d'un clic dans Airtable ; l'identifiant est immuable. Les identifiants sont rassemblés dans `src/lib/airtable/contrat.ts`, et un test vérifie qu'un enregistrement indexé par noms de champs ne produit rien d'exploitable — la lecture par nom ne peut pas réapparaître par mégarde.
+
+### Lecture seule, vérifiée
+
+Le module d'accès n'expose aucune fonction d'écriture, et la méthode HTTP `GET` y est écrite en dur plutôt que passée en paramètre. Trois tests lisent le code source de `src/lib/airtable/` et échouent si un verbe d'écriture, une méthode autre que `GET` ou une fonction au nom évocateur y apparaissent. Ce n'est pas une preuve — on contourne toujours un test de ce genre — mais l'infraction devient visible en revue au lieu d'être silencieuse.
+
+### Validation de forme dans le code
+
+La synchronisation écrit avec le SDK Admin, qui n'est pas soumis aux règles de sécurité. Les contraintes de forme des `formations` sont donc réécrites dans `src/lib/airtable/conversion.ts`, avec les mêmes plafonds que les règles — les valeurs sont rassemblées dans une constante `PLAFONDS` qui doit être tenue à l'identique des deux côtés.
+
+Une formation invalide est **rejetée, comptée et détaillée** dans le compte rendu, jamais écrite en silence, et jamais au prix des autres : un enregistrement en défaut n'empêche pas les suivants d'être synchronisés. Un test croisé écrit dans l'émulateur une formation acceptée par la conversion et vérifie que les règles l'acceptent aussi : les deux validations disent la même chose, et le jour où elles divergeront, il échouera.
+
+### Statut et désactivation
+
+La sélection « Statut de la formation » n'offre que deux valeurs, relevées au schéma : « Active » et « Suspendue ». Seule une valeur explicitement inactive retire la formation du catalogue. Un statut vide ou inconnu — une valeur ajoutée après ce relevé — **laisse la formation visible et remonte dans le compte rendu** : mieux vaut une formation en trop que tout un pan du catalogue disparu sans que personne ne l'ait demandé.
+
+Création des nouvelles, mise à jour des existantes par `airtableId`, passage à `actif: false` pour celles qui ont disparu de la réponse. **Jamais de suppression**, pour ne pas casser les questions rattachées. L'écriture est complète et non fusionnée : le document reflète exactement Airtable, sans champ résiduel d'une version précédente du modèle.
+
+### Déclenchement
+
+| Appelant | Méthode | Authentification |
+|---|---|---|
+| Tâche planifiée Vercel, toutes les six heures | `GET /api/airtable/sync` | `Authorization: Bearer <CRON_SECRET>` |
+| Bouton du back-office | `POST /api/airtable/sync` | session administrateur, custom claim vérifié côté serveur |
+
+La planification est déclarée dans `vercel.json`. Vercel pose lui-même l'en-tête d'autorisation dès que `CRON_SECRET` existe côté projet ; sans en-tête valide, la route répond 401. Cette route écrit dans Firestore : elle n'est jamais accessible anonymement.
+
+Le déclenchement manuel est refusé si une synchronisation a eu lieu il y a moins de cinq minutes, sauf demande explicite. Le référentiel ne change pas si vite, et un bouton se martèle. Aucune page n'appelle l'API Airtable : les écrans lisent `formations` dans Firestore, la synchronisation est le seul chemin vers Airtable.
+
+### Compte rendu
+
+Chaque exécution écrit `synchronisations/formations` : date, durée, nombre lu, créées, mises à jour, désactivées, rejetées avec leurs raisons, et statuts inconnus rencontrés. Le document est lisible par l'administrateur, écrit par personne d'autre que le serveur. C'est ce que le back-office affichera comme « dernière synchronisation », et c'est là qu'on regarde quand une formation manque au catalogue.
 
 ---
 

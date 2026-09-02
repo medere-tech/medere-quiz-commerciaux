@@ -122,4 +122,49 @@ describe('Référentiel — questions et formations', () => {
       setDoc(doc(connecte(env, NOEMIE), 'formations/f6'), formation({ actif: 'oui' })),
     );
   });
+
+  it("REFUS — une formation sans numéro d'action DPC", async () => {
+    await assertFails(
+      setDoc(doc(connecte(env, NOEMIE), 'formations/f7'), formation({ numeroActionDpc: '' })),
+    );
+  });
+
+  it('REFUS — un public concerné fourni comme chaîne au lieu de liste', async () => {
+    await assertFails(
+      setDoc(
+        doc(connecte(env, NOEMIE), 'formations/f8'),
+        formation({ cibles: 'Chirurgien dentiste' }),
+      ),
+    );
+  });
+
+  it('REFUS — un public concerné répété', async () => {
+    await assertFails(
+      setDoc(
+        doc(connecte(env, NOEMIE), 'formations/f9'),
+        formation({ cibles: ['Pédiatre', 'Pédiatre'] }),
+      ),
+    );
+  });
+
+  it('REFUS — une formation privée de son champ modalité', async () => {
+    const incomplete = { ...formation() };
+    delete incomplete.modalite;
+    await assertFails(setDoc(doc(connecte(env, NOEMIE), 'formations/f10'), incomplete));
+  });
+
+  it('un public concerné vide est accepté : Airtable peut ne rien renseigner', async () => {
+    await assertSucceeds(
+      setDoc(doc(connecte(env, NOEMIE), 'formations/f11'), formation({ cibles: [] })),
+    );
+  });
+
+  it('un format et une modalité vides sont acceptés', async () => {
+    await assertSucceeds(
+      setDoc(
+        doc(connecte(env, NOEMIE), 'formations/f12'),
+        formation({ format: '', modalite: '', dureeTotale: '', urlWebflow: '' }),
+      ),
+    );
+  });
 });

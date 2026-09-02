@@ -216,6 +216,72 @@ describe('Forme des questions', () => {
   });
 });
 
+describe('Traçabilité de la fiche source', () => {
+  const cheminNeuf = (suffixe: string) => `questions/source-${suffixe}`;
+
+  function ecrireQuestion(donnees: Document, suffixe: string) {
+    return setDoc(doc(connecte(env, NOEMIE), cheminNeuf(suffixe)), donnees);
+  }
+
+  it('une question qui déclare sa fiche et sa version est acceptée', async () => {
+    await assertSucceeds(
+      ecrireQuestion(
+        question({ sourceFiche: 'Argumentaire Endodontie', sourceVersion: '2026-08-14' }),
+        'ok',
+      ),
+    );
+  });
+
+  it('une question sans aucun des deux champs est acceptée', async () => {
+    const sansSource = sans(sans(question(), 'sourceFiche'), 'sourceVersion');
+    await assertSucceeds(ecrireQuestion(sansSource, 'absents'));
+  });
+
+  it('une question sans champ sourceFiche est acceptée', async () => {
+    await assertSucceeds(ecrireQuestion(sans(question(), 'sourceFiche'), 'sans-fiche'));
+  });
+
+  it('une question sans champ sourceVersion est acceptée', async () => {
+    await assertSucceeds(ecrireQuestion(sans(question(), 'sourceVersion'), 'sans-version'));
+  });
+
+  it('une fiche source vide est acceptée', async () => {
+    await assertSucceeds(ecrireQuestion(question({ sourceFiche: '' }), 'fiche-vide'));
+  });
+
+  it('une version de fiche vide est acceptée', async () => {
+    await assertSucceeds(ecrireQuestion(question({ sourceVersion: '' }), 'version-vide'));
+  });
+
+  it('une fiche déclarée sans numéro de version est acceptée', async () => {
+    await assertSucceeds(
+      ecrireQuestion(
+        question({ sourceFiche: 'Argumentaire Endodontie', sourceVersion: '' }),
+        'fiche-sans-version',
+      ),
+    );
+  });
+
+  it("REFUS — une fiche source qui n'est pas une chaîne", async () => {
+    await assertFails(ecrireQuestion(question({ sourceFiche: 12 }), 'f1'));
+  });
+
+  it("REFUS — une version de fiche qui n'est pas une chaîne", async () => {
+    await assertFails(ecrireQuestion(question({ sourceVersion: 3 }), 'f2'));
+  });
+
+  it('REFUS — une fiche source à null : absente ou vide, pas nulle', async () => {
+    await assertFails(ecrireQuestion(question({ sourceFiche: null }), 'f3'));
+  });
+
+  it('la version de la fiche peut être mise à jour', async () => {
+    await semer();
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, NOEMIE), 'questions/q-vf'), { sourceVersion: 'v4' }),
+    );
+  });
+});
+
 // --------------------------------------------------------------------------
 
 describe('Options et ordre d’affichage', () => {
