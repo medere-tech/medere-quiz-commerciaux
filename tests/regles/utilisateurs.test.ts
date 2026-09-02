@@ -11,17 +11,19 @@ import {
 } from 'firebase/firestore';
 import { afterAll, afterEach, beforeAll, describe, it } from 'vitest';
 
-import { connecte, creerEnvironnement, JORDAN, NOEMIE, SOPHIE } from './aide';
+import {
+  connecte,
+  creerEnvironnement,
+  HIER,
+  JORDAN,
+  NOEMIE,
+  question,
+  reponse,
+  SOPHIE,
+  utilisateur,
+} from './aide';
 
 let env: RulesTestEnvironment;
-
-const REPONSE = {
-  questionId: 'q1',
-  correcte: false,
-  optionsChoisies: ['b'],
-  origine: 'entrainement',
-  repondueLe: new Date('2026-09-01T10:00:00Z'),
-};
 
 beforeAll(async () => {
   env = await creerEnvironnement();
@@ -39,20 +41,12 @@ afterAll(async () => {
 async function semer(): Promise<void> {
   await env.withSecurityRulesDisabled(async (contexte) => {
     const base = contexte.firestore();
+    await setDoc(doc(base, 'questions/q1'), question());
     for (const compte of [JORDAN, SOPHIE]) {
-      await setDoc(doc(base, `users/${compte.uid}`), {
-        email: compte.email,
-        nom: compte.email,
-        photoURL: '',
-        role: 'commercial',
-        etoiles: 4,
-        seriesTerminees: 2,
-        creeLe: new Date('2026-08-01T09:00:00Z'),
-        vuLe: new Date('2026-08-01T09:00:00Z'),
-      });
+      await setDoc(doc(base, `users/${compte.uid}`), utilisateur({ email: compte.email }));
     }
-    await setDoc(doc(base, `users/${SOPHIE.uid}/reponses/r1`), REPONSE);
-    await setDoc(doc(base, `users/${JORDAN.uid}/reponses/r1`), REPONSE);
+    await setDoc(doc(base, `users/${SOPHIE.uid}/reponses/r1`), reponse());
+    await setDoc(doc(base, `users/${JORDAN.uid}/reponses/r1`), reponse());
   });
 }
 
@@ -68,7 +62,7 @@ describe('Document utilisateur', () => {
       updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), {
         etoiles: 7,
         seriesTerminees: 3,
-        vuLe: new Date('2026-09-01T10:00:00Z'),
+        vuLe: HIER,
       }),
     );
   });
@@ -80,7 +74,7 @@ describe('Document utilisateur', () => {
     );
   });
 
-  it("REFUS — un utilisateur ajoute un champ isAdmin à son propre document", async () => {
+  it('REFUS — un utilisateur ajoute un champ isAdmin à son propre document', async () => {
     await semer();
     await assertFails(
       updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), { isAdmin: true }),
@@ -96,12 +90,7 @@ describe('Document utilisateur', () => {
 
   it('REFUS — un utilisateur crée lui-même son document (réservé au serveur)', async () => {
     await assertFails(
-      setDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), {
-        email: JORDAN.email,
-        role: 'admin',
-        etoiles: 0,
-        seriesTerminees: 0,
-      }),
+      setDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), utilisateur({ role: 'admin' })),
     );
   });
 
@@ -130,7 +119,7 @@ describe('Réponses individuelles — isolation des scores', () => {
   it('le propriétaire enregistre et relit ses réponses', async () => {
     await semer();
     const base = connecte(env, JORDAN);
-    await assertSucceeds(setDoc(doc(base, `users/${JORDAN.uid}/reponses/r2`), REPONSE));
+    await assertSucceeds(setDoc(doc(base, `users/${JORDAN.uid}/reponses/r2`), reponse()));
     await assertSucceeds(getDocs(collection(base, `users/${JORDAN.uid}/reponses`)));
   });
 
@@ -151,7 +140,9 @@ describe('Réponses individuelles — isolation des scores', () => {
 
   it("REFUS — un utilisateur écrit une réponse dans le compte d'un collègue", async () => {
     await semer();
-    await assertFails(setDoc(doc(connecte(env, JORDAN), `users/${SOPHIE.uid}/reponses/r9`), REPONSE));
+    await assertFails(
+      setDoc(doc(connecte(env, JORDAN), `users/${SOPHIE.uid}/reponses/r9`), reponse()),
+    );
   });
 
   it('REFUS — une réponse déjà enregistrée ne peut être réécrite ni supprimée', async () => {

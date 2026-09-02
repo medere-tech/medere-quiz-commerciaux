@@ -1,4 +1,141 @@
 {
-  "indexes": [],
-  "fieldOverrides": []
+  "indexes": [
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "statut", "order": "ASCENDING" },
+        { "fieldPath": "formationIds", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "statut", "order": "ASCENDING" },
+        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "formationIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "statut", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "statut", "order": "ASCENDING" },
+        { "fieldPath": "formationIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "statut", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "formationIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "formations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "actif", "order": "ASCENDING" },
+        { "fieldPath": "nom", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reponses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "questionId", "order": "ASCENDING" },
+        { "fieldPath": "repondueLe", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reponses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "correcte", "order": "ASCENDING" },
+        { "fieldPath": "repondueLe", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reponses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "origine", "order": "ASCENDING" },
+        { "fieldPath": "repondueLe", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "statut", "order": "ASCENDING" },
+        { "fieldPath": "creeeLe", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "questions",
+      "fieldPath": "options",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "questions",
+      "fieldPath": "ordreOptions",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "questions",
+      "fieldPath": "bonnesReponses",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "questions",
+      "fieldPath": "enonce",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "questions",
+      "fieldPath": "explication",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "questions",
+      "fieldPath": "contexte",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reponses",
+      "fieldPath": "optionsChoisies",
+      "indexes": []
+    }
+  ]
 }
