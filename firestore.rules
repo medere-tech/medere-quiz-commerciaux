@@ -1,0 +1,349 @@
+rules_version = '2';
+
+// Règles de sécurité — application d'entraînement des commerciaux Médéré.
+// Référence : README.md, section 4. Toute modification passe par les tests
+// d'émulateur (`npm test`) avant déploiement. Jamais de mode test.
+//
+// Les règles répondent à deux questions : qui écrit, et quoi. La validation
+// de forme n'est pas un doublon de la validation applicative — c'est la
+// seule qui tienne face à un client modifié ou à un import mal formé.
+//
+// Les plafonds de longueur sont justifiés un à un dans le README, section 4,
+// « Plafonds de longueur ». Ils ne sont pas décoratifs : sans eux, une seule
+// écriture peut approcher le document maximal d'un mégaoctet, faire enfler
+// les index et alourdir chaque lecture ultérieure.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Identité --------------------------------------------------------
+
+    // Le domaine est écrit en dur : les règles n'ont pas accès aux variables
+    // d'environnement. Il doit rester aligné sur ALLOWED_EMAIL_DOMAIN
+    // (voir src/lib/auth/domaine.ts, qui porte la même valeur côté serveur).
+    function domaineAutorise() {
+      return request.auth != null
+        && request.auth.token.get('email_verified', false) == true
+        && request.auth.token.get('email', '') is string
+        && request.auth.token.get('email', '').lower().matches('^[^@]+@medere[.]fr$');
+    }
+
+    // Le rôle administrateur est un custom claim, jamais un champ Firestore.
+    function estAdmin() {
+      return domaineAutorise() && request.auth.token.get('admin', false) == true;
+    }
+
+    function estProprietaire(uid) {
+      return domaineAutorise() && request.auth.uid == uid;
+    }
+
+    function estAnimateur(sessionId) {
+      return estAdmin()
+        && get(/databases/$(database)/documents/sessions/$(sessionId)).data.animateurUid == request.auth.uid;
+    }
+
+    // --- Outils de forme -------------------------------------------------
+
+    // Texte obligatoire, non réduit à des espaces, et borné.
+    function texteBorne(valeur, maximum) {
+      return valeur is string && valeur.trim().size() > 0 && valeur.size() <= maximum;
+    }
+
+    // Identifiant technique. 128 caractères est la longueur maximale d'un uid
+    // Firebase Authentication ; les identifiants Firestore générés en font 20.
+    function identifiantBorne(valeur) {
+      return valeur is string && valeur.size() > 0 && valeur.size() <= 128;
+    }
+
+    // Les règles ne savent pas parcourir une liste pour mesurer chaque
+    // élément. La concaténation borne l'ensemble d'un seul test, ce qui
+    // suffit : c'est le volume cumulé qui pèse sur le document et les index.
+    function listeBornee(liste, maximumCumule) {
+      return liste is list && liste.join(',').size() <= maximumCumule;
+    }
+
+    function sansDoublon(liste) {
+      return liste is list && liste.toSet().size() == liste.size();
+    }
+
+    // Deux listes décrivent le même ensemble de réponses.
+    function memesElements(gauche, droite) {
+      return gauche.hasAll(droite) && gauche.hasOnly(droite);
+    }
+
+    function horodatagePasse(valeur) {
+      return valeur is timestamp && valeur <= request.time;
+    }
+
+    // --- Référentiel : formations ----------------------------------------
+    // Lecture par tout utilisateur authentifié du domaine, écriture réservée
+    // au custom claim administrateur. En production, la collection est tenue
+    // par la synchronisation Airtable, qui passe par le SDK Admin et n'est
+    // donc pas soumise à ces règles : elles couvrent la retouche manuelle.
+
+    function champsFormation() {
+      return ['airtableId', 'nom', 'cible', 'format', 'actif', 'syncLe'];
+    }
+
+    function formationValide(donnees) {
+      return donnees.keys().hasOnly(champsFormation())
+        && donnees.keys().hasAll(champsFormation())
+        && texteBorne(donnees.airtableId, 64)
+        && texteBorne(donnees.nom, 200)
+        && texteBorne(donnees.cible, 60)
+        && texteBorne(donnees.format, 60)
+        && donnees.actif is bool
+        && horodatagePasse(donnees.syncLe);
+    }
+
+    match /formations/{formationId} {
+      allow read: if domaineAutorise();
+      allow create, update: if estAdmin() && formationValide(request.resource.data);
+      allow delete: if estAdmin();
+    }
+
+    // --- Référentiel : questions -----------------------------------------
+    // Les mêmes contraintes s'appliquent à la saisie unitaire du back-office
+    // et à l'import en masse : l'import écrit par le même chemin, il ne
+    // dispose d'aucune dérogation.
+    //
+    // `options` est une map { identifiant: libellé } et `ordreOptions` la
+    // liste qui fixe l'affichage. Cette forme permet de valider l'ensemble
+    // des identifiants sans les énumérer, donc sans plafonner leur nombre.
+    // Ce que les règles ne savent pas faire : parcourir les valeurs de la
+    // map pour vérifier que chaque libellé est une chaîne non vide et bornée.
+    // Ce contrôle appartient à la validation serveur de l'import, lot 4.
+
+    function champsQuestion() {
+      return ['type', 'contexte', 'enonce', 'options', 'ordreOptions', 'bonnesReponses',
+              'explication', 'formationIds', 'theme', 'difficulte', 'statut',
+              'creeeLe', 'modifieeLe', 'creeePar'];
+    }
+
+    function questionValide(donnees) {
+      return donnees.keys().hasOnly(champsQuestion())
+        && donnees.keys().hasAll(champsQuestion())
+        && donnees.type in ['vf', 'qcm', 'scenario']
+        && texteBorne(donnees.enonce, 500)
+        && texteBorne(donnees.explication, 1000)
+        && texteBorne(donnees.theme, 60)
+        && donnees.statut in ['brouillon', 'publiee']
+        && donnees.difficulte in [1, 2, 3]
+        && donnees.formationIds is list
+        && donnees.formationIds.size() > 0
+        && sansDoublon(donnees.formationIds)
+        && listeBornee(donnees.formationIds, 1000)
+        // Une question offre au moins deux options ; au-delà, aucun plafond.
+        && donnees.options is map
+        && donnees.options.size() >= 2
+        && listeBornee(donnees.options.keys(), 2000)
+        // L'ordre d'affichage décrit exactement les options : sans oubli,
+        // sans intrus, sans répétition.
+        //
+        // Son plafond cumulé est redondant par construction : `ordreOptions`
+        // porte exactement les clés d'`options`, donc dépasser 2000 caractères
+        // ici suppose de les avoir d'abord dépassés ligne au-dessus. Aucun test
+        // ne peut le couvrir seul — il n'existe pas de document qui le viole
+        // sans violer l'autre d'abord. Il reste écrit pour que la contrainte
+        // survive à une modification future des deux règles voisines.
+        && donnees.ordreOptions is list
+        && listeBornee(donnees.ordreOptions, 2000)
+        && donnees.ordreOptions.size() == donnees.options.size()
+        && donnees.ordreOptions.toSet() == donnees.options.keys().toSet()
+        && donnees.bonnesReponses is list
+        && donnees.bonnesReponses.size() > 0
+        && sansDoublon(donnees.bonnesReponses)
+        && listeBornee(donnees.bonnesReponses, 1000)
+        && donnees.bonnesReponses.toSet().hasOnly(donnees.options.keys().toSet())
+        // Le contexte n'existe que pour les mises en situation.
+        && (donnees.type == 'scenario'
+              ? texteBorne(donnees.contexte, 1000)
+              : donnees.contexte == null)
+        && identifiantBorne(donnees.creeePar)
+        && horodatagePasse(donnees.creeeLe)
+        && horodatagePasse(donnees.modifieeLe);
+    }
+
+    match /questions/{questionId} {
+      allow read: if domaineAutorise();
+      allow create: if estAdmin()
+        && questionValide(request.resource.data)
+        && request.resource.data.creeePar == request.auth.uid;
+      allow update: if estAdmin()
+        && questionValide(request.resource.data)
+        && request.resource.data.creeePar == resource.data.creeePar
+        && request.resource.data.creeeLe == resource.data.creeeLe;
+      allow delete: if estAdmin();
+    }
+
+    // --- Utilisateurs ----------------------------------------------------
+    // Propriétaire uniquement, aucune exception administrateur.
+    // Le document est créé et tenu à jour par le serveur (SDK Admin, qui
+    // contourne ces règles). Le client ne peut toucher qu'à sa progression :
+    // il ne peut ni s'attribuer un rôle, ni changer son adresse, ni inventer
+    // un champ, ni s'offrir des étoiles qu'il n'a pas gagnées.
+    //
+    // Aucun plafond de longueur ici : les seuls champs modifiables par le
+    // client sont deux entiers et un horodatage. Les chaînes du document
+    // (email, nom, photoURL, role) ne lui sont pas accessibles en écriture.
+
+    function champsUtilisateur() {
+      return ['email', 'nom', 'photoURL', 'role',
+              'etoiles', 'seriesTerminees', 'creeLe', 'vuLe'];
+    }
+
+    function majUtilisateurAutorisee() {
+      let avant = resource.data;
+      let apres = request.resource.data;
+      return apres.keys().hasOnly(champsUtilisateur())
+        && apres.diff(avant).affectedKeys().hasOnly(['etoiles', 'seriesTerminees', 'vuLe'])
+        // Une série complète rapporte de zéro à trois étoiles, jamais plus,
+        // et le compteur ne redescend pas.
+        && apres.etoiles is int
+        && apres.etoiles >= avant.etoiles
+        && apres.etoiles - avant.etoiles <= 3
+        // Une écriture close au plus une série.
+        && apres.seriesTerminees is int
+        && apres.seriesTerminees >= avant.seriesTerminees
+        && apres.seriesTerminees - avant.seriesTerminees <= 1
+        && horodatagePasse(apres.vuLe);
+    }
+
+    // --- Verdict ---------------------------------------------------------
+    // Le verdict n'est pas déclaratif : il est recalculé à partir de la
+    // question, sinon le client décide seul de sa réussite, et la progression
+    // comme les statistiques ne valent plus rien. Même mécanisme pour
+    // l'entraînement individuel et pour la session collective.
+
+    function verdictConforme(donnees) {
+      let question = get(/databases/$(database)/documents/questions/$(donnees.questionId));
+      return question != null
+        && question.data.statut == 'publiee'
+        // Aucune option inventée, y compris quand la réponse est fausse.
+        && donnees.optionsChoisies.toSet().hasOnly(question.data.options.keys().toSet())
+        // Une réponse partielle à un QCM multiple est fausse.
+        && donnees.correcte == memesElements(donnees.optionsChoisies, question.data.bonnesReponses);
+    }
+
+    function selectionValide(optionsChoisies) {
+      return sansDoublon(optionsChoisies) && listeBornee(optionsChoisies, 1000);
+    }
+
+    // --- Réponses individuelles ------------------------------------------
+
+    function champsReponse() {
+      return ['questionId', 'correcte', 'optionsChoisies', 'origine', 'repondueLe'];
+    }
+
+    function formeReponseValide(donnees) {
+      return donnees.keys().hasOnly(champsReponse())
+        && donnees.keys().hasAll(champsReponse())
+        && identifiantBorne(donnees.questionId)
+        && donnees.correcte is bool
+        && selectionValide(donnees.optionsChoisies)
+        && donnees.origine in ['entrainement', 'session']
+        && horodatagePasse(donnees.repondueLe);
+    }
+
+    match /users/{uid} {
+      allow get: if estProprietaire(uid);
+      allow list: if false;
+      allow create: if false;
+      allow update: if estProprietaire(uid) && majUtilisateurAutorisee();
+      allow delete: if false;
+
+      // Aucune lecture croisée, administrateur compris. Les requêtes de
+      // groupe de collections sur « reponses » ne correspondent à aucune
+      // règle et sont donc refusées.
+      match /reponses/{reponseId} {
+        allow read: if estProprietaire(uid);
+        allow create: if estProprietaire(uid)
+          && formeReponseValide(request.resource.data)
+          && verdictConforme(request.resource.data);
+        allow update, delete: if false;
+      }
+    }
+
+    // --- Statistiques agrégées -------------------------------------------
+    // Écrites exclusivement par la Cloud Function d'agrégation, qui utilise
+    // le SDK Admin et n'est pas soumise à ces règles.
+
+    match /questionStats/{questionId} {
+      allow read: if estAdmin();
+      allow write: if false;
+    }
+
+    // --- Sessions collectives --------------------------------------------
+
+    function champsSession() {
+      return ['code', 'questionIds', 'indexCourant', 'revelee', 'statut',
+              'animateurUid', 'creeeLe'];
+    }
+
+    function sessionValide(donnees) {
+      return donnees.keys().hasOnly(champsSession())
+        && donnees.keys().hasAll(champsSession())
+        // Le code est lu à voix haute puis saisi à la main.
+        && texteBorne(donnees.code, 12)
+        && donnees.questionIds is list
+        && donnees.questionIds.size() > 0
+        && sansDoublon(donnees.questionIds)
+        && listeBornee(donnees.questionIds, 4000)
+        && donnees.indexCourant is int
+        && donnees.indexCourant >= 0
+        && donnees.indexCourant < donnees.questionIds.size()
+        && donnees.revelee is bool
+        && donnees.statut in ['attente', 'encours', 'terminee']
+        && identifiantBorne(donnees.animateurUid)
+        && horodatagePasse(donnees.creeeLe);
+    }
+
+    function champsReponseSession() {
+      return ['uid', 'questionId', 'optionsChoisies', 'correcte', 'repondueLe'];
+    }
+
+    function formeReponseSessionValide(donnees) {
+      return donnees.keys().hasOnly(champsReponseSession())
+        && donnees.keys().hasAll(champsReponseSession())
+        && identifiantBorne(donnees.uid)
+        && identifiantBorne(donnees.questionId)
+        && donnees.correcte is bool
+        && selectionValide(donnees.optionsChoisies)
+        && horodatagePasse(donnees.repondueLe);
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if domaineAutorise();
+      allow create: if estAdmin()
+        && sessionValide(request.resource.data)
+        && request.resource.data.animateurUid == request.auth.uid;
+      allow update: if estAdmin()
+        && sessionValide(request.resource.data)
+        && resource.data.animateurUid == request.auth.uid
+        && request.resource.data.animateurUid == resource.data.animateurUid;
+      allow delete: if estAdmin() && resource.data.animateurUid == request.auth.uid;
+
+      // Chaque participant n'écrit que sa propre réponse, une seule fois,
+      // sous un identifiant qui porte son uid. Il ne relit que la sienne :
+      // seul l'animateur voit l'ensemble, pour établir la répartition.
+      // Le verdict est vérifié comme en entraînement individuel : une réponse
+      // donnée en session alimente la progression, elle doit valoir autant.
+      match /reponses/{reponseId} {
+        allow get: if estAnimateur(sessionId)
+          || (domaineAutorise() && resource.data.uid == request.auth.uid);
+        allow list: if estAnimateur(sessionId);
+        allow create: if domaineAutorise()
+          && request.resource.data.uid == request.auth.uid
+          && reponseId == request.auth.uid + '_' + request.resource.data.questionId
+          && formeReponseSessionValide(request.resource.data)
+          && verdictConforme(request.resource.data);
+        allow update, delete: if false;
+      }
+    }
+
+    // Tout le reste est refusé.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

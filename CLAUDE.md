@@ -78,3 +78,5 @@ Livrer **un lot à la fois**, dans l'ordre défini au README, et s'arrêter à c
 Avant de coder une intégration externe, vérifier la documentation officielle plutôt que se fier à une habitude. Les API changent.
 
 Si une instruction d'ici contredit une demande en conversation, signaler la contradiction au lieu de choisir seul.
+
+Ne jamais exécuter git commit, git push ou git merge. Les commits sont faits par Déthié. Prépare les fichiers, décris ce qui a changé, arrête-toi là.
