@@ -69,6 +69,43 @@ describe('Statistiques agrégées', () => {
   });
 });
 
+describe('État des synchronisations', () => {
+  const ETAT = {
+    lanceeLe: new Date('2026-09-02T06:00:00Z'),
+    creees: 2,
+    misesAJour: 40,
+    desactivees: 1,
+    rejetees: 0,
+  };
+
+  async function semerEtat(): Promise<void> {
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await setDoc(doc(contexte.firestore(), 'synchronisations/formations'), ETAT);
+    });
+  }
+
+  it("l'administrateur lit le compte rendu de synchronisation", async () => {
+    await semerEtat();
+    await assertSucceeds(getDoc(doc(connecte(env, NOEMIE), 'synchronisations/formations')));
+  });
+
+  it('REFUS — un commercial lit le compte rendu de synchronisation', async () => {
+    await semerEtat();
+    await assertFails(getDoc(doc(connecte(env, JORDAN), 'synchronisations/formations')));
+  });
+
+  it('REFUS — un administrateur écrit le compte rendu de synchronisation', async () => {
+    await semerEtat();
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'synchronisations/formations'), { creees: 99 }),
+    );
+  });
+
+  it('REFUS — un commercial crée un compte rendu de synchronisation', async () => {
+    await assertFails(setDoc(doc(connecte(env, JORDAN), 'synchronisations/autre'), ETAT));
+  });
+});
+
 describe('Collections non prévues', () => {
   it('REFUS — toute collection hors modèle est fermée, même pour un administrateur', async () => {
     await assertFails(setDoc(doc(connecte(env, NOEMIE), 'brouillons/x'), { valeur: 1 }));

@@ -90,6 +90,22 @@ describe('Plafonds — questions', () => {
     await assertFails(ecrire(question({ theme: texteDe(61) }), 'theme-ko'));
   });
 
+  it('une fiche source de 200 caractères est acceptée', async () => {
+    await assertSucceeds(ecrire(question({ sourceFiche: texteDe(200) }), 'fiche-ok'));
+  });
+
+  it('REFUS — une fiche source de 201 caractères', async () => {
+    await assertFails(ecrire(question({ sourceFiche: texteDe(201) }), 'fiche-ko'));
+  });
+
+  it('une version de fiche de 40 caractères est acceptée', async () => {
+    await assertSucceeds(ecrire(question({ sourceVersion: texteDe(40) }), 'version-ok'));
+  });
+
+  it('REFUS — une version de fiche de 41 caractères', async () => {
+    await assertFails(ecrire(question({ sourceVersion: texteDe(41) }), 'version-ko'));
+  });
+
   it("un auteur dont l'identifiant fait 128 caractères est accepté", async () => {
     const compte = compteDeLongueur(128);
     await assertSucceeds(
@@ -164,12 +180,12 @@ describe('Plafonds — formations', () => {
     await assertFails(ecrire(formation({ nom: texteDe(201) }), 'nom-ko'));
   });
 
-  it('une cible de 60 caractères est acceptée', async () => {
-    await assertSucceeds(ecrire(formation({ cible: texteDe(60) }), 'cible-ok'));
+  it("un numéro d'action DPC de 60 caractères est accepté", async () => {
+    await assertSucceeds(ecrire(formation({ numeroActionDpc: texteDe(60) }), 'dpc-ok'));
   });
 
-  it('REFUS — une cible de 61 caractères', async () => {
-    await assertFails(ecrire(formation({ cible: texteDe(61) }), 'cible-ko'));
+  it("REFUS — un numéro d'action DPC de 61 caractères", async () => {
+    await assertFails(ecrire(formation({ numeroActionDpc: texteDe(61) }), 'dpc-ko'));
   });
 
   it('un format de 60 caractères est accepté', async () => {
@@ -178,6 +194,50 @@ describe('Plafonds — formations', () => {
 
   it('REFUS — un format de 61 caractères', async () => {
     await assertFails(ecrire(formation({ format: texteDe(61) }), 'format-ko'));
+  });
+
+  it('une modalité de 60 caractères est acceptée', async () => {
+    await assertSucceeds(ecrire(formation({ modalite: texteDe(60) }), 'modalite-ok'));
+  });
+
+  it('REFUS — une modalité de 61 caractères', async () => {
+    await assertFails(ecrire(formation({ modalite: texteDe(61) }), 'modalite-ko'));
+  });
+
+  it('une durée totale de 60 caractères est acceptée', async () => {
+    await assertSucceeds(ecrire(formation({ dureeTotale: texteDe(60) }), 'duree-ok'));
+  });
+
+  it('REFUS — une durée totale de 61 caractères', async () => {
+    await assertFails(ecrire(formation({ dureeTotale: texteDe(61) }), 'duree-ko'));
+  });
+
+  it('une URL Webflow de 500 caractères est acceptée', async () => {
+    await assertSucceeds(ecrire(formation({ urlWebflow: texteDe(500) }), 'url-ok'));
+  });
+
+  it('REFUS — une URL Webflow de 501 caractères', async () => {
+    await assertFails(ecrire(formation({ urlWebflow: texteDe(501) }), 'url-ko'));
+  });
+
+  it('vingt-cinq publics concernés, soit 499 caractères cumulés, sont acceptés', async () => {
+    await assertSucceeds(ecrire(formation({ cibles: idsDeLongueur(25, 19) }), 'cibles-ok'));
+  });
+
+  it('REFUS — vingt-six publics concernés, soit 519 caractères cumulés', async () => {
+    await assertFails(ecrire(formation({ cibles: idsDeLongueur(26, 19) }), 'cibles-ko'));
+  });
+
+  it('dix blocs de certification, soit 199 caractères cumulés, sont acceptés', async () => {
+    await assertSucceeds(
+      ecrire(formation({ blocsCertification: idsDeLongueur(10, 19) }), 'blocs-ok'),
+    );
+  });
+
+  it('REFUS — onze blocs de certification, soit 219 caractères cumulés', async () => {
+    await assertFails(
+      ecrire(formation({ blocsCertification: idsDeLongueur(11, 19) }), 'blocs-ko'),
+    );
   });
 });
 

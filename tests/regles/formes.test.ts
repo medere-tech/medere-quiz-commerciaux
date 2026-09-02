@@ -216,6 +216,50 @@ describe('Forme des questions', () => {
   });
 });
 
+describe('Traçabilité de la fiche source', () => {
+  const cheminNeuf = (suffixe: string) => `questions/source-${suffixe}`;
+
+  function ecrireQuestion(donnees: Document, suffixe: string) {
+    return setDoc(doc(connecte(env, NOEMIE), cheminNeuf(suffixe)), donnees);
+  }
+
+  it('une question qui déclare sa fiche et sa version est acceptée', async () => {
+    await assertSucceeds(
+      ecrireQuestion(
+        question({ sourceFiche: 'Argumentaire Endodontie', sourceVersion: '2026-08-14' }),
+        'ok',
+      ),
+    );
+  });
+
+  it('REFUS — une question sans champ sourceFiche', async () => {
+    await assertFails(ecrireQuestion(sans(question(), 'sourceFiche'), 'f1'));
+  });
+
+  it('REFUS — une question sans champ sourceVersion', async () => {
+    await assertFails(ecrireQuestion(sans(question(), 'sourceVersion'), 'f2'));
+  });
+
+  it('REFUS — une fiche source vide', async () => {
+    await assertFails(ecrireQuestion(question({ sourceFiche: '' }), 'f3'));
+  });
+
+  it('REFUS — une version de fiche vide', async () => {
+    await assertFails(ecrireQuestion(question({ sourceVersion: '   ' }), 'f4'));
+  });
+
+  it("REFUS — une version de fiche qui n'est pas une chaîne", async () => {
+    await assertFails(ecrireQuestion(question({ sourceVersion: 3 }), 'f5'));
+  });
+
+  it('la version de la fiche peut être mise à jour', async () => {
+    await semer();
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, NOEMIE), 'questions/q-vf'), { sourceVersion: 'v4' }),
+    );
+  });
+});
+
 // --------------------------------------------------------------------------
 
 describe('Options et ordre d’affichage', () => {

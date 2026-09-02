@@ -68,8 +68,12 @@ Une formation inactive n'apparaît plus dans la liste de rattachement du back-of
 
 ## Le champ « Bloc/Axe certification »
 
-Fait constaté, sans interprétation : le champ est une sélection multiple, et sa description dans Airtable indique qu'il désigne le bloc (MG, GO, PED) ou l'axe (CD, PSY) de la certification périodique que la formation couvre.
+Faits constatés, sans interprétation.
 
-Il est lu et stocké tel quel dans `blocsCertification`. **Aucune logique applicative ne doit s'appuyer dessus.**
+Le champ est une sélection multiple. **Ses options réelles sont `1`, `2`, `3` et `4`.** Sa description dans Airtable, en revanche, évoque des blocs MG, GO, PED et des axes CD, PSY — la description et les options ne coïncident pas. Ce sont les options qui font foi, puisque ce sont elles que l'API renvoie.
+
+Le champ est lu et stocké tel quel dans `blocsCertification`. **Aucune logique applicative ne doit s'appuyer dessus.**
 
 En particulier, ne pas en déduire que deux formations partageant un bloc constituent un enchaînement commercial. Rien ne l'établit. Les liens entre formations sont une question métier qui relève de Noémie : c'est elle qui les exprime en rattachant explicitement une question à plusieurs formations. L'application n'infère aucune relation.
+
+Si de nouvelles options apparaissent, elles sont stockées telles quelles sans traitement particulier. Ce champ n'a aucune valeur bloquante.

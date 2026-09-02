@@ -49,6 +49,14 @@ service cloud.firestore {
       return valeur is string && valeur.trim().size() > 0 && valeur.size() <= maximum;
     }
 
+    // Texte facultatif : la chaîne vide est acceptée, la longueur non.
+    // Airtable laisse des sélections simples sans valeur ; refuser la
+    // formation entière pour un format non renseigné la ferait disparaître du
+    // catalogue, ce qui est pire que de la montrer sans son format.
+    function texteFacultatifBorne(valeur, maximum) {
+      return valeur is string && valeur.size() <= maximum;
+    }
+
     // Identifiant technique. 128 caractères est la longueur maximale d'un uid
     // Firebase Authentication ; les identifiants Firestore générés en font 20.
     function identifiantBorne(valeur) {
@@ -81,17 +89,33 @@ service cloud.firestore {
     // par la synchronisation Airtable, qui passe par le SDK Admin et n'est
     // donc pas soumise à ces règles : elles couvrent la retouche manuelle.
 
+    // Modèle fixé par docs/airtable-formations.md, qui fait foi : `cibles` est
+    // une liste, pas une chaîne, parce que « Public concerné » est une
+    // sélection multiple côté Airtable.
     function champsFormation() {
-      return ['airtableId', 'nom', 'cible', 'format', 'actif', 'syncLe'];
+      return ['airtableId', 'numeroActionDpc', 'nom', 'cibles', 'format',
+              'modalite', 'blocsCertification', 'dureeTotale', 'urlWebflow',
+              'actif', 'syncLe'];
     }
 
     function formationValide(donnees) {
       return donnees.keys().hasOnly(champsFormation())
         && donnees.keys().hasAll(champsFormation())
+        // Identité : sans ces trois-là, la formation n'est pas rapprochable.
         && texteBorne(donnees.airtableId, 64)
+        && texteBorne(donnees.numeroActionDpc, 60)
         && texteBorne(donnees.nom, 200)
-        && texteBorne(donnees.cible, 60)
-        && texteBorne(donnees.format, 60)
+        // Descriptif : Airtable peut les laisser vides.
+        && texteFacultatifBorne(donnees.format, 60)
+        && texteFacultatifBorne(donnees.modalite, 60)
+        && texteFacultatifBorne(donnees.dureeTotale, 60)
+        && texteFacultatifBorne(donnees.urlWebflow, 500)
+        && donnees.cibles is list
+        && sansDoublon(donnees.cibles)
+        && listeBornee(donnees.cibles, 500)
+        && donnees.blocsCertification is list
+        && sansDoublon(donnees.blocsCertification)
+        && listeBornee(donnees.blocsCertification, 200)
         && donnees.actif is bool
         && horodatagePasse(donnees.syncLe);
     }
@@ -117,6 +141,7 @@ service cloud.firestore {
     function champsQuestion() {
       return ['type', 'contexte', 'enonce', 'options', 'ordreOptions', 'bonnesReponses',
               'explication', 'formationIds', 'theme', 'difficulte', 'statut',
+              'sourceFiche', 'sourceVersion',
               'creeeLe', 'modifieeLe', 'creeePar'];
     }
 
@@ -159,6 +184,13 @@ service cloud.firestore {
         && (donnees.type == 'scenario'
               ? texteBorne(donnees.contexte, 1000)
               : donnees.contexte == null)
+        // Traçabilité de la source. Les fiches d'argumentaire sont
+        // versionnées et évoluent : sans ces deux champs, une question
+        // devient fausse en silence le jour où sa fiche est mise à jour, et
+        // rien ne permet de retrouver laquelle relire. Ils sont obligatoires
+        // et non vides — une question sans provenance n'est pas vérifiable.
+        && texteBorne(donnees.sourceFiche, 200)
+        && texteBorne(donnees.sourceVersion, 40)
         && identifiantBorne(donnees.creeePar)
         && horodatagePasse(donnees.creeeLe)
         && horodatagePasse(donnees.modifieeLe);
@@ -269,6 +301,16 @@ service cloud.firestore {
     // le SDK Admin et n'est pas soumise à ces règles.
 
     match /questionStats/{questionId} {
+      allow read: if estAdmin();
+      allow write: if false;
+    }
+
+    // --- État des synchronisations ---------------------------------------
+    // Compte rendu de la dernière synchronisation Airtable, écrit par la route
+    // serveur avec le SDK Admin. Le back-office le lit pour afficher la date
+    // et le résultat ; aucun client n'y écrit.
+
+    match /synchronisations/{synchronisationId} {
       allow read: if estAdmin();
       allow write: if false;
     }
