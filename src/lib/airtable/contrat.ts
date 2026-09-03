@@ -23,22 +23,25 @@ export const CHAMPS = {
 } as const;
 
 /**
- * Statuts qui retirent la formation du catalogue.
+ * Seul statut qui met une formation au catalogue.
  *
- * La sélection « Statut de la formation » n'offre que deux valeurs : « Active »
- * et « Suspendue ». La comparaison se fait en minuscules, pour survivre à une
+ * Une formation est active si, et seulement si, son statut vaut « Active ».
+ * Tout le reste — « Suspendue », case vide, valeur inconnue — donne
+ * `actif: false`. La comparaison se fait en minuscules, pour survivre à une
  * correction de casse dans Airtable.
  *
- * Une valeur inconnue — un statut ajouté après ce relevé, ou une case vide —
- * laisse la formation active et remonte dans le compte rendu. C'est le sens de
- * docs/airtable-formations.md : la désactivation est déclenchée par un statut
- * qui dit explicitement que la formation n'est plus proposée. Dans le doute,
- * une formation reste visible plutôt que de disparaître sans que personne
- * ne l'ait demandé.
+ * C'est une liste blanche, et c'est délibéré : proposer aux commerciaux une
+ * formation dont personne n'a dit qu'elle était proposable coûte plus cher
+ * qu'en masquer une par excès de prudence. Une case vide se voit dans le
+ * compte rendu, via `statutsAbsents`, et se corrige dans Airtable.
  */
-export const STATUTS_INACTIFS: readonly string[] = ['suspendue'];
+export const STATUT_ACTIF = 'active';
 
-/** Statuts connus, pour distinguer l'inconnu du prévu dans le compte rendu. */
+/**
+ * Statuts connus, pour distinguer l'inconnu du prévu dans le compte rendu.
+ * Sert au diagnostic seul : la décision d'activer ne dépend que de
+ * `STATUT_ACTIF`.
+ */
 export const STATUTS_CONNUS: readonly string[] = ['active', 'suspendue'];
 
 /**

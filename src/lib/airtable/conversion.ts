@@ -1,8 +1,8 @@
 import {
   CHAMPS,
   PLAFONDS,
+  STATUT_ACTIF,
   STATUTS_CONNUS,
-  STATUTS_INACTIFS,
   type EnregistrementAirtable,
   type Formation,
 } from '@/lib/airtable/contrat';
@@ -34,7 +34,31 @@ export type ResultatConversion = {
   rejets: Rejet[];
   /** Statuts rencontrés qui ne figurent pas au contrat. */
   statutsInconnus: string[];
+  /**
+   * Identifiants des formations dont la case « Statut » est vide. Elles sont
+   * inactives, comme tout ce qui n'est pas explicitement « Active » — raison
+   * de plus pour que l'oubli se voie : une case laissée vide dans Airtable
+   * retire la formation du catalogue. Du diagnostic, pas de l'affichage.
+   *
+   * Compteur distinct des statuts inconnus : l'un signale un oubli de saisie,
+   * l'autre une valeur qu'on ne sait pas lire.
+   */
+  statutsAbsents: string[];
 };
+
+/**
+ * Une adresse Webflow saisie sans protocole n'est pas un lien : le navigateur
+ * la traite comme un chemin relatif. La correction se fait ici, une fois, sur
+ * ce qu'on stocke — plutôt que dans chaque écran qui affiche un lien, où l'un
+ * d'eux finira par l'oublier. Airtable n'est pas modifié.
+ */
+export function normaliserUrl(valeur: string): string {
+  const nettoyee = valeur.trim();
+  if (nettoyee.length === 0) return '';
+  // Un protocole explicite, quel qu'il soit, est laissé tel quel.
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(nettoyee)) return nettoyee;
+  return `https://${nettoyee}`;
+}
 
 function chaine(valeur: unknown): string | null {
   if (valeur === undefined || valeur === null) return '';
@@ -74,7 +98,10 @@ function convertir(
   const format = chaine(champs[CHAMPS.format]);
   const modalite = chaine(champs[CHAMPS.modalite]);
   const dureeTotale = chaine(champs[CHAMPS.dureeTotale]);
-  const urlWebflow = chaine(champs[CHAMPS.urlWebflow]);
+  // Le plafond porte sur l'adresse telle qu'elle sera stockée, protocole
+  // ajouté compris : c'est cette valeur que les règles vérifieront.
+  const urlBrute = chaine(champs[CHAMPS.urlWebflow]);
+  const urlWebflow = urlBrute === null ? null : normaliserUrl(urlBrute);
   const statutSource = chaine(champs[CHAMPS.statutSource]) ?? '';
   const cibles = listeDeChaines(champs[CHAMPS.cibles]);
   const blocsCertification = listeDeChaines(champs[CHAMPS.blocsCertification]);
@@ -140,7 +167,8 @@ function convertir(
       blocsCertification: blocsCertification as string[],
       dureeTotale: dureeTotale as string,
       urlWebflow: urlWebflow as string,
-      actif: !STATUTS_INACTIFS.includes(statutSource.toLowerCase()),
+      // Liste blanche : seul « Active » met la formation au catalogue.
+      actif: statutSource.toLowerCase() === STATUT_ACTIF,
       syncLe,
     },
   };
@@ -169,6 +197,7 @@ export function convertirEnregistrements(
   const formations: Formation[] = [];
   const rejets: Rejet[] = [];
   const statutsInconnus = new Set<string>();
+  const statutsAbsents: string[] = [];
   const identifiantsVus = new Set<string>();
 
   for (const enregistrement of enregistrements) {
@@ -196,12 +225,19 @@ export function convertirEnregistrements(
     identifiantsVus.add(resultat.formation.airtableId);
 
     const statut = resultat.statutSource.toLowerCase();
-    if (statut.length > 0 && !STATUTS_CONNUS.includes(statut)) {
+    if (statut.length === 0) {
+      statutsAbsents.push(resultat.formation.airtableId);
+    } else if (!STATUTS_CONNUS.includes(statut)) {
       statutsInconnus.add(resultat.statutSource);
     }
 
     formations.push(resultat.formation);
   }
 
-  return { formations, rejets, statutsInconnus: [...statutsInconnus] };
+  return {
+    formations,
+    rejets,
+    statutsInconnus: [...statutsInconnus],
+    statutsAbsents,
+  };
 }
