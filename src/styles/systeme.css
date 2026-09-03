@@ -1,0 +1,270 @@
+/*
+ * Système de design Médéré — jetons importés du projet Claude Design
+ * 6ed08356-56e4-4a06-ab31-037cb1ea59a1, système
+ * medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123.
+ *
+ * Ces valeurs sont copiées à l'identique. On ne les ajuste pas ici : si une
+ * teinte ou une échelle ne convient pas, elle se corrige dans Claude Design
+ * puis se réimporte. Une palette qui diverge entre la maquette et le code ne
+ * se remarque qu'une fois les deux en production.
+ */
+
+/* ---------------------------------------------------------------- polices */
+
+/*
+ * Aileron et DM Serif Text sont fournis avec le système, sous forme de
+ * fichiers. Déposez-les dans `public/polices/` — voir README, section 7.
+ * Tant qu'ils manquent, les piles de repli s'appliquent : la mise en page
+ * reste juste, la personnalité typographique manque.
+ */
+@font-face {
+  font-family: 'Aileron';
+  src: url('/polices/Aileron-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Aileron';
+  src: url('/polices/Aileron-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Aileron';
+  src: url('/polices/Aileron-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Aileron';
+  src: url('/polices/Aileron-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DM Serif Text';
+  src: url('/polices/DMSerifText-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DM Serif Text';
+  src: url('/polices/DMSerifText-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------- couleurs */
+
+:root {
+  /* Rampe neutre — chaude, jamais bleutée. */
+  --neutral-0: #ffffff;
+  --neutral-10: #f9f5f2;
+  --neutral-20: #f0eae5;
+  --neutral-30: #dbd6cd;
+  --neutral-40: #9c9494;
+  --neutral-50: #807778;
+  --neutral-60: #686162;
+  --neutral-70: #554f4f;
+  --neutral-80: #494343;
+  --neutral-90: #3f3b3c;
+  --neutral-100: #302d2d;
+
+  /* Palette des spécialités — une teinte par spécialité médicale. */
+  --specialty-general: #006e90;
+  --specialty-dentist: #feca45;
+  --specialty-psychiatrist: #9f84bd;
+  --specialty-pediatrician: #17bebb;
+  --specialty-gynecologist: #d87da9;
+  --specialty-radiologist: #f19953;
+  --specialty-others: #2da131;
+
+  --brand-ink: #022020;
+  --brand-chip: #e5e2e2;
+
+  --surface-page: var(--neutral-10);
+  --surface-card: var(--neutral-0);
+  --surface-sunken: var(--neutral-20);
+  --surface-chip: var(--brand-chip);
+  --surface-inverse: var(--brand-ink);
+
+  --text-heading: var(--neutral-100);
+  --text-body: var(--neutral-100);
+  --text-secondary: var(--neutral-60);
+  --text-muted: var(--neutral-40);
+  --text-inverse: var(--neutral-0);
+  --text-link: var(--specialty-general);
+  --text-link-hover: #005271;
+
+  --border-subtle: var(--neutral-20);
+  --border-default: var(--neutral-30);
+  --border-strong: var(--neutral-40);
+
+  --accent-primary: var(--specialty-general);
+  --accent-primary-hover: #005271;
+  --accent-primary-press: #003d55;
+  --accent-highlight: var(--specialty-dentist);
+
+  --focus-ring: var(--specialty-general);
+  --focus-halo: 0 0 0 3px rgba(0, 110, 144, 0.14);
+
+  --status-success: var(--specialty-others);
+  --status-warning: var(--specialty-dentist);
+  --status-info: var(--specialty-pediatrician);
+  --status-danger: #c24242;
+  /* Versions foncées, pour le texte : le rouge et le vert saturés ne passent
+     pas le contraste en petit corps. */
+  --status-success-texte: #1b6b1f;
+  --status-danger-texte: #9e3232;
+
+  /* ------------------------------------------------------------ typographie */
+
+  --font-display: 'DM Serif Text', Georgia, serif;
+  --font-sans: 'Aileron', -apple-system, 'Segoe UI', sans-serif;
+
+  --weight-light: 300;
+  --weight-regular: 400;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-heavy: 800;
+
+  --display-xl-size: 44px;
+  --display-xl-lh: 1.08;
+  --display-lg-size: 34px;
+  --display-lg-lh: 1.12;
+  --display-md-size: 26px;
+  --display-md-lh: 1.18;
+  --display-sm-size: 20px;
+  --display-sm-lh: 1.25;
+
+  --heading-lg-size: 24px;
+  --heading-lg-lh: 1.25;
+  --heading-md-size: 19px;
+  --heading-md-lh: 1.3;
+  --heading-sm-size: 16px;
+  --heading-sm-lh: 1.35;
+
+  --body-lg-size: 17px;
+  --body-lg-lh: 1.5;
+  --body-md-size: 15px;
+  --body-md-lh: 1.55;
+  --body-sm-size: 13px;
+  --body-sm-lh: 1.5;
+  --body-xs-size: 11px;
+  --body-xs-lh: 1.45;
+
+  --eyebrow-size: 11px;
+  --eyebrow-lh: 1.2;
+  --eyebrow-tracking: 0.08em;
+  --tag-size: 9px;
+  --tag-lh: 1.2;
+  --tag-tracking: 0.06em;
+
+  /* ---------------------------------------------------------- espacements */
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  --gutter-card: 20px;
+  --gutter-page: 40px;
+  --stack-tight: 8px;
+  --stack-default: 16px;
+  --stack-loose: 28px;
+
+  /* --------------------------------------------------------------- rayons */
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-full: 999px;
+
+  /* ------------------------------------------------------------ élévation */
+
+  --shadow-card: 0 8px 32px rgba(48, 45, 45, 0.1);
+  --shadow-card-sm: 0 2px 10px rgba(48, 45, 45, 0.07);
+  --shadow-raised: 0 16px 48px rgba(48, 45, 45, 0.14);
+  --shadow-pill: 0 4px 14px rgba(48, 45, 45, 0.18);
+  --shadow-none: none;
+
+  /* -------------------------------------------------------------- mouvement */
+
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 320ms;
+  --transition-base: all var(--duration-base) var(--ease-standard);
+}
+
+/* ------------------------------------------------------------------- base */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--surface-page);
+  color: var(--text-body);
+  font-family: var(--font-sans);
+  font-weight: var(--weight-regular);
+  font-size: var(--body-md-size);
+  line-height: var(--body-md-lh);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--text-link);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--text-link-hover);
+  text-decoration: underline;
+}
+
+/*
+ * Focus visible partout, jamais le contour du navigateur : un commercial
+ * pressé doit pouvoir répondre au clavier, et voir où il est.
+ */
+:focus-visible {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: var(--focus-halo);
+}
+
+/* Le mouvement est un confort, pas une information. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

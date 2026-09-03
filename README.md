@@ -339,6 +339,16 @@ Chaque exécution écrit `synchronisations/formations` : date, durée, nombre lu
 
 ## 7. Écrans
 
+### Le système de design dans le code
+
+Le design vient du projet Claude Design `6ed08356-56e4-4a06-ab31-037cb1ea59a1` ; `docs/design-imports.md` donne la correspondance page → lot et le tri écran par écran. **Un écran de maquette n'est pas une décision de produit** : on implémente ce qui est tranché dans le code, le reste attend.
+
+Les jetons sont copiés à l'identique dans `src/styles/systeme.css` — couleurs, typographie, échelles, rayons, élévation, mouvement. On ne les ajuste pas ici : une valeur qui ne convient pas se corrige dans Claude Design puis se réimporte, sans quoi la maquette et le code divergent sans qu'on s'en aperçoive.
+
+Les primitives sont dans `src/composants/ds/` : bouton, carte, champ, zone de texte, sélecteur, onglets, étiquettes, jeu d'icônes, états vides / chargement / erreur. Rembourrages, rayons et états sont ceux du bundle du système, pas des approximations. Les sept formes de la marque sont dans `public/formes/`, déjà teintées : le repère d'une formation est sa forme, jamais une puce colorée.
+
+**Deux polices à déposer.** Aileron et DM Serif Text sont fournies avec le système sous forme de fichiers. Copiez-les dans `public/polices/` sous les noms attendus par `src/styles/systeme.css` : `Aileron-Light.ttf`, `Aileron-Regular.ttf`, `Aileron-SemiBold.ttf`, `Aileron-Bold.ttf`, `DMSerifText-Regular.ttf`, `DMSerifText-Italic.ttf`. Tant qu'elles manquent, les piles de repli s'appliquent — la mise en page reste juste, la personnalité typographique manque. Elles ne sont pas dans le dépôt : ce sont des binaires, ils viennent du système, pas du code.
+
 ### Côté commercial
 
 `/` accueil — maîtrise globale, étoiles, avancement par formation, deux actions.

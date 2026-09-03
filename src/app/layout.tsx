@@ -1,3 +1,5 @@
+import '@/styles/systeme.css';
+
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
