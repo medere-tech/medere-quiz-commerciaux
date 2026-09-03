@@ -302,7 +302,21 @@ Une formation invalide est **rejetée, comptée et détaillée** dans le compte 
 
 ### Statut et désactivation
 
-La sélection « Statut de la formation » n'offre que deux valeurs, relevées au schéma : « Active » et « Suspendue ». Seule une valeur explicitement inactive retire la formation du catalogue. Un statut vide ou inconnu — une valeur ajoutée après ce relevé — **laisse la formation visible et remonte dans le compte rendu** : mieux vaut une formation en trop que tout un pan du catalogue disparu sans que personne ne l'ait demandé.
+La sélection « Statut de la formation » n'offre que deux valeurs, relevées au schéma : « Active » et « Suspendue ». **Une formation est active si, et seulement si, son statut vaut « Active ».** Tout le reste — « Suspendue », case vide, valeur inconnue — donne `actif: false`.
+
+C'est une liste blanche, et c'est délibéré : proposer aux commerciaux une formation dont personne n'a dit qu'elle était proposable coûte plus cher qu'en masquer une par excès de prudence. Une formation masquée se remarque et se corrige ; une formation vendue à tort, non.
+
+Les cas anormaux sont comptés séparément dans le compte rendu, parce qu'ils appellent des gestes différents. `statutsInconnus` liste les valeurs qu'on ne sait pas lire — une option ajoutée dans Airtable après notre relevé, à arbitrer ici. `statutsAbsents` liste les identifiants des formations dont la case est vide — un oubli de saisie, à corriger là-bas. Aucun des deux ne change le comportement, qui est le même dans tous les cas : la formation est inactive. Ils existent pour que la cause se voie, puisque désormais une case oubliée suffit à retirer une formation du catalogue. C'est du diagnostic, pas de l'affichage.
+
+### Normalisation de l'adresse Webflow
+
+Une adresse saisie sans protocole — `www.medere.fr/formation/...` — n'est pas un lien : le navigateur la traite comme un chemin relatif. La synchronisation préfixe `https://` quand le protocole manque ; une adresse vide reste vide, une adresse qui porte déjà un protocole n'est pas touchée.
+
+La correction est faite une fois, sur ce qu'on stocke, plutôt que répétée dans chaque écran qui affiche un lien — où l'un d'eux finirait par l'oublier. **Airtable n'est pas modifié** : on normalise ce que l'on stocke, pas la source.
+
+Le plafond de 500 caractères porte sur l'adresse telle qu'elle sera écrite, protocole compris : c'est cette valeur-là que les règles vérifieront.
+
+En revanche, `dureeTotale` est stockée brute — `"7"`, `"11"`. L'unité est une décision d'affichage, elle n'a rien à faire dans les données.
 
 Création des nouvelles, mise à jour des existantes par `airtableId`, passage à `actif: false` pour celles qui ont disparu de la réponse. **Jamais de suppression**, pour ne pas casser les questions rattachées. L'écriture est complète et non fusionnée : le document reflète exactement Airtable, sans champ résiduel d'une version précédente du modèle.
 
@@ -319,7 +333,7 @@ Le déclenchement manuel est refusé si une synchronisation a eu lieu il y a moi
 
 ### Compte rendu
 
-Chaque exécution écrit `synchronisations/formations` : date, durée, nombre lu, créées, mises à jour, désactivées, rejetées avec leurs raisons, et statuts inconnus rencontrés. Le document est lisible par l'administrateur, écrit par personne d'autre que le serveur. C'est ce que le back-office affichera comme « dernière synchronisation », et c'est là qu'on regarde quand une formation manque au catalogue.
+Chaque exécution écrit `synchronisations/formations` : date, durée, nombre lu, créées, mises à jour, désactivées, rejetées avec leurs raisons, statuts inconnus rencontrés et identifiants des formations sans statut. Le document est lisible par l'administrateur, écrit par personne d'autre que le serveur. C'est ce que le back-office affichera comme « dernière synchronisation », et c'est là qu'on regarde quand une formation manque au catalogue.
 
 ---
 

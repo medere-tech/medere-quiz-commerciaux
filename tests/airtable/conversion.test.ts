@@ -6,6 +6,7 @@ import { CHAMPS, PLAFONDS, type EnregistrementAirtable } from '@/lib/airtable/co
 import {
   convertirEnregistrements,
   desactiveraitToutLeCatalogue,
+  normaliserUrl,
 } from '@/lib/airtable/conversion';
 
 import { connecte, creerEnvironnement, NOEMIE } from '../regles/aide';
@@ -97,7 +98,8 @@ describe('Conversion des enregistrements Airtable', () => {
       modalite: '',
       dureeTotale: '',
       urlWebflow: '',
-      actif: true,
+      // Aucun statut renseigné : la formation est écrite, mais hors catalogue.
+      actif: false,
     });
   });
 
@@ -117,13 +119,23 @@ describe('Conversion des enregistrements Airtable', () => {
   });
 });
 
-describe('Statut et désactivation', () => {
-  it('« Active » laisse la formation au catalogue', () => {
+describe('Statut et activation', () => {
+  it('« Active » met la formation au catalogue', () => {
     const { formations } = convertirEnregistrements(
       [enregistrement({ [CHAMPS.statutSource]: 'Active' })],
       SYNC_LE,
     );
     expect(formations[0]?.actif).toBe(true);
+  });
+
+  it('la casse de « Active » est sans importance', () => {
+    for (const statut of ['active', 'ACTIVE', '  Active  ']) {
+      const { formations } = convertirEnregistrements(
+        [enregistrement({ [CHAMPS.statutSource]: statut })],
+        SYNC_LE,
+      );
+      expect(formations[0]?.actif, statut).toBe(true);
+    }
   });
 
   it('« Suspendue » la retire du catalogue, sans la supprimer', () => {
@@ -135,29 +147,110 @@ describe('Statut et désactivation', () => {
     expect(formations[0]?.actif).toBe(false);
   });
 
-  it('la casse du statut est sans importance', () => {
+  it('un statut absent retire la formation du catalogue', () => {
+    const { formations, statutsInconnus } = convertirEnregistrements(
+      [sansChamp(CHAMPS.statutSource)],
+      SYNC_LE,
+    );
+    expect(formations[0]?.actif).toBe(false);
+    expect(statutsInconnus).toEqual([]);
+  });
+
+  it('un statut réduit à des espaces retire la formation du catalogue', () => {
     const { formations } = convertirEnregistrements(
-      [enregistrement({ [CHAMPS.statutSource]: 'SUSPENDUE' })],
+      [enregistrement({ [CHAMPS.statutSource]: '   ' })],
       SYNC_LE,
     );
     expect(formations[0]?.actif).toBe(false);
   });
 
-  it('un statut absent laisse la formation visible', () => {
-    const { formations, statutsInconnus } = convertirEnregistrements(
+  it('un statut inconnu retire la formation du catalogue', () => {
+    const { formations } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.statutSource]: 'En projet' })],
+      SYNC_LE,
+    );
+    expect(formations[0]?.actif).toBe(false);
+  });
+
+  it("un statut qui ressemble à « Active » sans l'être ne suffit pas", () => {
+    for (const statut of ['Activee', 'Active ?', 'Act', 'Inactive']) {
+      const { formations } = convertirEnregistrements(
+        [enregistrement({ [CHAMPS.statutSource]: statut })],
+        SYNC_LE,
+      );
+      expect(formations[0]?.actif, statut).toBe(false);
+    }
+  });
+
+  it('la formation reste écrite, quel que soit son statut', () => {
+    const { formations, rejets } = convertirEnregistrements(
+      [
+        enregistrement({ [CHAMPS.statutSource]: 'Suspendue' }, 'recA00000000000001'),
+        enregistrement({ [CHAMPS.statutSource]: '' }, 'recA00000000000002'),
+        enregistrement({ [CHAMPS.statutSource]: 'En projet' }, 'recA00000000000003'),
+      ],
+      SYNC_LE,
+    );
+    // Jamais de suppression : une formation inactive reste en base, des
+    // questions y sont rattachées.
+    expect(rejets).toEqual([]);
+    expect(formations).toHaveLength(3);
+    expect(formations.every((formation) => formation.actif === false)).toBe(true);
+  });
+
+  it('un statut absent est signalé à part, avec son identifiant', () => {
+    const { statutsAbsents, statutsInconnus } = convertirEnregistrements(
       [sansChamp(CHAMPS.statutSource)],
       SYNC_LE,
     );
-    expect(formations[0]?.actif).toBe(true);
+    // Un oubli de saisie n'est pas une valeur qu'on ne sait pas lire :
+    // les deux compteurs restent distincts.
+    expect(statutsAbsents).toEqual(['rec1234567890abcd']);
     expect(statutsInconnus).toEqual([]);
   });
 
-  it('un statut inconnu laisse la formation visible et remonte au compte rendu', () => {
+  it('un statut réduit à des espaces compte comme absent', () => {
+    const { statutsAbsents } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.statutSource]: '   ' })],
+      SYNC_LE,
+    );
+    expect(statutsAbsents).toEqual(['rec1234567890abcd']);
+  });
+
+  it('un statut renseigné ne remonte dans aucun des deux compteurs', () => {
+    const { statutsAbsents, statutsInconnus } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.statutSource]: 'Active' })],
+      SYNC_LE,
+    );
+    expect(statutsAbsents).toEqual([]);
+    expect(statutsInconnus).toEqual([]);
+  });
+
+  it('un statut inconnu ne compte pas comme absent', () => {
+    const { statutsAbsents, statutsInconnus } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.statutSource]: 'En projet' })],
+      SYNC_LE,
+    );
+    expect(statutsAbsents).toEqual([]);
+    expect(statutsInconnus).toEqual(['En projet']);
+  });
+
+  it('une formation rejetée ne remonte pas dans les statuts absents', () => {
+    const sansStatutNiNom = sansChamp(CHAMPS.statutSource);
+    sansStatutNiNom.fields[CHAMPS.nom] = '';
+
+    const { rejets, statutsAbsents } = convertirEnregistrements([sansStatutNiNom], SYNC_LE);
+
+    expect(rejets).toHaveLength(1);
+    expect(statutsAbsents).toEqual([]);
+  });
+
+  it('un statut inconnu remonte au compte rendu', () => {
     const { formations, statutsInconnus } = convertirEnregistrements(
       [enregistrement({ [CHAMPS.statutSource]: 'En projet' })],
       SYNC_LE,
     );
-    expect(formations[0]?.actif).toBe(true);
+    expect(formations[0]?.actif).toBe(false);
     expect(statutsInconnus).toEqual(['En projet']);
   });
 });
@@ -238,6 +331,78 @@ describe('Rejets — un enregistrement invalide n’emporte pas les autres', () 
       SYNC_LE,
     );
     expect(rejets[0]?.raisons).toHaveLength(2);
+  });
+});
+
+describe('Normalisation de l’adresse Webflow', () => {
+  it('préfixe une adresse sans protocole', () => {
+    expect(normaliserUrl('www.medere.fr/formation/covid-long')).toBe(
+      'https://www.medere.fr/formation/covid-long',
+    );
+  });
+
+  it('laisse une adresse déjà en https', () => {
+    expect(normaliserUrl('https://www.medere.fr/x')).toBe('https://www.medere.fr/x');
+  });
+
+  it('laisse une adresse en http, sans la réécrire', () => {
+    expect(normaliserUrl('http://www.medere.fr/x')).toBe('http://www.medere.fr/x');
+  });
+
+  it('reconnaît le protocole quelle que soit la casse', () => {
+    expect(normaliserUrl('HTTPS://www.medere.fr/x')).toBe('HTTPS://www.medere.fr/x');
+  });
+
+  it('laisse une adresse vide vide', () => {
+    expect(normaliserUrl('')).toBe('');
+  });
+
+  it('une adresse réduite à des espaces reste vide', () => {
+    expect(normaliserUrl('   ')).toBe('');
+  });
+
+  it('la formation stocke l’adresse normalisée', () => {
+    const { formations } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.urlWebflow]: 'www.medere.fr/formation/parodontie' })],
+      SYNC_LE,
+    );
+    expect(formations[0]?.urlWebflow).toBe('https://www.medere.fr/formation/parodontie');
+  });
+
+  it('une formation sans adresse garde une chaîne vide', () => {
+    const { formations } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.urlWebflow]: '' })],
+      SYNC_LE,
+    );
+    expect(formations[0]?.urlWebflow).toBe('');
+  });
+
+  it("REFUS — une adresse qui dépasse le plafond une fois le protocole ajouté", () => {
+    // Exactement 500 caractères telle quelle, donc sous le plafond ; 508 une
+    // fois « https:// » ajouté. C'est la valeur stockée qui est bornée.
+    const limite = `www.medere.fr/${'a'.repeat(PLAFONDS.urlWebflow - 'www.medere.fr/'.length)}`;
+    expect(limite.length).toBeLessThanOrEqual(PLAFONDS.urlWebflow);
+
+    const { formations, rejets } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.urlWebflow]: limite })],
+      SYNC_LE,
+    );
+
+    expect(formations).toEqual([]);
+    expect(rejets[0]?.raisons).toContain(
+      `l'URL Webflow dépasse ${PLAFONDS.urlWebflow} caractères`,
+    );
+  });
+
+  it('une adresse qui tient dans le plafond après normalisation est acceptée', () => {
+    const juste = `www.medere.fr/${'a'.repeat(PLAFONDS.urlWebflow - 8 - 'www.medere.fr/'.length)}`;
+    const { formations, rejets } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.urlWebflow]: juste })],
+      SYNC_LE,
+    );
+
+    expect(rejets).toEqual([]);
+    expect(formations[0]?.urlWebflow.length).toBe(PLAFONDS.urlWebflow);
   });
 });
 

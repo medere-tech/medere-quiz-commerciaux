@@ -60,6 +60,8 @@ export type RapportSynchronisation = {
   rejetees: number;
   rejets: Rejet[];
   statutsInconnus: string[];
+  statutsAbsentsNombre: number;
+  statutsAbsents: string[];
   ignoree?: boolean;
   motif?: string;
 };
@@ -93,6 +95,8 @@ export async function synchroniserFormations(
         rejetees: 0,
         rejets: [],
         statutsInconnus: [],
+        statutsAbsentsNombre: 0,
+        statutsAbsents: [],
         ignoree: true,
         motif:
           `Une synchronisation a déjà eu lieu il y a moins de ${minutes} minutes. ` +
@@ -103,7 +107,7 @@ export async function synchroniserFormations(
 
   const syncLe = new Date();
   const enregistrements = await lireFormations();
-  const { formations, rejets, statutsInconnus } = convertirEnregistrements(
+  const { formations, rejets, statutsInconnus, statutsAbsents } = convertirEnregistrements(
     enregistrements,
     syncLe,
   );
@@ -180,6 +184,8 @@ export async function synchroniserFormations(
     rejetees: rejets.length,
     rejets,
     statutsInconnus,
+    statutsAbsentsNombre: statutsAbsents.length,
+    statutsAbsents,
   };
 
   await base.doc(DOCUMENT_ETAT).set({
@@ -193,6 +199,8 @@ export async function synchroniserFormations(
     // Détail borné : le compte rendu sert à réparer, pas à tout archiver.
     rejets: rejets.slice(0, 20),
     statutsInconnus,
+    statutsAbsentsNombre: statutsAbsents.length,
+    statutsAbsents: statutsAbsents.slice(0, 50),
   });
 
   return rapport;
