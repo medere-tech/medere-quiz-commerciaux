@@ -1,8 +1,9 @@
 'use client';
 
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, orderBy, query, type Timestamp } from 'firebase/firestore';
 
 import { baseDeDonnees } from '@/lib/firebase/client';
+import { SYNCHRONISATION_FORMATIONS } from '@/lib/formations/chemins';
 
 /**
  * Lecture du référentiel des formations, depuis le navigateur.
@@ -76,4 +77,77 @@ const IDENTITE_PAR_DEFAUT = IDENTITES['médecin généraliste'] as {
 export function identiteVisuelle(formation: Formation): { fichier: string; couleur: string } {
   const premiere = (formation.cibles[0] ?? '').toLowerCase();
   return IDENTITES[premiere] ?? IDENTITE_PAR_DEFAUT;
+}
+
+/**
+ * Compte rendu de la dernière synchronisation Airtable.
+ *
+ * Écrit par la route serveur (SDK Admin), relu ici. Sans cette lecture, le
+ * détail des rejets ne s'afficherait que dans les secondes qui suivent un
+ * clic sur « Synchroniser » — alors que la tâche planifiée passe toutes les
+ * six heures et qu'un enregistrement écarté le reste jusqu'à correction dans
+ * Airtable. Un problème qui disparaît au rechargement de la page n'est pas un
+ * problème signalé.
+ *
+ * Les listes sont bornées à l'écriture : `rejetees` et `statutsAbsentsNombre`
+ * portent le compte réel, `rejets` et `statutsAbsents` au plus 20 et 50
+ * éléments. L'écran doit lire les compteurs, jamais la taille des listes.
+ */
+export type RapportSynchronisation = {
+  lanceeLe: Date | null;
+  luesAirtable: number;
+  creees: number;
+  misesAJour: number;
+  desactivees: number;
+  rejetees: number;
+  rejets: { airtableId: string; nom: string; raisons: string[] }[];
+  statutsInconnus: string[];
+  statutsAbsentsNombre: number;
+  statutsAbsents: string[];
+};
+
+function nombre(valeur: unknown): number {
+  return typeof valeur === 'number' && Number.isFinite(valeur) ? valeur : 0;
+}
+
+function textes(valeur: unknown): string[] {
+  return Array.isArray(valeur) ? valeur.filter((e): e is string => typeof e === 'string') : [];
+}
+
+export function enRapport(donnees: Record<string, unknown>): RapportSynchronisation {
+  const rejets = Array.isArray(donnees.rejets) ? donnees.rejets : [];
+
+  return {
+    lanceeLe:
+      donnees.lanceeLe && typeof (donnees.lanceeLe as Timestamp).toDate === 'function'
+        ? (donnees.lanceeLe as Timestamp).toDate()
+        : null,
+    luesAirtable: nombre(donnees.luesAirtable),
+    creees: nombre(donnees.creees),
+    misesAJour: nombre(donnees.misesAJour),
+    desactivees: nombre(donnees.desactivees),
+    rejetees: nombre(donnees.rejetees),
+    rejets: rejets.map((rejet) => {
+      const brut = (rejet ?? {}) as Record<string, unknown>;
+      return {
+        airtableId: typeof brut.airtableId === 'string' ? brut.airtableId : '',
+        nom: typeof brut.nom === 'string' ? brut.nom : '',
+        raisons: textes(brut.raisons),
+      };
+    }),
+    statutsInconnus: textes(donnees.statutsInconnus),
+    statutsAbsentsNombre: nombre(donnees.statutsAbsentsNombre),
+    statutsAbsents: textes(donnees.statutsAbsents),
+  };
+}
+
+export async function chargerDernierRapport(): Promise<RapportSynchronisation | null> {
+  const document = await getDoc(
+    doc(
+      baseDeDonnees(),
+      SYNCHRONISATION_FORMATIONS.collection,
+      SYNCHRONISATION_FORMATIONS.document,
+    ),
+  );
+  return document.exists() ? enRapport(document.data()) : null;
 }

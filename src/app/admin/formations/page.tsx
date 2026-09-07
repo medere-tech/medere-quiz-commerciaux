@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
   Bouton,
@@ -13,7 +13,13 @@ import {
 } from '@/composants/ds/primitives';
 import { Confirmation, EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
-import { chargerFormations, identiteVisuelle, type Formation } from '@/lib/formations/depot';
+import {
+  chargerDernierRapport,
+  chargerFormations,
+  identiteVisuelle,
+  type Formation,
+  type RapportSynchronisation,
+} from '@/lib/formations/depot';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 
 /**
@@ -25,22 +31,286 @@ import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
  * déclencher cette synchronisation.
  */
 
+/**
+ * Réponse de la route de synchronisation. Elle porte le détail complet, là
+ * où le document Firestore relu au chargement borne ses listes.
+ */
 type Rapport = {
   luesAirtable: number;
   creees: number;
   misesAJour: number;
   desactivees: number;
   rejetees: number;
+  rejets?: RapportSynchronisation['rejets'];
+  statutsInconnus?: string[];
   statutsAbsentsNombre?: number;
+  statutsAbsents?: string[];
   ignoree?: boolean;
   motif?: string;
 };
+
+/**
+ * Ce qu'Airtable a renvoyé mais qui n'est pas au catalogue.
+ *
+ * Trois causes distinctes, à ne pas mélanger : un enregistrement rejeté
+ * n'existe pas en base, une formation sans statut y est mais hors catalogue,
+ * un statut non reconnu vaut hors catalogue par défaut. Les trois se
+ * corrigent dans Airtable, et aucune ne se voit ailleurs qu'ici.
+ */
+type Ecarts = {
+  rejetees: number;
+  rejets: RapportSynchronisation['rejets'];
+  statutsInconnus: string[];
+  statutsAbsentsNombre: number;
+  statutsAbsents: string[];
+};
+
+function ecartsDe(rapport: {
+  rejetees: number;
+  rejets?: RapportSynchronisation['rejets'];
+  statutsInconnus?: string[];
+  statutsAbsentsNombre?: number;
+  statutsAbsents?: string[];
+}): Ecarts {
+  return {
+    rejetees: rapport.rejetees,
+    rejets: rapport.rejets ?? [],
+    statutsInconnus: rapport.statutsInconnus ?? [],
+    statutsAbsentsNombre: rapport.statutsAbsentsNombre ?? 0,
+    statutsAbsents: rapport.statutsAbsents ?? [],
+  };
+}
 
 const ONGLETS = [
   { valeur: 'actives' as const, libelle: 'Au catalogue' },
   { valeur: 'inactives' as const, libelle: 'Hors catalogue' },
   { valeur: 'toutes' as const, libelle: 'Toutes' },
 ];
+
+/**
+ * Ce qu'Airtable a renvoyé et qui n'est pas arrivé au catalogue.
+ *
+ * Le compte rendu annonçait « 1 rejetée » sans dire laquelle. Un problème
+ * signalé sans sa cause n'est pas signalé, il est seulement inquiétant : le
+ * détail existait déjà en base, il manquait à l'écran.
+ *
+ * Trois listes plutôt qu'une, parce que le geste de correction diffère. Un
+ * rejet demande de remplir un champ manquant, un statut vide demande de
+ * choisir « Active » ou non, un statut non reconnu demande de corriger une
+ * valeur. Les fondre ensemble ferait chercher trois fois.
+ */
+function Ecartes({ ecarts, formations }: { ecarts: Ecarts; formations: Formation[] }) {
+  // Le document Firestore d'une formation porte son identifiant Airtable :
+  // une formation sans statut est en base, on peut donc la nommer. Un
+  // enregistrement rejeté, lui, n'y est jamais entré.
+  const nomDe = (airtableId: string) =>
+    formations.find((formation) => formation.id === airtableId)?.nom ?? '';
+
+  const rien =
+    ecarts.rejetees === 0 &&
+    ecarts.statutsAbsentsNombre === 0 &&
+    ecarts.statutsInconnus.length === 0;
+
+  if (rien) return null;
+
+  const pluriel = (nombre: number) => (nombre > 1 ? 's' : '');
+
+  return (
+    <Carte rembourrage="24px 26px">
+      <div style={{ display: 'flex', gap: 'var(--space-5)', alignItems: 'flex-start' }}>
+        <span
+          style={{
+            width: 44,
+            height: 44,
+            flex: 'none',
+            borderRadius: 999,
+            background: 'var(--surface-page)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icone nom="alert" taille={22} couleur="var(--neutral-70)" />
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span
+            style={{
+              display: 'block',
+              fontFamily: 'var(--font-display)',
+              fontSize: 22,
+              lineHeight: 1.2,
+              color: 'var(--text-heading)',
+            }}
+          >
+            Écarté du catalogue à la dernière synchronisation
+          </span>
+          <p
+            style={{
+              margin: '8px 0 0',
+              fontSize: 'var(--body-sm-size)',
+              lineHeight: 1.55,
+              color: 'var(--neutral-70)',
+              textWrap: 'pretty',
+            }}
+          >
+            {"Ces enregistrements ne sont pas proposés aux commerciaux. Corrigez-les dans Airtable, puis relancez la synchronisation : ils reviendront d'eux-mêmes."}
+          </p>
+
+          {ecarts.rejetees > 0 && (
+            <Groupe
+              titre={`${ecarts.rejetees} enregistrement${pluriel(ecarts.rejetees)} rejeté${pluriel(ecarts.rejetees)}`}
+              aide="Un champ obligatoire manque : ces enregistrements ne sont pas entrés en base."
+              montres={ecarts.rejets.length}
+              total={ecarts.rejetees}
+            >
+              {ecarts.rejets.map((rejet) => (
+                <Ligne
+                  key={rejet.airtableId}
+                  titre={rejet.nom.trim() || 'Enregistrement sans nom'}
+                  identifiant={rejet.airtableId}
+                  detail={rejet.raisons.join(' · ')}
+                />
+              ))}
+            </Groupe>
+          )}
+
+          {ecarts.statutsAbsentsNombre > 0 && (
+            <Groupe
+              titre={`${ecarts.statutsAbsentsNombre} formation${pluriel(ecarts.statutsAbsentsNombre)} sans statut`}
+              aide="La case « Statut » est vide dans Airtable, et tout ce qui n'est pas « Active » reste hors catalogue."
+              montres={ecarts.statutsAbsents.length}
+              total={ecarts.statutsAbsentsNombre}
+            >
+              {ecarts.statutsAbsents.map((airtableId) => (
+                <Ligne
+                  key={airtableId}
+                  titre={nomDe(airtableId) || 'Formation sans nom'}
+                  identifiant={airtableId}
+                />
+              ))}
+            </Groupe>
+          )}
+
+          {ecarts.statutsInconnus.length > 0 && (
+            <Groupe
+              titre={`${ecarts.statutsInconnus.length} statut${pluriel(ecarts.statutsInconnus.length)} non reconnu${pluriel(ecarts.statutsInconnus.length)}`}
+              aide="Ces valeurs ne figurent pas au contrat : les formations qui les portent restent hors catalogue."
+              montres={ecarts.statutsInconnus.length}
+              total={ecarts.statutsInconnus.length}
+            >
+              {ecarts.statutsInconnus.map((statut) => (
+                <Ligne
+                  key={statut}
+                  titre={statut}
+                  detail="Valeur attendue : « Active », ou une autre valeur du contrat."
+                />
+              ))}
+            </Groupe>
+          )}
+        </div>
+      </div>
+    </Carte>
+  );
+}
+
+function Groupe({
+  titre,
+  aide,
+  montres,
+  total,
+  children,
+}: {
+  titre: string;
+  aide: string;
+  montres: number;
+  total: number;
+  children: ReactNode;
+}) {
+  return (
+    <section style={{ marginTop: 'var(--space-5)' }}>
+      <span
+        style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', flexWrap: 'wrap' }}
+      >
+        <h3
+          style={{
+            margin: 0,
+            fontSize: 'var(--body-md-size)',
+            fontWeight: 'var(--weight-semibold)',
+            color: 'var(--text-heading)',
+          }}
+        >
+          {titre}
+        </h3>
+        <Meta style={{ fontSize: 12 }}>{aide}</Meta>
+      </span>
+
+      <ul
+        style={{
+          listStyle: 'none',
+          margin: '10px 0 0',
+          padding: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}
+      >
+        {children}
+      </ul>
+
+      {montres < total && (
+        <Meta style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+          {montres} sur {total} affichés. Le compte rendu ne conserve que les premiers : relancez
+          la synchronisation après correction pour voir les suivants.
+        </Meta>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Une ligne se distingue par son fond, jamais par un filet sous la précédente.
+ *
+ * Tout coule de gauche à droite. Pousser le motif à l'extrémité droite le
+ * renvoyait seul à la ligne dès qu'un nom de formation était long, aligné à
+ * droite sous un grand vide.
+ */
+function Ligne({
+  titre,
+  identifiant,
+  detail,
+}: {
+  titre: string;
+  identifiant?: string;
+  detail?: string;
+}) {
+  return (
+    <li
+      style={{
+        background: 'var(--surface-page)',
+        borderRadius: 'var(--radius-md)',
+        padding: '10px 13px',
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: 'var(--space-3)',
+        flexWrap: 'wrap',
+      }}
+    >
+      <span
+        style={{
+          fontSize: 'var(--body-sm-size)',
+          fontWeight: 'var(--weight-semibold)',
+          color: 'var(--text-heading)',
+        }}
+      >
+        {titre}
+      </span>
+      {identifiant && (
+        <Meta style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{identifiant}</Meta>
+      )}
+      {detail && <Meta style={{ fontSize: 12 }}>{detail}</Meta>}
+    </li>
+  );
+}
 
 export default function PageFormations() {
   const [formations, setFormations] = useState<Formation[]>([]);
@@ -51,6 +321,7 @@ export default function PageFormations() {
 
   const [synchronisation, setSynchronisation] = useState(false);
   const [rapport, setRapport] = useState<Rapport>();
+  const [ecarts, setEcarts] = useState<Ecarts>();
   const [erreurSync, setErreurSync] = useState<string>();
 
   async function charger() {
@@ -79,7 +350,20 @@ export default function PageFormations() {
       }
     }
 
+    // Le compte rendu est un complément, pas le contenu de l'écran : s'il
+    // manque, les formations s'affichent quand même. Quand c'est la base
+    // entière qui refuse, l'erreur de la lecture ci-dessus le dit déjà.
+    async function dernierRapport() {
+      try {
+        const releve = await chargerDernierRapport();
+        if (vivant && releve) setEcarts(ecartsDe(releve));
+      } catch (probleme) {
+        console.error('Compte rendu de synchronisation illisible', probleme);
+      }
+    }
+
     void premierChargement();
+    void dernierRapport();
     return () => {
       vivant = false;
     };
@@ -104,6 +388,9 @@ export default function PageFormations() {
       }
 
       setRapport(corps);
+      // La réponse de la route n'est pas bornée : elle remplace un relevé
+      // relu en base, qui l'est.
+      if (!corps.ignoree) setEcarts(ecartsDe(corps));
       await charger();
     } catch {
       setErreurSync(
@@ -181,6 +468,8 @@ export default function PageFormations() {
           texte={rapport.motif ?? 'Une synchronisation a eu lieu il y a moins de cinq minutes.'}
         />
       )}
+
+      {ecarts && <Ecartes ecarts={ecarts} formations={formations} />}
 
       {erreurSync && (
         <EtatErreur
