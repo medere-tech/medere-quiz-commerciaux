@@ -39,6 +39,7 @@ import {
   supprimerQuestion,
 } from '@/lib/questions/depot';
 import { authentification } from '@/lib/firebase/client';
+import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 
 /**
  * 07 · Éditeur de question.
@@ -69,7 +70,8 @@ export default function PageEditeur() {
   const [brouillon, setBrouillon] = useState<BrouillonQuestion>(brouillonVierge());
   const [formations, setFormations] = useState<Formation[]>([]);
   const [chargement, setChargement] = useState(true);
-  const [erreurChargement, setErreurChargement] = useState<string>();
+  const [questionAbsente, setQuestionAbsente] = useState(false);
+  const [erreurChargement, setErreurChargement] = useState<EchecDeLecture>();
   const [erreurEnregistrement, setErreurEnregistrement] = useState<string>();
   const [erreurs, setErreurs] = useState<ErreurChamp[]>([]);
   const [enregistrement, setEnregistrement] = useState(false);
@@ -88,9 +90,7 @@ export default function PageEditeur() {
 
         if (!creation) {
           if (!question) {
-            setErreurChargement(
-              "Cette question n'existe plus. Elle a peut-être été supprimée depuis un autre onglet.",
-            );
+            setQuestionAbsente(true);
           } else {
             setBrouillon({
               type: question.type,
@@ -109,8 +109,18 @@ export default function PageEditeur() {
             });
           }
         }
-      } catch {
-        if (vivant) setErreurChargement("La question n'a pas pu être chargée.");
+      } catch (probleme) {
+        if (!vivant) return;
+        // Une création ne lit aucune question : dire « question introuvable »
+        // ici enverrait chercher un document qui n'a jamais existé.
+        setErreurChargement(
+          echecDeLecture(
+            probleme,
+            creation
+              ? "le référentiel des formations, sans lequel l'éditeur ne peut pas s'ouvrir"
+              : 'la question et le référentiel des formations',
+          ),
+        );
       } finally {
         if (vivant) setChargement(false);
       }
@@ -247,16 +257,42 @@ export default function PageEditeur() {
     );
   }
 
-  if (erreurChargement) {
+  if (questionAbsente) {
     return (
       <div style={{ padding: '36px 40px' }}>
         <EtatErreur
           titre="Question introuvable"
-          texte={erreurChargement}
+          texte="Cette question n'existe plus. Elle a peut-être été supprimée depuis un autre onglet."
           action={
             <Bouton variante="secondaire" onClick={() => router.push('/admin/questions')}>
               Revenir à la banque
             </Bouton>
+          }
+        />
+      </div>
+    );
+  }
+
+  if (erreurChargement) {
+    return (
+      <div style={{ padding: '36px 40px' }}>
+        <EtatErreur
+          titre="Chargement impossible"
+          texte={erreurChargement.texte}
+          action={
+            erreurChargement.reessayable ? (
+              <Bouton
+                variante="secondaire"
+                iconeGauche={<Icone nom="refresh" taille={16} />}
+                onClick={() => window.location.reload()}
+              >
+                Réessayer
+              </Bouton>
+            ) : (
+              <Bouton variante="secondaire" onClick={() => router.push('/admin/questions')}>
+                Revenir à la banque
+              </Bouton>
+            )
           }
         />
       </div>

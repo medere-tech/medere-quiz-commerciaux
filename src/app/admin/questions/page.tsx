@@ -20,6 +20,7 @@ import { LIBELLES_STATUT, LIBELLES_TYPE, TYPES_QUESTION } from '@/lib/questions/
 import { chargerFormations, type Formation } from '@/lib/formations/depot';
 import { chargerQuestions, dupliquerQuestion, type Question } from '@/lib/questions/depot';
 import { authentification } from '@/lib/firebase/client';
+import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 
 /**
  * 06 · Banque de questions.
@@ -49,16 +50,13 @@ export default function PageBanque() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [formations, setFormations] = useState<Formation[]>([]);
   const [chargement, setChargement] = useState(true);
-  const [erreur, setErreur] = useState<string>();
+  const [erreur, setErreur] = useState<EchecDeLecture>();
   const [duplicationEnCours, setDuplicationEnCours] = useState<string>();
 
   const [recherche, setRecherche] = useState('');
   const [formationId, setFormationId] = useState('toutes');
   const [type, setType] = useState('tous');
   const [statut, setStatut] = useState<FiltreStatut>('tout');
-
-  const MESSAGE_ECHEC =
-    "La banque n'a pas pu être chargée. Vos questions sont intactes : c'est la lecture qui a échoué.";
 
   // Le premier chargement n'écrit aucun état avant son premier `await` :
   // l'écran part déjà en chargement, inutile de le redemander.
@@ -74,8 +72,8 @@ export default function PageBanque() {
         if (!vivant) return;
         setQuestions(listeQuestions);
         setFormations(listeFormations);
-      } catch {
-        if (vivant) setErreur(MESSAGE_ECHEC);
+      } catch (probleme) {
+        if (vivant) setErreur(echecDeLecture(probleme, 'la banque de questions'));
       } finally {
         if (vivant) setChargement(false);
       }
@@ -97,8 +95,8 @@ export default function PageBanque() {
       ]);
       setQuestions(listeQuestions);
       setFormations(listeFormations);
-    } catch {
-      setErreur(MESSAGE_ECHEC);
+    } catch (probleme) {
+      setErreur(echecDeLecture(probleme, 'la banque de questions'));
     } finally {
       setChargement(false);
     }
@@ -152,7 +150,12 @@ export default function PageBanque() {
       const identifiant = await dupliquerQuestion(question, utilisateur.uid);
       router.push(`/admin/questions/${identifiant}`);
     } catch {
-      setErreur("La copie n'a pas pu être créée. La question d'origine n'a pas été touchée.");
+      // Un échec d'écriture, pas de lecture : la banque affichée reste valable,
+      // et réessayer a du sens.
+      setErreur({
+        texte: "La copie n'a pas pu être créée. La question d'origine n'a pas été touchée.",
+        reessayable: true,
+      });
       setDuplicationEnCours(undefined);
     }
   }
@@ -227,15 +230,17 @@ export default function PageBanque() {
       {erreur && (
         <EtatErreur
           titre="Chargement interrompu"
-          texte={erreur}
+          texte={erreur.texte}
           action={
-            <Bouton
-              variante="secondaire"
-              iconeGauche={<Icone nom="refresh" taille={16} />}
-              onClick={() => void recharger()}
-            >
-              Réessayer
-            </Bouton>
+            erreur.reessayable ? (
+              <Bouton
+                variante="secondaire"
+                iconeGauche={<Icone nom="refresh" taille={16} />}
+                onClick={() => void recharger()}
+              >
+                Réessayer
+              </Bouton>
+            ) : undefined
           }
         />
       )}

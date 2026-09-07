@@ -15,8 +15,9 @@
     "test": "npm run test:regles",
     "test:regles": "firebase emulators:exec --only firestore --project demo-medere-quiz \"vitest run\"",
     "emulateurs": "firebase emulators:start --only firestore --project demo-medere-quiz",
-    "regles:deploy": "firebase deploy --only firestore:rules",
-    "index:verifier": "node --env-file=.env.local scripts/verifier-index.ts"
+    "regles:deploy": "firebase deploy --only firestore:rules && npm run regles:verifier",
+    "index:verifier": "node --env-file=.env.local scripts/verifier-index.ts",
+    "regles:verifier": "node --env-file=.env.local scripts/verifier-regles.ts"
   },
   "dependencies": {
     "firebase": "12.18.0",

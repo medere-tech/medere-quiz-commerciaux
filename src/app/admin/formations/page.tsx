@@ -14,6 +14,7 @@ import {
 import { Confirmation, EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { chargerFormations, identiteVisuelle, type Formation } from '@/lib/formations/depot';
+import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 
 /**
  * 11 · Formations.
@@ -44,7 +45,7 @@ const ONGLETS = [
 export default function PageFormations() {
   const [formations, setFormations] = useState<Formation[]>([]);
   const [chargement, setChargement] = useState(true);
-  const [erreur, setErreur] = useState<string>();
+  const [erreur, setErreur] = useState<EchecDeLecture>();
   const [recherche, setRecherche] = useState('');
   const [filtre, setFiltre] = useState<'actives' | 'inactives' | 'toutes'>('actives');
 
@@ -52,15 +53,13 @@ export default function PageFormations() {
   const [rapport, setRapport] = useState<Rapport>();
   const [erreurSync, setErreurSync] = useState<string>();
 
-  const MESSAGE_ECHEC = "Le référentiel n'a pas pu être lu. Les formations restent en base.";
-
   async function charger() {
     try {
       const liste = await chargerFormations();
       setFormations(liste);
       setErreur(undefined);
-    } catch {
-      setErreur(MESSAGE_ECHEC);
+    } catch (probleme) {
+      setErreur(echecDeLecture(probleme, 'le référentiel des formations'));
     } finally {
       setChargement(false);
     }
@@ -73,8 +72,8 @@ export default function PageFormations() {
       try {
         const liste = await chargerFormations();
         if (vivant) setFormations(liste);
-      } catch {
-        if (vivant) setErreur(MESSAGE_ECHEC);
+      } catch (probleme) {
+        if (vivant) setErreur(echecDeLecture(probleme, 'le référentiel des formations'));
       } finally {
         if (vivant) setChargement(false);
       }
@@ -219,18 +218,20 @@ export default function PageFormations() {
       {erreur && (
         <EtatErreur
           titre="Lecture impossible"
-          texte={erreur}
+          texte={erreur.texte}
           action={
-            <Bouton
-              variante="secondaire"
-              iconeGauche={<Icone nom="refresh" taille={16} />}
-              onClick={() => {
-                setChargement(true);
-                void charger();
-              }}
-            >
-              Réessayer
-            </Bouton>
+            erreur.reessayable ? (
+              <Bouton
+                variante="secondaire"
+                iconeGauche={<Icone nom="refresh" taille={16} />}
+                onClick={() => {
+                  setChargement(true);
+                  void charger();
+                }}
+              >
+                Réessayer
+              </Bouton>
+            ) : undefined
           }
         />
       )}
