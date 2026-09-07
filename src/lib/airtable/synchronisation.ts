@@ -9,6 +9,7 @@ import {
 } from '@/lib/airtable/conversion';
 import { lireFormations } from '@/lib/airtable/client';
 import { firestoreAdmin } from '@/lib/firebase/admin';
+import { DOCUMENT_ETAT_SYNCHRONISATION } from '@/lib/formations/chemins';
 import type { Formation } from '@/lib/airtable/contrat';
 
 /**
@@ -30,7 +31,8 @@ import type { Formation } from '@/lib/airtable/contrat';
  */
 
 const COLLECTION = 'formations';
-const DOCUMENT_ETAT = 'synchronisations/formations';
+// Même chemin côté navigateur, où l'écran Formations relit ce compte rendu.
+const DOCUMENT_ETAT = DOCUMENT_ETAT_SYNCHRONISATION;
 
 /** Firestore limite une écriture groupée à 500 opérations. */
 const TAILLE_LOT = 400;

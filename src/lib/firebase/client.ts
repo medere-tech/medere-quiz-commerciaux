@@ -1,5 +1,12 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, type Auth } from 'firebase/auth';
+import {
+  browserPopupRedirectResolver,
+  getAuth,
+  GoogleAuthProvider,
+  indexedDBLocalPersistence,
+  initializeAuth,
+  type Auth,
+} from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 
 import { demarrerAppCheck } from '@/lib/firebase/app-check';
@@ -35,8 +42,30 @@ export function applicationFirebase(): FirebaseApp {
   return application;
 }
 
+/**
+ * Authentification côté navigateur.
+ *
+ * La persistance est fixée explicitement à IndexedDB. Par défaut, le SDK
+ * retombe sur `localStorage`, que ce projet s'interdit. IndexedDB n'est ni
+ * `localStorage` ni `sessionStorage`, et permet à la session Firestore de
+ * survivre à un rechargement de page — sans quoi chaque F5 dans le
+ * back-office ferait échouer les lectures.
+ */
 export function authentification(): Auth {
-  return getAuth(applicationFirebase());
+  const application = applicationFirebase();
+
+  if (typeof window === 'undefined') return getAuth(application);
+
+  try {
+    return initializeAuth(application, {
+      persistence: indexedDBLocalPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver,
+    });
+  } catch {
+    // `initializeAuth` refuse d'être appelée deux fois sur la même
+    // application : au second appel, l'instance existante fait l'affaire.
+    return getAuth(application);
+  }
 }
 
 export function baseDeDonnees(): Firestore {
