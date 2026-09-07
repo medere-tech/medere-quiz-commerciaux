@@ -35,7 +35,12 @@ const NAVIGATION: Entree[] = [
     chemin: '/admin/questions',
     route: '/admin/questions',
   },
-  { libelle: 'Import en masse', icone: 'upload', chemin: '/admin/import' },
+  {
+    libelle: 'Import en masse',
+    icone: 'upload',
+    chemin: '/admin/import',
+    route: '/admin/import',
+  },
   { libelle: 'Statistiques', icone: 'chart', chemin: '/admin/statistiques' },
   { libelle: 'Session collective', icone: 'presentation', chemin: '/admin/session' },
   {

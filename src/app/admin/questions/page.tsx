@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Route } from 'next';
 import { useRouter } from 'next/navigation';
 
 import {
@@ -37,6 +38,13 @@ const ONGLETS_STATUT = [
   { valeur: 'publiee' as const, libelle: 'Publiées' },
   { valeur: 'brouillon' as const, libelle: 'Brouillons' },
 ];
+
+/**
+ * Les routes typées de Next n'acceptent pas toujours un littéral passé
+ * directement à `router.push`. L'annoter une fois, comme le fait la coquille
+ * pour sa navigation, vaut mieux qu'un cast à chaque appel.
+ */
+const ROUTE_IMPORT: Route = '/admin/import';
 
 function dateCourte(valeur: Date | null): string {
   if (!valeur) return '—';
@@ -179,13 +187,23 @@ export default function PageBanque() {
             : `${questions.length} question${questions.length > 1 ? 's' : ''}, dont ${publiees} publiée${publiees > 1 ? 's' : ''}. Seules les questions publiées entrent dans les séries.`
         }
         actions={
-          <Bouton
-            taille="lg"
-            iconeGauche={<Icone nom="plus" taille={16} />}
-            onClick={() => router.push('/admin/questions/nouvelle')}
-          >
-            Nouvelle question
-          </Bouton>
+          <>
+            <Bouton
+              taille="lg"
+              variante="secondaire"
+              iconeGauche={<Icone nom="upload" taille={16} />}
+              onClick={() => router.push(ROUTE_IMPORT)}
+            >
+              Importer
+            </Bouton>
+            <Bouton
+              taille="lg"
+              iconeGauche={<Icone nom="plus" taille={16} />}
+              onClick={() => router.push('/admin/questions/nouvelle')}
+            >
+              Nouvelle question
+            </Bouton>
+          </>
         }
       />
 
@@ -251,14 +269,23 @@ export default function PageBanque() {
         <EtatVide
           icone="layers"
           titre="Aucune question pour le moment"
-          texte="Écrivez la première. L'import en masse arrive au prochain lot ; en attendant, l'éditeur suffit à constituer la banque."
+          texte="Écrivez la première, ou collez un lot entier depuis votre tableur. Tout ce qui est importé arrive en brouillon."
           actions={
-            <Bouton
-              iconeGauche={<Icone nom="plus" taille={16} />}
-              onClick={() => router.push('/admin/questions/nouvelle')}
-            >
-              Nouvelle question
-            </Bouton>
+            <>
+              <Bouton
+                variante="secondaire"
+                iconeGauche={<Icone nom="upload" taille={16} />}
+                onClick={() => router.push(ROUTE_IMPORT)}
+              >
+                Importer un lot
+              </Bouton>
+              <Bouton
+                iconeGauche={<Icone nom="plus" taille={16} />}
+                onClick={() => router.push('/admin/questions/nouvelle')}
+              >
+                Nouvelle question
+              </Bouton>
+            </>
           }
         />
       )}

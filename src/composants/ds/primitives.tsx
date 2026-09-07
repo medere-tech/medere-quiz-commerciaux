@@ -343,6 +343,7 @@ export function ZoneDeTexte({
   onChange,
   placeholder,
   lignes = 3,
+  mono = false,
   style,
 }: {
   label?: ReactNode;
@@ -352,6 +353,11 @@ export function ZoneDeTexte({
   onChange: (valeur: string) => void;
   placeholder?: string;
   lignes?: number;
+  /**
+   * Chasse fixe, pour un contenu où l'alignement des colonnes porte du sens :
+   * un tableau collé se relit à la verticale, pas à la ligne.
+   */
+  mono?: boolean;
   style?: CSSProperties;
 }) {
   const [focus, setFocus] = useState(false);
@@ -395,11 +401,15 @@ export function ZoneDeTexte({
           borderRadius: 'var(--radius-md)',
           padding: '11px 14px',
           outline: 'none',
-          fontFamily: 'var(--font-sans)',
-          fontSize: 'var(--body-md-size)',
+          fontFamily: mono
+            ? 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+            : 'var(--font-sans)',
+          fontSize: mono ? 12.5 : 'var(--body-md-size)',
           lineHeight: 1.55,
           color: 'var(--text-body)',
           transition: 'var(--transition-base)',
+          whiteSpace: mono ? 'pre' : undefined,
+          overflowX: mono ? 'auto' : undefined,
         }}
       />
       {(aide || erreur) && (
