@@ -10,6 +10,19 @@ import { Icone, type NomIcone } from '@/composants/ds/Icone';
  * il ne constate pas.
  */
 
+/**
+ * Largeur en dessous de laquelle un bloc icône · texte · action ne tient plus
+ * sur une ligne.
+ *
+ * Ces blocs vivent aussi bien pleine page que dans une colonne de 380 pixels,
+ * et sur une fenêtre de 375. Côte à côte à l'étroit, le titre se casse en
+ * quatre lignes de deux mots et le bouton mange la moitié de la place. Le
+ * seuil est porté par `flex-basis` plutôt que par une requête de média : il
+ * dépend du conteneur, pas de la fenêtre, et c'est bien le conteneur qui
+ * manque de place.
+ */
+const BASE_TEXTE = 240;
+
 /** État vide pleine largeur : un titre en serif, une phrase, une action. */
 export function EtatVide({
   icone,
@@ -30,6 +43,7 @@ export function EtatVide({
         padding: '28px',
         boxShadow: 'var(--shadow-card)',
         display: 'flex',
+        flexWrap: 'wrap',
         gap: 'var(--space-5)',
         alignItems: 'center',
       }}
@@ -48,7 +62,7 @@ export function EtatVide({
       >
         <Icone nom={icone} taille={22} couleur="var(--neutral-70)" />
       </span>
-      <span style={{ flex: 1 }}>
+      <span style={{ flex: `1 1 ${BASE_TEXTE}px`, minWidth: 0 }}>
         <span
           style={{
             display: 'block',
@@ -56,6 +70,7 @@ export function EtatVide({
             fontSize: 22,
             lineHeight: 1.2,
             color: 'var(--text-heading)',
+            textWrap: 'pretty',
           }}
         >
           {titre}
@@ -73,7 +88,9 @@ export function EtatVide({
         </p>
       </span>
       {actions && (
-        <span style={{ flex: 'none', display: 'flex', gap: 10 }}>{actions}</span>
+        <span style={{ flex: 'none', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {actions}
+        </span>
       )}
     </div>
   );
@@ -163,6 +180,7 @@ export function EtatErreur({
         borderRadius: 'var(--radius-lg)',
         padding: '20px 22px',
         display: 'flex',
+        flexWrap: 'wrap',
         gap: 16,
         alignItems: 'center',
       }}
@@ -181,13 +199,14 @@ export function EtatErreur({
       >
         <Icone nom="alert" taille={16} couleur="#fff" epaisseur={2} />
       </span>
-      <span style={{ flex: 1 }}>
+      <span style={{ flex: `1 1 ${BASE_TEXTE}px`, minWidth: 0 }}>
         <span
           style={{
             display: 'block',
             fontSize: 'var(--body-md-size)',
             fontWeight: 600,
             color: 'var(--text-heading)',
+            textWrap: 'pretty',
           }}
         >
           {titre}
@@ -204,7 +223,7 @@ export function EtatErreur({
           {texte}
         </span>
       </span>
-      {action && <span style={{ flex: 'none' }}>{action}</span>}
+      {action && <span style={{ flex: 'none', display: 'flex', flexWrap: 'wrap', gap: 10 }}>{action}</span>}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import {
@@ -23,7 +23,13 @@ import { authentification } from '@/lib/firebase/client';
 import { creerQuestion } from '@/lib/questions/depot';
 import { LIBELLES_DIFFICULTE, DIFFICULTES } from '@/lib/questions/modele';
 import { ENTETE_MODELE, LIBELLES_COLONNE, type Colonne } from '@/lib/import/colonnes';
-import { lireCollage, type ResultatCollage } from '@/lib/import/collage';
+import { lireCollage, lireFeuille, type ResultatCollage } from '@/lib/import/collage';
+import {
+  ACCEPT_FICHIER,
+  EXTENSIONS_ACCEPTEES,
+  lireFichier,
+  type FeuilleClasseur,
+} from '@/lib/import/fichier';
 import {
   analyserLigne,
   indexerFormations,
@@ -61,6 +67,13 @@ const FILTRES: { valeur: Filtre; libelle: string }[] = [
 
 type Rapport = { ecrites: number; echouees: { numero: number; message: string }[] };
 
+/**
+ * Écritures menées de front. Assez pour que deux cents questions passent en
+ * quelques secondes, assez peu pour ne pas saturer la connexion ni les quotas
+ * d'écriture de Firestore.
+ */
+const ECRITURES_SIMULTANEES = 8;
+
 export default function PageImport() {
   const router = useRouter();
 
@@ -78,6 +91,11 @@ export default function PageImport() {
   const [progression, setProgression] = useState(0);
   const [rapport, setRapport] = useState<Rapport>();
   const [erreurImport, setErreurImport] = useState<string>();
+  const [lectureEnCours, setLectureEnCours] = useState(false);
+  const [fichierDepose, setFichierDepose] = useState<string>();
+  const [erreurFichier, setErreurFichier] = useState<string>();
+  const [classeur, setClasseur] = useState<{ nom: string; feuilles: FeuilleClasseur[] }>();
+  const [feuilleChoisie, setFeuilleChoisie] = useState('');
 
   useEffect(() => {
     let vivant = true;
@@ -105,14 +123,80 @@ export default function PageImport() {
    * un effet — l'analyse est une conséquence directe du geste, pas une
    * synchronisation avec un système extérieur.
    */
-  function coller(texte: string) {
-    const resultat = lireCollage(texte);
-    setColle(texte);
+  /** Tout nouveau lot efface le précédent, corrections comprises. */
+  function reinitialiser(resultat: ResultatCollage) {
     setCollage(resultat);
     setLignes(resultat.etat === 'lu' ? resultat.lignes : []);
     setImportees([]);
     setRapport(undefined);
     setErreurImport(undefined);
+  }
+
+  /**
+   * Le collage est analysé à la frappe, et non dans un effet : c'est la
+   * conséquence directe du geste, pas une synchronisation avec un système
+   * extérieur.
+   */
+  function coller(texte: string) {
+    setColle(texte);
+    setFichierDepose(undefined);
+    setErreurFichier(undefined);
+    setClasseur(undefined);
+    setFeuilleChoisie('');
+    reinitialiser(lireCollage(texte));
+  }
+
+  /**
+   * Les chemins d'entrée se rejoignent sur la grille, pas sur le texte : un
+   * fichier texte est découpé comme un collage, une feuille de classeur arrive
+   * déjà en cellules. Aucun analyseur en double.
+   */
+  async function recevoirFichier(fichier: File | undefined) {
+    if (!fichier) return;
+
+    setErreurFichier(undefined);
+    setLectureEnCours(true);
+
+    try {
+      const resultat = await lireFichier(fichier);
+
+      if (resultat.etat === 'refuse') {
+        setErreurFichier(resultat.message);
+        return;
+      }
+
+      if (resultat.etat === 'texte') {
+        setColle(resultat.texte);
+        setClasseur(undefined);
+        setFeuilleChoisie('');
+        setFichierDepose(
+          resultat.encodage === 'windows-1252'
+            ? `${resultat.nom} — lu en Windows-1252`
+            : resultat.nom,
+        );
+        reinitialiser(lireCollage(resultat.texte));
+        return;
+      }
+
+      const premiere = resultat.feuilles[0];
+      if (!premiere) return;
+
+      setColle('');
+      setClasseur({ nom: resultat.nom, feuilles: resultat.feuilles });
+      setFeuilleChoisie(premiere.nom);
+      setFichierDepose(resultat.nom);
+      reinitialiser(lireFeuille(premiere.nom, premiere.cellules));
+    } finally {
+      setLectureEnCours(false);
+    }
+  }
+
+  /** Un classeur à plusieurs feuilles : on change de feuille sans redéposer. */
+  function choisirFeuille(nomFeuille: string) {
+    const feuille = classeur?.feuilles.find((candidate) => candidate.nom === nomFeuille);
+    if (!feuille) return;
+    setFeuilleChoisie(nomFeuille);
+    reinitialiser(lireFeuille(feuille.nom, feuille.cellules));
   }
 
   const index = useMemo(() => indexerFormations(formations), [formations]);
@@ -160,20 +244,40 @@ export default function PageImport() {
     const ecrites: number[] = [];
     const echouees: { numero: number; message: string }[] = [];
 
-    // Ligne par ligne, et sans s'arrêter à la première qui tombe : une panne
-    // réseau au milieu d'un lot ne doit pas perdre les quarante précédentes.
-    for (const analyse of pretes) {
-      try {
-        await creerQuestion(analyse.question!, utilisateur.uid);
-        ecrites.push(analyse.ligne.numero);
-      } catch {
-        echouees.push({
-          numero: analyse.ligne.numero,
-          message: "L’écriture a échoué. La ligne est restée dans la prévisualisation.",
-        });
+    /**
+     * Une ligne à la fois, mais plusieurs de front.
+     *
+     * Ligne par ligne en série, soixante questions demandaient près d'une
+     * minute : chaque écriture attend l'aller-retour de la précédente. Un
+     * lot de deux cents deviendrait un temps mort de plusieurs minutes, et
+     * Noémie n'a aucune raison de le subir.
+     *
+     * Ce n'est pas une écriture groupée pour autant. Une écriture groupée est
+     * tout ou rien : une ligne refusée emporterait les quarante-neuf autres,
+     * ce qui contredit la règle de l'écran. Chaque question garde donc son
+     * écriture et son verdict propres ; seule l'attente est mutualisée.
+     */
+    const file = [...pretes];
+    const ecrire = async () => {
+      for (;;) {
+        const analyse = file.shift();
+        if (!analyse) return;
+        try {
+          await creerQuestion(analyse.question!, utilisateur.uid);
+          ecrites.push(analyse.ligne.numero);
+        } catch {
+          echouees.push({
+            numero: analyse.ligne.numero,
+            message: "L’écriture a échoué. La ligne est restée dans la prévisualisation.",
+          });
+        }
+        setProgression((precedente) => precedente + 1);
       }
-      setProgression((precedente) => precedente + 1);
-    }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(ECRITURES_SIMULTANEES, file.length) }, ecrire),
+    );
 
     setImportees((precedentes) => [...precedentes, ...ecrites]);
     setRapport({ ecrites: ecrites.length, echouees });
@@ -235,6 +339,17 @@ export default function PageImport() {
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <DepotFichier
+            nom={fichierDepose}
+            erreur={erreurFichier}
+            occupe={lectureEnCours}
+            feuilles={classeur?.feuilles.map((feuille) => feuille.nom) ?? []}
+            feuilleChoisie={feuilleChoisie}
+            onFeuille={choisirFeuille}
+            onFichier={(fichier) => void recevoirFichier(fichier)}
+            onErreur={setErreurFichier}
+          />
+
           <ZoneDeTexte
             label="Tableau collé"
             aide={`Tabulations ou CSV. Plusieurs valeurs dans une cellule se séparent par « ${SEPARATEUR_VALEURS} ».`}
@@ -450,7 +565,9 @@ function Analyse({
       )}
       {collage.etat === 'lu' && (
         <Meta style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
-          Séparateur détecté : {collage.separateur}.
+          {collage.provenance.forme === 'texte'
+            ? `Séparateur détecté : ${collage.provenance.separateur}.`
+            : `Feuille lue : « ${collage.provenance.feuille} ».`}
         </Meta>
       )}
     </Carte>
@@ -736,5 +853,171 @@ function ControleCorrection({
       placeholder={`Corriger « ${LIBELLES_COLONNE[colonne]} »`}
       style={{ width: 300 }}
     />
+  );
+}
+
+/**
+ * Dépôt d'un fichier : glisser-déposer, ou sélecteur.
+ *
+ * Noémie reçoit ses lots en fichier. Lui demander d'ouvrir le tableur, tout
+ * sélectionner, copier puis coller, c'est quatre gestes dont chacun peut
+ * rater — et un classeur ne se colle pas proprement. La zone accepte donc le
+ * fichier directement, et aboutit au même analyseur que le collage.
+ *
+ * Le champ natif reste dans le document, seulement masqué : c'est lui qui
+ * porte l'accessibilité et le dialogue du système. Un bouton qui le
+ * déclenche ne fait qu'ajouter une prise plus grande.
+ */
+function DepotFichier({
+  nom,
+  erreur,
+  occupe,
+  feuilles,
+  feuilleChoisie,
+  onFeuille,
+  onFichier,
+  onErreur,
+}: {
+  nom?: string;
+  erreur?: string;
+  occupe: boolean;
+  /** Les feuilles d'un classeur. Vide pour un fichier texte. */
+  feuilles: string[];
+  feuilleChoisie: string;
+  onFeuille: (nom: string) => void;
+  onFichier: (fichier: File | undefined) => void;
+  onErreur: (message: string) => void;
+}) {
+  const champ = useRef<HTMLInputElement>(null);
+  const [survol, setSurvol] = useState(false);
+
+  function deposer(evenement: React.DragEvent) {
+    evenement.preventDefault();
+    setSurvol(false);
+
+    const fichiers = evenement.dataTransfer.files;
+    if (fichiers.length === 0) return;
+    if (fichiers.length > 1) {
+      onErreur('Déposez un seul fichier à la fois : un lot par import.');
+      return;
+    }
+    onFichier(fichiers[0]);
+  }
+
+  return (
+    <div>
+      <div
+        onDragOver={(evenement) => {
+          evenement.preventDefault();
+          setSurvol(true);
+        }}
+        onDragLeave={() => setSurvol(false)}
+        onDrop={deposer}
+        style={{
+          border: `1px dashed ${survol ? 'var(--focus-ring)' : 'var(--border-default)'}`,
+          borderRadius: 'var(--radius-lg)',
+          background: survol ? 'rgba(0,110,144,0.06)' : 'var(--surface-card)',
+          padding: '20px 22px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 'var(--space-4)',
+          transition: 'var(--transition-base)',
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+        <span
+          style={{
+            width: 38,
+            height: 38,
+            flex: 'none',
+            borderRadius: 999,
+            background: 'var(--surface-page)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icone nom="upload" taille={18} couleur="var(--neutral-70)" />
+        </span>
+
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span
+            style={{
+              display: 'block',
+              fontSize: 'var(--body-sm-size)',
+              fontWeight: 'var(--weight-semibold)',
+              color: 'var(--text-heading)',
+            }}
+          >
+            {nom ?? 'Déposez votre fichier ici'}
+          </span>
+          <Meta style={{ fontSize: 12 }}>
+            {nom
+              ? 'Déposez-en un autre pour le remplacer.'
+              : `${EXTENSIONS_ACCEPTEES.join(', ')} — ou collez le tableau ci-dessous.`}
+          </Meta>
+          </span>
+        </span>
+
+        <Bouton
+          variante="secondaire"
+          pleineLargeur
+          disabled={occupe}
+          onClick={() => champ.current?.click()}
+        >
+          {occupe ? 'Lecture du fichier…' : 'Choisir un fichier'}
+        </Bouton>
+
+        {feuilles.length > 1 && (
+          <span>
+            <Selecteur
+              label="Feuille du classeur"
+              options={feuilles.map((feuille) => ({ valeur: feuille, libelle: feuille }))}
+              value={feuilleChoisie}
+              onChange={onFeuille}
+            />
+            <Meta style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+              {`Ce classeur en compte ${feuilles.length}. La première est lue par défaut.`}
+            </Meta>
+          </span>
+        )}
+
+        <input
+          ref={champ}
+          type="file"
+          accept={ACCEPT_FICHIER}
+          onChange={(evenement) => {
+            onFichier(evenement.target.files?.[0]);
+            // Redéposer le même fichier après correction doit relancer la
+            // lecture : sans cela, le champ ne signale aucun changement.
+            evenement.target.value = '';
+          }}
+          style={{
+            position: 'absolute',
+            width: 1,
+            height: 1,
+            overflow: 'hidden',
+            clip: 'rect(0 0 0 0)',
+            whiteSpace: 'nowrap',
+          }}
+        />
+      </div>
+
+      {erreur && (
+        <span
+          role="alert"
+          style={{
+            display: 'block',
+            marginTop: 'var(--space-2)',
+            fontSize: 'var(--body-xs-size)',
+            lineHeight: 1.45,
+            color: 'var(--status-danger-texte)',
+          }}
+        >
+          {erreur}
+        </span>
+      )}
+    </div>
   );
 }
