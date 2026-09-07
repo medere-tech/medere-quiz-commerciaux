@@ -3,6 +3,7 @@
 import { signInWithPopup, signOut, type User } from 'firebase/auth';
 
 import { authentification, fournisseurGoogle } from '@/lib/firebase/client';
+import { messageDeFenetre } from '@/lib/auth/messages-connexion';
 
 export class ErreurConnexion extends Error {
   constructor(message: string) {
@@ -20,10 +21,8 @@ export class ErreurConnexion extends Error {
 export async function seConnecter(): Promise<User> {
   const auth = authentification();
 
-  const resultat = await signInWithPopup(auth, fournisseurGoogle()).catch(() => {
-    throw new ErreurConnexion(
-      "La fenêtre Google s'est fermée avant la fin de la connexion. Réessayez.",
-    );
+  const resultat = await signInWithPopup(auth, fournisseurGoogle()).catch((erreur: unknown) => {
+    throw new ErreurConnexion(messageDeFenetre(erreur));
   });
 
   try {

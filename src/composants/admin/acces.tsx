@@ -4,7 +4,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { Bouton, Carte } from '@/composants/ds/primitives';
-import { EtatErreur } from '@/composants/ds/etats';
+import { EtatErreur, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { authentification } from '@/lib/firebase/client';
 import { ErreurConnexion, seConnecter } from '@/lib/auth/connexion-client';
@@ -110,20 +110,38 @@ export function ConnexionAdmin({ motif }: { motif: 'anonyme' | 'sans-droits' }) 
  * par les règles. Les deux peuvent diverger : cookie encore valide, session
  * navigateur effacée.
  */
+/**
+ * Le délai avant d'avouer qu'on attend.
+ *
+ * Une session déjà en cache revient en quelques dizaines de millisecondes.
+ * Afficher un écran de chargement dans cet intervalle le fait paraître puis
+ * disparaître aussitôt : le clignotement se remarque plus que l'attente qu'il
+ * prétend couvrir. Passé ce seuil, l'attente est réelle et mérite d'être
+ * montrée.
+ */
+const SEUIL_AVANT_ATTENTE_MS = 400;
+
 export function GardeNavigateur({ children }: { children: ReactNode }) {
   const [utilisateur, setUtilisateur] = useState<User | null | undefined>(undefined);
+  const [attenteVisible, setAttenteVisible] = useState(false);
 
   useEffect(() => onAuthStateChanged(authentification(), setUtilisateur), []);
 
+  useEffect(() => {
+    if (utilisateur !== undefined) return;
+    const minuterie = window.setTimeout(() => setAttenteVisible(true), SEUIL_AVANT_ATTENTE_MS);
+    return () => window.clearTimeout(minuterie);
+  }, [utilisateur]);
+
+  // Vérifier une session n'est pas un incident : c'est un chargement, et il se
+  // montre comme tous les autres écrans de chargement du système — des
+  // squelettes, sans phrase. Le mot « Firebase » ne disait rien à personne.
   if (utilisateur === undefined) {
-    return (
+    return attenteVisible ? (
       <div style={{ padding: '36px 40px' }}>
-        <EtatErreur
-          titre="Vérification de votre session"
-          texte="Un instant : l'application confirme votre connexion auprès de Firebase."
-        />
+        <Squelettes lignes={5} />
       </div>
-    );
+    ) : null;
   }
 
   if (utilisateur === null) {

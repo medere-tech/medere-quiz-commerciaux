@@ -55,7 +55,7 @@ Trois interdits fermes, valables partout :
 
 - **Aucun emoji.** Un seul jeu d'icônes vectorielles, cohérent, tailles issues d'une échelle. Jamais un caractère typographique en guise d'icône.
 - **Aucune bordure sur un seul côté.** Pas de filet vertical à gauche d'un bloc, pas de soulignement d'onglet actif, pas de trait sous chaque ligne de liste. On distingue par le fond, l'espacement ou une bordure complète.
-- **Pas de libellés en majuscules**, pas de flèche ajoutée au texte des boutons, pas de dégradé décoratif.
+- **Pas de surtitre en majuscules.** Aucun libellé en capitales posé au-dessus d'un titre ou en tête de section pour l'annoncer : le titre se suffit. Les badges de statut du système de design (`Etiquette`, `EtiquetteStatut`) sont hors de cette règle — leurs capitales sont voulues par les maquettes. Pas de flèche ajoutée au texte des boutons, pas de dégradé décoratif.
 
 États vides, erreurs et chargements sont des écrans à part entière. Une erreur dit ce qui s'est passé et quoi faire, elle ne s'excuse pas.
 
