@@ -444,16 +444,7 @@ export default function PageFormations() {
   const actives = formations.filter((formation) => formation.actif).length;
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        padding: '36px 40px',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-6)',
-      }}
-    >
+    <div className="page-admin">
       <TitrePage
         titre="Formations"
         sous={
@@ -517,7 +508,7 @@ export default function PageFormations() {
           onChange={(valeur) => filtrer({ q: valeur })}
           placeholder="Chercher par nom, numéro d'action ou public"
           prefixe={<Icone nom="search" taille={17} couleur="var(--neutral-50)" />}
-          style={{ width: 380, flex: 'none' }}
+          style={{ flex: '1 1 260px', minWidth: 0, maxWidth: 380 }}
         />
         <Onglets items={ONGLETS} valeur={filtre} onChange={(valeur) => filtrer({ filtre: valeur })} />
         <span style={{ marginLeft: 'auto' }}>
@@ -578,7 +569,7 @@ export default function PageFormations() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))',
             gap: 'var(--space-4)',
           }}
         >

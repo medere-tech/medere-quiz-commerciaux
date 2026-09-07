@@ -55,12 +55,26 @@ export type LigneImport = {
   valeurs: Record<Colonne, string>;
 };
 
+/**
+ * Ce qui mérite d'être dit sans empêcher d'importer.
+ *
+ * Une erreur retient la ligne ; un avertissement la laisse passer en le
+ * disant. La distinction compte : une difficulté non déclarée ou un doublon
+ * peuvent être voulus, et refuser la ligne obligerait Noémie à contourner
+ * l'outil pour faire ce qu'elle voulait faire.
+ */
+export type AvertissementLigne = {
+  genre: 'difficulte-par-defaut' | 'doublon';
+  message: string;
+};
+
 export type LigneAnalysee = {
   ligne: LigneImport;
   brouillon: BrouillonQuestion;
   /** Renseignée seulement quand la ligne est bonne à écrire. */
   question: QuestionAEcrire | null;
   erreurs: ErreurLigne[];
+  avertissements: AvertissementLigne[];
 };
 
 // --- Traduction des valeurs écrites à la main -----------------------------
@@ -167,6 +181,7 @@ export function analyserLigne(
   formations: IndexFormations,
 ): LigneAnalysee {
   const erreurs: ErreurLigne[] = [];
+  const avertissements: AvertissementLigne[] = [];
   const signaler = (colonne: Colonne | null, message: string, jeton?: string) =>
     erreurs.push({ colonne, message, jeton });
 
@@ -209,7 +224,15 @@ export function analyserLigne(
   // --- Difficulté
   const difficulteEcrite = valeurs.difficulte.trim();
   let difficulte: Difficulte = 1;
-  if (difficulteEcrite.length > 0) {
+  if (difficulteEcrite.length === 0) {
+    // Le défaut est commode, mais il ne doit pas être silencieux : un lot
+    // entier rangé en « facile » sans que personne ne l'ait décidé fausse le
+    // tirage des séries.
+    avertissements.push({
+      genre: 'difficulte-par-defaut',
+      message: 'Difficulté non déclarée : la question entre en « facile ».',
+    });
+  } else {
     const trouvee = DIFFICULTES_ECRITES[comparable(difficulteEcrite)];
     if (trouvee) difficulte = trouvee;
     else {
@@ -257,7 +280,52 @@ export function analyserLigne(
     brouillon,
     question: erreurs.length === 0 && resultat.valide ? resultat.question : null,
     erreurs,
+    avertissements,
   };
+}
+
+/**
+ * Rapprochement des énoncés : dans le lot lui-même, et avec la banque.
+ *
+ * Réimporter deux fois le même fichier crée soixante doublons sans un mot.
+ * On les signale — jamais on ne les bloque : réimporter volontairement une
+ * variante d'un énoncé existant est légitime, et l'outil n'a pas à en juger.
+ *
+ * La comparaison porte sur l'énoncé seul, sans accent ni casse : c'est ce que
+ * l'œil reconnaît comme « la même question ».
+ */
+export function signalerDoublons(
+  analyses: LigneAnalysee[],
+  enoncesExistants: string[],
+): LigneAnalysee[] {
+  const enBanque = new Set(enoncesExistants.map(comparable));
+  const vusDansLeLot = new Map<string, number>();
+
+  return analyses.map((analyse) => {
+    const enonce = comparable(analyse.ligne.valeurs.enonce);
+    if (enonce.length === 0) return analyse;
+
+    const avertissements = [...analyse.avertissements];
+    const premiere = vusDansLeLot.get(enonce);
+
+    if (premiere !== undefined) {
+      avertissements.push({
+        genre: 'doublon',
+        message: `Énoncé déjà présent ligne ${premiere} de ce même tableau.`,
+      });
+    } else if (enBanque.has(enonce)) {
+      avertissements.push({
+        genre: 'doublon',
+        message: 'Énoncé déjà présent dans la banque. L’import en créera une seconde.',
+      });
+    }
+
+    if (premiere === undefined) vusDansLeLot.set(enonce, analyse.ligne.numero);
+
+    return avertissements.length === analyse.avertissements.length
+      ? analyse
+      : { ...analyse, avertissements };
+  });
 }
 
 function resoudreBonnesReponses(

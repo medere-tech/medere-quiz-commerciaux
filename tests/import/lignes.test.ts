@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { lireCollage } from '@/lib/import/collage';
-import { analyserLigne, indexerFormations, ligneVierge } from '@/lib/import/lignes';
+import {
+  analyserLigne,
+  indexerFormations,
+  ligneVierge,
+  signalerDoublons,
+} from '@/lib/import/lignes';
 import type { Formation } from '@/lib/formations/depot';
 import { PLAFONDS } from '@/lib/questions/modele';
 
@@ -326,5 +331,56 @@ describe('lireCollage', () => {
 
   it('rend « vide » sur un collage blanc', () => {
     expect(lireCollage('   ').etat).toBe('vide');
+  });
+});
+
+describe('avertissements — signaler sans bloquer', () => {
+  it('annonce la difficulté prise par défaut', () => {
+    const analyse = analyserLigne(ligneCorrecte({ difficulte: '' }), index);
+
+    // Elle passe : c'est un avertissement, pas une erreur.
+    expect(analyse.erreurs).toEqual([]);
+    expect(analyse.question?.difficulte).toBe(1);
+    expect(analyse.avertissements.map((a) => a.genre)).toContain('difficulte-par-defaut');
+  });
+
+  it('se tait quand la difficulté est déclarée', () => {
+    const analyse = analyserLigne(ligneCorrecte({ difficulte: 'moyenne' }), index);
+
+    expect(analyse.avertissements).toEqual([]);
+  });
+
+  it('signale un énoncé déjà présent dans la banque, sans le refuser', () => {
+    const analyse = analyserLigne(ligneCorrecte(), index);
+    const [avec] = signalerDoublons([analyse], [analyse.ligne.valeurs.enonce]);
+
+    expect(avec?.question).not.toBeNull();
+    expect(avec?.avertissements.some((a) => a.genre === 'doublon')).toBe(true);
+  });
+
+  it('reconnaît le doublon malgré la casse et les accents', () => {
+    const analyse = analyserLigne(ligneCorrecte({ enonce: 'Quels PUBLICS ?' }), index);
+    const [avec] = signalerDoublons([analyse], ['quels publics ?']);
+
+    expect(avec?.avertissements.some((a) => a.genre === 'doublon')).toBe(true);
+  });
+
+  it('signale un doublon interne au lot en nommant la première ligne', () => {
+    const premiere = analyserLigne(ligneCorrecte(), index);
+    const seconde = analyserLigne({ ...ligneCorrecte(), numero: 7 }, index);
+    const [, deuxieme] = signalerDoublons([premiere, seconde], []);
+
+    expect(deuxieme?.avertissements.find((a) => a.genre === 'doublon')?.message).toContain('2');
+  });
+
+  it('ne signale aucun doublon quand les énoncés diffèrent', () => {
+    const a = analyserLigne(ligneCorrecte({ enonce: 'Première question ?' }), index);
+    const b = analyserLigne({ ...ligneCorrecte({ enonce: 'Seconde question ?' }), numero: 3 }, index);
+    const resultat = signalerDoublons([a, b], ['Une question sans rapport ?']);
+
+    const doublons = resultat.flatMap((ligne) =>
+      ligne.avertissements.filter((a) => a.genre === 'doublon'),
+    );
+    expect(doublons).toEqual([]);
   });
 });

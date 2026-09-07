@@ -268,7 +268,7 @@ export default function PageEditeur() {
 
   if (chargement) {
     return (
-      <div style={{ padding: '36px 40px' }}>
+      <div style={{ padding: 'clamp(20px, 3.2vw, 36px) clamp(16px, 3.2vw, 40px)' }}>
         <Squelettes lignes={4} />
       </div>
     );
@@ -276,7 +276,7 @@ export default function PageEditeur() {
 
   if (questionAbsente) {
     return (
-      <div style={{ padding: '36px 40px' }}>
+      <div style={{ padding: 'clamp(20px, 3.2vw, 36px) clamp(16px, 3.2vw, 40px)' }}>
         <EtatErreur
           titre="Question introuvable"
           texte="Cette question n'existe plus. Elle a peut-être été supprimée depuis un autre onglet."
@@ -292,7 +292,7 @@ export default function PageEditeur() {
 
   if (erreurChargement) {
     return (
-      <div style={{ padding: '36px 40px' }}>
+      <div style={{ padding: 'clamp(20px, 3.2vw, 36px) clamp(16px, 3.2vw, 40px)' }}>
         <EtatErreur
           titre="Chargement impossible"
           texte={erreurChargement.texte}
@@ -323,7 +323,7 @@ export default function PageEditeur() {
       <div
         style={{
           flex: 'none',
-          padding: '28px 40px 20px',
+          padding: 'clamp(20px, 3vw, 28px) clamp(16px, 3.2vw, 40px) 20px',
           display: 'flex',
           alignItems: 'center',
           gap: 'var(--space-5)',
@@ -353,7 +353,15 @@ export default function PageEditeur() {
             </Meta>
           </span>
         </div>
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
+        <span
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            gap: 'var(--space-3)',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
           <Bouton variante="fantome" taille="lg" onClick={() => router.push(versLaBanque)}>
             Revenir
           </Bouton>
@@ -377,14 +385,12 @@ export default function PageEditeur() {
       </div>
 
       <div
+        className="grille-deux-colonnes"
         style={{
           flex: 1,
-          display: 'grid',
           gridTemplateColumns: 'minmax(0, 1fr) 372px',
-          gap: 'var(--space-8)',
-          padding: '0 40px 40px',
+          padding: '0 clamp(16px, 3.2vw, 40px) 40px',
           boxSizing: 'border-box',
-          alignItems: 'start',
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
@@ -578,7 +584,13 @@ export default function PageEditeur() {
             placeholder="Expliquez pourquoi cette réponse est la bonne, en une ou deux phrases."
           />
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))',
+              gap: 'var(--space-4)',
+            }}
+          >
             <Champ
               label="Thème"
               value={brouillon.theme}
@@ -598,7 +610,13 @@ export default function PageEditeur() {
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))',
+              gap: 'var(--space-4)',
+            }}
+          >
             <Champ
               label="Fiche d'argumentaire (facultatif)"
               value={brouillon.sourceFiche}

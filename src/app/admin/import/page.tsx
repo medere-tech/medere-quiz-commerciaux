@@ -20,7 +20,7 @@ import { Icone } from '@/composants/ds/Icone';
 import { chargerFormations, type Formation } from '@/lib/formations/depot';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import { authentification } from '@/lib/firebase/client';
-import { creerQuestion } from '@/lib/questions/depot';
+import { chargerQuestions, creerQuestion } from '@/lib/questions/depot';
 import { LIBELLES_DIFFICULTE, DIFFICULTES } from '@/lib/questions/modele';
 import { ENTETE_MODELE, LIBELLES_COLONNE, type Colonne } from '@/lib/import/colonnes';
 import { lireCollage, lireFeuille, type ResultatCollage } from '@/lib/import/collage';
@@ -32,6 +32,7 @@ import {
 } from '@/lib/import/fichier';
 import {
   analyserLigne,
+  signalerDoublons,
   indexerFormations,
   FORMATS_PROPOSES,
   SEPARATEUR_VALEURS,
@@ -78,6 +79,8 @@ export default function PageImport() {
   const router = useRouter();
 
   const [formations, setFormations] = useState<Formation[]>([]);
+  /** Énoncés déjà en banque, pour repérer les doublons sans les bloquer. */
+  const [enoncesExistants, setEnoncesExistants] = useState<string[]>([]);
   const [chargement, setChargement] = useState(true);
   const [erreurChargement, setErreurChargement] = useState<EchecDeLecture>();
 
@@ -102,8 +105,10 @@ export default function PageImport() {
 
     async function charger() {
       try {
-        const liste = await chargerFormations();
-        if (vivant) setFormations(liste);
+        const [liste, questions] = await Promise.all([chargerFormations(), chargerQuestions()]);
+        if (!vivant) return;
+        setFormations(liste);
+        setEnoncesExistants(questions.map((question) => question.enonce));
       } catch (probleme) {
         if (vivant) setErreurChargement(echecDeLecture(probleme, 'le référentiel des formations'));
       } finally {
@@ -202,8 +207,8 @@ export default function PageImport() {
   const index = useMemo(() => indexerFormations(formations), [formations]);
 
   const analyses = useMemo(
-    () => lignes.map((ligne) => analyserLigne(ligne, index)),
-    [lignes, index],
+    () => signalerDoublons(lignes.map((ligne) => analyserLigne(ligne, index)), enoncesExistants),
+    [lignes, index, enoncesExistants],
   );
 
   const dejaEcrite = (numero: number) => importees.includes(numero);
@@ -212,6 +217,12 @@ export default function PageImport() {
     (analyse) => analyse.question !== null && !dejaEcrite(analyse.ligne.numero),
   );
   const enErreur = analyses.filter((analyse) => analyse.erreurs.length > 0);
+  const sansDifficulte = analyses.filter((analyse) =>
+    analyse.avertissements.some((a) => a.genre === 'difficulte-par-defaut'),
+  ).length;
+  const doublons = analyses.filter((analyse) =>
+    analyse.avertissements.some((a) => a.genre === 'doublon'),
+  ).length;
 
   const affichees = analyses.filter((analyse) => {
     if (filtre === 'pretes') return analyse.question !== null;
@@ -286,7 +297,7 @@ export default function PageImport() {
 
   if (chargement) {
     return (
-      <div style={{ padding: '36px 40px' }}>
+      <div style={{ padding: 'clamp(20px, 3.2vw, 36px) clamp(16px, 3.2vw, 40px)' }}>
         <Squelettes lignes={5} />
       </div>
     );
@@ -294,7 +305,7 @@ export default function PageImport() {
 
   if (erreurChargement) {
     return (
-      <div style={{ padding: '36px 40px' }}>
+      <div style={{ padding: 'clamp(20px, 3.2vw, 36px) clamp(16px, 3.2vw, 40px)' }}>
         <EtatErreur
           titre="Import indisponible"
           texte={`${erreurChargement.texte} Sans le référentiel, une question ne peut être rattachée à aucune formation.`}
@@ -315,28 +326,15 @@ export default function PageImport() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        padding: '36px 40px',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-6)',
-      }}
-    >
+    <div className="page-admin">
       <TitrePage
         titre="Import en masse"
         sous="Collez un tableau de questions. Une ligne par question, la première ligne donne le nom des colonnes."
       />
 
       <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(320px, 380px) 1fr',
-          gap: 'var(--space-8)',
-          alignItems: 'start',
-        }}
+        className="grille-deux-colonnes"
+        style={{ gridTemplateColumns: 'minmax(320px, 380px) 1fr' }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <DepotFichier
@@ -364,6 +362,8 @@ export default function PageImport() {
             lues={lignes.length}
             pretes={pretes.length}
             aCorriger={enErreur.length}
+            sansDifficulte={sansDifficulte}
+            doublons={doublons}
             collage={collage}
           />
 
@@ -503,11 +503,15 @@ function Analyse({
   lues,
   pretes,
   aCorriger,
+  sansDifficulte,
+  doublons,
   collage,
 }: {
   lues: number;
   pretes: number;
   aCorriger: number;
+  sansDifficulte: number;
+  doublons: number;
   collage: ResultatCollage;
 }) {
   const chiffres: { valeur: number; libelle: string; alerte?: boolean }[] = [
@@ -558,6 +562,18 @@ function Analyse({
       >
         {"Les lignes en erreur se corrigent ici même. Elles ne bloquent pas l’import des autres, et tout ce qui entre arrive en brouillon."}
       </p>
+      {sansDifficulte > 0 && (
+        <Meta style={{ display: 'block', marginTop: 10, fontSize: 12 }}>
+          {`${sansDifficulte} question${sansDifficulte > 1 ? 's' : ''} sans difficulté déclarée, ` +
+            `mise${sansDifficulte > 1 ? 's' : ''} en « facile ».`}
+        </Meta>
+      )}
+      {doublons > 0 && (
+        <Meta style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+          {`${doublons} énoncé${doublons > 1 ? 's' : ''} déjà vu${doublons > 1 ? 's' : ''} : ` +
+            `l’import les créera quand même, en double.`}
+        </Meta>
+      )}
       {collage.etat === 'lu' && collage.ignorees.length > 0 && (
         <Meta style={{ display: 'block', marginTop: 10, fontSize: 12 }}>
           Colonnes lues mais non utilisées : {collage.ignorees.join(', ')}.
@@ -598,6 +614,7 @@ function LignePrevisualisation({
   onCorriger: (numero: number, colonne: Colonne, valeur: string) => void;
 }) {
   const enErreur = analyse.erreurs.length > 0;
+  const averti = !enErreur && analyse.avertissements.length > 0;
   const valeurs = analyse.ligne.valeurs;
 
   const libellesBonnesReponses = analyse.brouillon.bonnesReponses
@@ -608,10 +625,14 @@ function LignePrevisualisation({
   return (
     <div
       style={{
-        border: enErreur ? '1px solid rgba(194,66,66,0.30)' : 'none',
+        border: enErreur
+          ? '1px solid rgba(194,66,66,0.30)'
+          : averti
+            ? '1px solid rgba(254,202,69,0.55)'
+            : 'none',
         borderRadius: 'var(--radius-md)',
         background: enErreur ? 'rgba(194,66,66,0.06)' : 'var(--surface-card)',
-        boxShadow: enErreur ? 'none' : 'var(--shadow-card-sm)',
+        boxShadow: enErreur || averti ? 'none' : 'var(--shadow-card-sm)',
         overflow: 'hidden',
         opacity: importee ? 0.55 : 1,
       }}
@@ -684,6 +705,32 @@ function LignePrevisualisation({
           )}
         </span>
       </div>
+
+      {analyse.avertissements.map((avertissement, position) => (
+        <div
+          key={`avis-${position}`}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--space-3)',
+            background: 'rgba(254,202,69,0.22)',
+            padding: '9px 18px',
+          }}
+        >
+          <Icone nom="alert" taille={14} couleur="var(--neutral-80)" />
+          <span
+            style={{
+              flex: 1,
+              minWidth: 160,
+              fontSize: 'var(--body-sm-size)',
+              lineHeight: 1.45,
+              color: 'var(--neutral-80)',
+            }}
+          >
+            {avertissement.message}
+          </span>
+        </div>
+      ))}
 
       {analyse.erreurs.map((erreur, position) => (
         <Correction

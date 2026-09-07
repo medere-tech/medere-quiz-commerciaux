@@ -238,16 +238,7 @@ export default function PageBanque() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        padding: '36px 40px',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-6)',
-      }}
-    >
+    <div className="page-admin">
       <TitrePage
         titre="Banque de questions"
         sous={
@@ -284,12 +275,12 @@ export default function PageBanque() {
           placeholder="Rechercher dans les énoncés"
           prefixe={<Icone nom="search" taille={17} couleur="var(--neutral-50)" />}
           suffixe={<Touche>/</Touche>}
-          style={{ width: 340, flex: 'none' }}
+          style={{ flex: '1 1 240px', minWidth: 0, maxWidth: 340 }}
         />
         <Selecteur
           value={formationId}
           onChange={(valeur) => filtrer({ formation: valeur })}
-          style={{ width: 240, flex: 'none' }}
+          style={{ flex: '1 1 200px', minWidth: 0, maxWidth: 240 }}
           options={[
             { valeur: 'toutes', libelle: 'Toutes les formations' },
             ...formations
@@ -300,7 +291,7 @@ export default function PageBanque() {
         <Selecteur
           value={type}
           onChange={(valeur) => filtrer({ type: valeur })}
-          style={{ width: 190, flex: 'none' }}
+          style={{ flex: '1 1 160px', minWidth: 0, maxWidth: 190 }}
           options={[
             { valeur: 'tous', libelle: 'Tous les formats' },
             ...TYPES_QUESTION.map((valeur) => ({ valeur, libelle: LIBELLES_TYPE[valeur] })),
@@ -314,7 +305,7 @@ export default function PageBanque() {
         <Selecteur
           value={tri}
           onChange={(valeur) => filtrer({ tri: valeur })}
-          style={{ width: 230, flex: 'none' }}
+          style={{ flex: '1 1 190px', minWidth: 0, maxWidth: 230 }}
           options={TRIS.map((option) => ({ valeur: option.valeur, libelle: option.libelle }))}
         />
         <span style={{ marginLeft: 'auto' }}>
@@ -390,6 +381,7 @@ export default function PageBanque() {
       {!chargement && filtrees.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div
+            className="entete-colonnes"
             style={{
               display: 'flex',
               gap: 'var(--space-5)',
@@ -415,6 +407,7 @@ export default function PageBanque() {
                 rayon="var(--radius-md)"
                 rembourrage="14px 20px"
                 elevation="petite"
+                className="ligne-tableau"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -427,12 +420,12 @@ export default function PageBanque() {
                       : '1px solid transparent',
                 }}
               >
-                <span style={{ width: 82, flex: 'none' }}>
+                <span className="colonne-fixe" style={{ width: 82, flex: 'none' }}>
                   <EtiquetteStatut ton={question.statut === 'publiee' ? 'publiee' : 'brouillon'}>
                     {LIBELLES_STATUT[question.statut] ?? question.statut}
                   </EtiquetteStatut>
                 </span>
-                <span style={{ flex: 1, minWidth: 0 }}>
+                <span className="colonne-souple" style={{ flex: 1, minWidth: 0 }}>
                   <span
                     style={{
                       display: 'block',
@@ -452,6 +445,7 @@ export default function PageBanque() {
                   </Meta>
                 </span>
                 <span
+                  className="colonne-fixe"
                   style={{
                     width: 130,
                     flex: 'none',
@@ -462,6 +456,7 @@ export default function PageBanque() {
                   {LIBELLES_TYPE[question.type] ?? question.type}
                 </span>
                 <span
+                  className="colonne-fixe"
                   style={{
                     width: 110,
                     flex: 'none',
@@ -472,12 +467,14 @@ export default function PageBanque() {
                   {dateCourte(question.modifieeLe)}
                 </span>
                 <span
+                  className="colonne-fixe"
                   style={{
                     width: 64,
                     flex: 'none',
                     display: 'flex',
                     gap: 4,
                     justifyContent: 'flex-end',
+                    marginLeft: 'auto',
                   }}
                 >
                   <button

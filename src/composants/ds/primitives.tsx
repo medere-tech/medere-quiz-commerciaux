@@ -134,6 +134,7 @@ export function Carte({
   rayon = 'var(--radius-xl)',
   elevation = 'carte',
   bordee = false,
+  className,
   style,
 }: {
   children: ReactNode;
@@ -141,10 +142,13 @@ export function Carte({
   rayon?: string;
   elevation?: keyof typeof OMBRES;
   bordee?: boolean;
+  /** Pour les règles de média : une bascule de mise en page n'est pas un style en ligne. */
+  className?: string;
   style?: CSSProperties;
 }) {
   return (
     <div
+      className={className}
       style={{
         background: 'var(--surface-card)',
         borderRadius: rayon,
@@ -523,6 +527,11 @@ export function Onglets<T extends string>({
         padding: 4,
         borderRadius: 'var(--radius-full)',
         flex: 'none',
+        // Les onglets passent à la ligne plutôt que de pousser la page hors
+        // de l'écran. Un défilement horizontal caché serait pire : on ne
+        // devine pas qu'un onglet existe hors du cadre.
+        maxWidth: '100%',
+        flexWrap: 'wrap',
         ...style,
       }}
     >
@@ -607,18 +616,24 @@ export function TitrePage({
         display: 'flex',
         alignItems: 'flex-end',
         justifyContent: 'space-between',
-        gap: 'var(--space-8)',
+        gap: 'var(--space-5)',
+        // Le titre et ses actions passent l'un sous l'autre quand la largeur
+        // ne permet plus de les aligner. Sans cela, les boutons poussent la
+        // page hors de l'écran au lieu de descendre.
+        flexWrap: 'wrap',
       }}
     >
-      <div>
+      <div style={{ flex: '1 1 260px', minWidth: 0 }}>
         <h1
           style={{
             margin: 0,
             fontFamily: 'var(--font-display)',
             fontWeight: 400,
-            fontSize: 34,
+            // Le titre suit la largeur disponible plutôt que de déborder.
+            fontSize: 'clamp(26px, 4.4vw, 34px)',
             lineHeight: 1.12,
             color: 'var(--text-heading)',
+            textWrap: 'pretty',
           }}
         >
           {titre}
@@ -638,7 +653,14 @@ export function TitrePage({
         )}
       </div>
       {actions && (
-        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flex: 'none' }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: 'var(--space-3)',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
           {actions}
         </div>
       )}
