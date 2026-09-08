@@ -124,6 +124,28 @@ les clients, administrateur compris. Ils portent `expireLe` pour qu'une
 stratégie TTL les reprenne — la fenêtre de reprise de Cloud Functions v2 étant
 de vingt-quatre heures, sept jours de conservation suffisent largement.
 
+**Déployer l'agrégation, et purger ses marqueurs.** Trois gestes, dans cet
+ordre :
+
+1. `firebase deploy --only functions` — la fonction se déploie depuis
+   `functions/`, en `europe-west1`.
+2. `npm run stats:reprise -- --faire` — reconstruit les compteurs à partir des
+   réponses déjà en base.
+3. **Une stratégie TTL sur les marqueurs**, à créer une fois en console :
+   *Firestore → Time-to-live (TTL) → Créer une stratégie*. Groupe de
+   collections `evenements`, champ d'horodatage `expireLe`. Le groupe de
+   collections, pas un chemin : les marqueurs vivent sous
+   `questionStats/{questionId}/evenements`, et une stratégie TTL se déclare
+   toujours au niveau du groupe. En ligne de commande, l'équivalent est
+   `gcloud firestore fields ttls update expireLe --collection-group=evenements
+   --enable-ttl --project=<id>`.
+
+Sans cette stratégie, les marqueurs s'accumulent indéfiniment : environ vingt-
+six mille documents par an à raison de dix commerciaux et cinquante réponses
+par semaine. Rien ne casse, mais la base enfle pour rien. La suppression est
+asynchrone et gratuite en lecture ; seules les suppressions se facturent, au
+tarif d'une suppression ordinaire.
+
 **La reprise d'historique.** La fonction n'agrège que les réponses créées
 après son déploiement. `npm run stats:reprise` reconstruit les compteurs à
 partir des réponses déjà en base — sans quoi l'écran de statistiques
@@ -150,17 +172,57 @@ Cette décision peut être révisée si Noémie ou la direction demandent le nom
 
 | Collection | Champs | Sert à |
 |---|---|---|
-| `questions` | `statut` + `formationIds` | le tirage des séries, restreint aux publiées d'une formation (lot 5) |
-| `questions` | `statut` / `type` / `formationIds`, puis `modifieeLe` décroissant | les filtres du back-office, seuls ou combinés (lot 3) |
-| `formations` | `actif` + `nom` | la liste des formations actives, par ordre alphabétique |
-| `reponses` | `questionId` + `repondueLe` décroissant | retrouver la dernière tentative sur une question, pour la pondération du tirage |
-| `reponses` | `correcte` + `repondueLe` décroissant | l'écran « revoir mes questions ratées » |
-| `reponses` | `origine` + `repondueLe` décroissant | distinguer entraînement et session dans l'historique |
-| `sessions` | `statut` + `creeeLe` décroissant | retrouver la session en cours |
+| `questions` | `statut` / `type` / `formationIds`, seuls ou combinés, puis `modifieeLe` décroissant | les filtres de la banque, du plus récent au plus ancien (lot 3) |
+| `questions` | les mêmes sept combinaisons, puis `modifieeLe` croissant | les mêmes filtres, du plus ancien au plus récent (lot 3) |
+| `questions` | les mêmes sept combinaisons, puis `enonce` croissant | les mêmes filtres, par énoncé (lot 3) |
+| `formations` | `actif` + `nom` | la liste du back-office, au catalogue ou hors catalogue |
 
-Les dérogations (`fieldOverrides`) désactivent l'indexation automatique de `options`, `ordreOptions`, `bonnesReponses`, `optionsChoisies`, `enonce`, `explication` et `contexte`. Aucune requête ne les filtre — la recherche sur l'énoncé se fait dans le navigateur, sur une banque de quelques centaines de questions. Pour `options`, la raison est plus forte : chaque clé de map crée sinon son propre chemin indexé, et une banque de questions aux identifiants d'options variés ferait enfler l'index sans qu'aucune lecture n'en profite.
+Vingt-et-un index pour la banque : sept combinaisons de filtres, trois tris.
 
-Les index à champ unique restent automatiques : `sessions.code`, `questionStats.echecs` et les autres tris simples n'ont rien à déclarer ici.
+**Un index composite ne se parcourt pas dans les deux sens.** Firestore
+inverse l'ordre complet, pas un champ isolé : `(statut ASC, modifieeLe DESC)`
+ne sert pas un tri `(statut ASC, modifieeLe ASC)`. Chaque direction de tri
+demande son propre index. Seule la direction d'un champ filtré par égalité est
+libre, puisqu'elle ne contraint pas le résultat.
+
+**Le fichier décrit exactement ce que le code émet, dans les deux sens.** Un
+index déclaré que personne n'interroge se paie à chaque écriture sans jamais
+servir une lecture ; une requête non déclarée tombe en production. Les index
+prévus pour les lots à venir n'y figurent donc pas : ils s'ajouteront avec la
+requête qui les justifie.
+
+Les dérogations (`fieldOverrides`) désactivent l'indexation automatique de `options`, `ordreOptions`, `bonnesReponses`, `optionsChoisies`, `explication` et `contexte`. **`enonce` n'en fait plus partie** : la banque le trie côté serveur, l'index à champ unique est donc nécessaire. Les règles bornent sa longueur, l'entrée d'index reste courte. Aucune requête ne les filtre — la recherche sur l'énoncé se fait dans le navigateur, sur une banque de quelques centaines de questions. Pour `options`, la raison est plus forte : chaque clé de map crée sinon son propre chemin indexé, et une banque de questions aux identifiants d'options variés ferait enfler l'index sans qu'aucune lecture n'en profite.
+
+Les index à champ unique restent automatiques : `questions.statut`, `questions.modifieeLe`, `questions.enonce`, `formations.nom` et les autres tris simples n'ont rien à déclarer ici.
+
+### Ce qui reste au navigateur, et pourquoi
+
+**La recherche plein texte.** Firestore ne sait pas chercher dans un texte :
+ni sous-chaîne, ni insensibilité aux accents, ni recherche simultanée sur
+l'énoncé, le thème et le nom de la formation. C'est une limite du produit, pas
+un choix d'implémentation. La recherche s'applique donc à l'ensemble que les
+filtres serveur ont déjà réduit : taper un terme rapatrie cet ensemble, page
+par page, sous un plafond de mille questions — au-delà, l'écran le dit et
+invite à resserrer un filtre. Une vraie recherche exigerait un service
+d'indexation externe, décision à prendre pour elle-même.
+
+**Le tirage des séries.** La pondération du README attribue un poids à
+*chaque* question publiée avant d'en tirer dix sans remise. Il faut donc la
+liste complète des questions publiées : aucun filtre serveur ne la réduit sans
+changer l'algorithme.
+
+**L'historique d'un commercial.** Savoir si la *dernière* tentative sur une
+question est un échec suppose de connaître tout l'historique de cette
+question. `users/{uid}/reponses` est donc lu en entier — ce sont les données
+du commercial lui-même, pas la base entière, mais le volume croît avec son
+activité. Le jour où il devient gênant, la parade est un document d'état par
+question sous `users/{uid}`, tenu à jour à chaque réponse : c'est un
+changement de modèle, pas un réglage de requête.
+
+**La détection des doublons à l'import.** Elle compare l'énoncé de chaque
+ligne collée à ceux de la banque entière. Maintenant que `enonce` est indexé,
+elle pourrait passer à des requêtes `in` par lots de trente ; ce n'est pas
+fait.
 
 **Vérification obligatoire avant tout déploiement.** L'émulateur n'exige aucun index : une requête qui en manque y passe sans broncher, et n'échoue qu'en production, sur un `FAILED_PRECONDITION`, à la première requête d'un commercial. La parade est un test d'intégration contre une vraie base :
 

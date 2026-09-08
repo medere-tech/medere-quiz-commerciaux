@@ -17,9 +17,24 @@ import {
 } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
-import { LIBELLES_STATUT, LIBELLES_TYPE, TYPES_QUESTION } from '@/lib/questions/modele';
+import {
+  LIBELLES_STATUT,
+  LIBELLES_TYPE,
+  TYPES_QUESTION,
+  type TypeQuestion,
+} from '@/lib/questions/modele';
 import { chargerFormations, type Formation } from '@/lib/formations/depot';
-import { chargerQuestions, dupliquerQuestion, type Question } from '@/lib/questions/depot';
+import {
+  chargerPageQuestions,
+  chargerToutesLesQuestions,
+  compterQuestions,
+  dupliquerQuestion,
+  PLAFOND_RECHERCHE,
+  type FiltresQuestions,
+  type Question,
+  type TriQuestions,
+} from '@/lib/questions/depot';
+import type { QueryDocumentSnapshot } from 'firebase/firestore';
 import { authentification } from '@/lib/firebase/client';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
@@ -87,8 +102,16 @@ export default function PageBanque() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [formations, setFormations] = useState<Formation[]>([]);
   const [chargement, setChargement] = useState(true);
+  const [chargementSuite, setChargementSuite] = useState(false);
   const [erreur, setErreur] = useState<EchecDeLecture>();
   const [duplicationEnCours, setDuplicationEnCours] = useState<string>();
+  /** Totaux exacts, obtenus par agrégat sans lire les documents. */
+  const [total, setTotal] = useState(0);
+  const [totalBanque, setTotalBanque] = useState(0);
+  const [totalPubliees, setTotalPubliees] = useState(0);
+  const [plafondAtteint, setPlafondAtteint] = useState(false);
+  const curseur = useRef<QueryDocumentSnapshot | null>(null);
+  const [rechargements, setRechargements] = useState(0);
 
   const { valeurs, definir, chaine } = useParametresUrl(DEFAUTS);
   const recherche = valeurs.q;
@@ -106,48 +129,125 @@ export default function PageBanque() {
   const filtrer = (modifications: Partial<typeof DEFAUTS>) =>
     definir({ ...modifications, vus: String(PAR_PAGE), surligne: '' });
 
-  // Le premier chargement n'écrit aucun état avant son premier `await` :
-  // l'écran part déjà en chargement, inutile de le redemander.
+  /**
+   * Les filtres partent dans la requête. Ce qui vaut « tous » ne s'y écrit
+   * pas : une contrainte en moins, c'est un index en moins à déclarer.
+   */
+  const filtres: FiltresQuestions = useMemo(
+    () => ({
+      ...(statut === 'tout' ? {} : { statut }),
+      ...(type === 'tous' ? {} : { type: type as TypeQuestion }),
+      ...(formationId === 'toutes' ? {} : { formationId }),
+    }),
+    [statut, type, formationId],
+  );
+
+  /** Une recherche porte sur l'ensemble filtré, pas sur la page affichée. */
+  const enRecherche = recherche.trim().length > 0;
+
+  const cle = `${statut}|${type}|${formationId}|${tri}|${enRecherche}|${rechargements}`;
+
   useEffect(() => {
     let vivant = true;
 
-    async function premierChargement() {
+    async function charger() {
+      setChargement(true);
+      setErreur(undefined);
+      curseur.current = null;
+
       try {
-        const [listeQuestions, listeFormations] = await Promise.all([
-          chargerQuestions(),
+        const [listeFormations, compte, compteBanque, comptePubliees] = await Promise.all([
           chargerFormations(),
+          compterQuestions(filtres),
+          compterQuestions({}),
+          compterQuestions({ statut: 'publiee' }),
         ]);
         if (!vivant) return;
-        setQuestions(listeQuestions);
         setFormations(listeFormations);
+        setTotal(compte);
+        // L'en-tête décrit la banque, pas le filtre en cours ni la page
+        // chargée : compter les lignes à l'écran donnerait un chiffre faux.
+        setTotalBanque(compteBanque);
+        setTotalPubliees(comptePubliees);
+
+        if (enRecherche) {
+          // Firestore ne cherche pas dans un texte : pour chercher, il faut
+          // avoir sous la main l'ensemble que les filtres ont déjà réduit.
+          const { questions: toutes, atteintLePlafond } = await chargerToutesLesQuestions(
+            filtres,
+            tri as TriQuestions,
+          );
+          if (!vivant) return;
+          setQuestions(toutes);
+          setPlafondAtteint(atteintLePlafond);
+        } else {
+          /*
+           * Un curseur ne tient pas dans une URL. Pour que le retour depuis
+           * l'éditeur retrouve la ligne qu'on tenait — trois pages plus bas —
+           * on rejoue autant de pages que `vus` en demande. Coût : quelques
+           * requêtes séquentielles au retour, contre la banque entière avant.
+           */
+          const cumul: Question[] = [];
+          let suivant: QueryDocumentSnapshot | null = null;
+          let reste = true;
+
+          while (reste && cumul.length < Math.max(vus, PAR_PAGE)) {
+            const page = await chargerPageQuestions(
+              filtres,
+              tri as TriQuestions,
+              PAR_PAGE,
+              suivant,
+            );
+            if (!vivant) return;
+            cumul.push(...page.questions);
+            suivant = page.curseur;
+            reste = page.encore;
+          }
+
+          setQuestions(cumul);
+          curseur.current = suivant;
+          setPlafondAtteint(false);
+        }
       } catch (probleme) {
-        if (vivant) setErreur(echecDeLecture(probleme, 'la banque de questions'));
+        if (!vivant) return;
+        // La liste précédente ne décrit plus le filtre demandé : la garder à
+        // l'écran ferait passer un filtre en échec pour un filtre appliqué.
+        setQuestions([]);
+        setErreur(echecDeLecture(probleme, 'la banque de questions'));
       } finally {
         if (vivant) setChargement(false);
       }
     }
 
-    void premierChargement();
+    void charger();
     return () => {
       vivant = false;
     };
-  }, []);
+    // `cle` résume les filtres, le tri et les rechargements demandés.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cle]);
 
-  async function recharger() {
-    setChargement(true);
-    setErreur(undefined);
+  async function pageSuivante() {
+    if (chargementSuite || !curseur.current) return;
+    setChargementSuite(true);
     try {
-      const [listeQuestions, listeFormations] = await Promise.all([
-        chargerQuestions(),
-        chargerFormations(),
-      ]);
-      setQuestions(listeQuestions);
-      setFormations(listeFormations);
+      const page = await chargerPageQuestions(
+        filtres,
+        tri as TriQuestions,
+        PAR_PAGE,
+        curseur.current,
+      );
+      setQuestions((precedentes) => [...precedentes, ...page.questions]);
+      curseur.current = page.curseur;
     } catch (probleme) {
       setErreur(echecDeLecture(probleme, 'la banque de questions'));
     } finally {
-      setChargement(false);
+      setChargementSuite(false);
     }
+  }
+
+  function recharger() {
+    setRechargements((precedents) => precedents + 1);
   }
 
   // La barre oblique met le curseur dans la recherche, comme le prévoit la
@@ -171,40 +271,33 @@ export default function PageBanque() {
     [formations],
   );
 
+  /**
+   * Statut, format, formation et tri sont déjà appliqués par Firestore. Il ne
+   * reste ici que la recherche plein texte, que Firestore ne sait pas faire :
+   * ni sous-chaîne, ni insensibilité aux accents, ni plusieurs champs à la
+   * fois. Elle s'applique donc à l'ensemble que les filtres ont déjà réduit.
+   */
   const filtrees = useMemo(() => {
     const terme = sansAccentNiCasse(recherche);
+    if (terme.length === 0) return questions;
 
-    const retenues = questions.filter((question) => {
-      if (statut !== 'tout' && question.statut !== statut) return false;
-      if (type !== 'tous' && question.type !== type) return false;
-      if (formationId !== 'toutes' && !question.formationIds.includes(formationId)) return false;
-      if (terme.length > 0) {
-        // Le nom de la formation est le mot que Noémie a en tête — pas le
-        // thème, qu'elle a choisi elle-même il y a trois semaines. Chercher
-        // « ménopause » sans rien trouver alors que dix questions y sont
-        // rattachées, c'est le moment où l'on conclut que l'outil ne marche pas.
-        const champs = [
-          question.enonce,
-          question.theme,
-          ...question.formationIds.map((identifiant) => nomsFormations.get(identifiant) ?? ''),
-        ];
-        if (!champs.some((champ) => sansAccentNiCasse(champ).includes(terme))) return false;
-      }
-      return true;
+    return questions.filter((question) => {
+      // Le nom de la formation est le mot que Noémie a en tête — pas le
+      // thème, qu'elle a choisi elle-même il y a trois semaines. Chercher
+      // « ménopause » sans rien trouver alors que dix questions y sont
+      // rattachées, c'est le moment où l'on conclut que l'outil ne marche pas.
+      const champs = [
+        question.enonce,
+        question.theme,
+        ...question.formationIds.map((identifiant) => nomsFormations.get(identifiant) ?? ''),
+      ];
+      return champs.some((champ) => sansAccentNiCasse(champ).includes(terme));
     });
+  }, [questions, recherche, nomsFormations]);
 
-    // Le dépôt trie déjà par date décroissante ; les deux autres tris se font
-    // ici, sur la copie filtrée, sans relire la base.
-    const instant = (question: Question) => question.modifieeLe?.getTime() ?? 0;
-
-    if (tri === 'anciennes') return [...retenues].sort((a, b) => instant(a) - instant(b));
-    if (tri === 'alpha') {
-      return [...retenues].sort((a, b) => a.enonce.localeCompare(b.enonce, 'fr'));
-    }
-    return retenues;
-  }, [questions, recherche, formationId, type, statut, tri, nomsFormations]);
-
-  const visibles = filtrees.slice(0, vus);
+  // En recherche, tout ce qui correspond est affiché : la pagination porte sur
+  // la requête serveur, pas sur le filtre du navigateur.
+  const visibles = enRecherche ? filtrees : filtrees.slice(0, vus);
 
   /**
    * Retour d'édition : la question qu'on vient de quitter est ramenée sous
@@ -224,7 +317,7 @@ export default function PageBanque() {
     return `/admin/questions/${identifiant}?retour=${encodeURIComponent(retour.toString())}`;
   };
 
-  const publiees = questions.filter((question) => question.statut === 'publiee').length;
+  const publiees = totalPubliees;
 
   async function dupliquer(question: Question) {
     const utilisateur = authentification().currentUser;
@@ -252,7 +345,7 @@ export default function PageBanque() {
         sous={
           chargement
             ? 'Chargement de la banque.'
-            : `${questions.length} question${questions.length > 1 ? 's' : ''}, dont ${publiees} publiée${publiees > 1 ? 's' : ''}. Seules les questions publiées entrent dans les séries.`
+            : `${totalBanque} question${totalBanque > 1 ? 's' : ''}, dont ${publiees} publiée${publiees > 1 ? 's' : ''}. Seules les questions publiées entrent dans les séries.`
         }
         actions={
           <>
@@ -318,7 +411,9 @@ export default function PageBanque() {
         />
         <span style={{ marginLeft: 'auto' }}>
           <Meta>
-            {filtrees.length} résultat{filtrees.length > 1 ? 's' : ''} sur {questions.length}
+            {enRecherche
+              ? `${filtrees.length} résultat${filtrees.length > 1 ? 's' : ''} sur ${questions.length} question${questions.length > 1 ? 's' : ''} filtrée${questions.length > 1 ? 's' : ''}`
+              : `${visibles.length} question${visibles.length > 1 ? 's' : ''} sur ${total}`}
           </Meta>
         </span>
       </div>
@@ -366,6 +461,13 @@ export default function PageBanque() {
             </>
           }
         />
+      )}
+
+      {plafondAtteint && (
+        <Meta>
+          Recherche limitée aux {PLAFOND_RECHERCHE} premières questions du filtre. Restreignez par
+          formation, format ou statut pour chercher dans l’ensemble.
+        </Meta>
       )}
 
       {!chargement && !erreur && questions.length > 0 && filtrees.length === 0 && (
@@ -510,10 +612,13 @@ export default function PageBanque() {
 
           <ChargerPlus
             affichees={visibles.length}
-            total={filtrees.length}
+            total={enRecherche ? filtrees.length : total}
             parPage={PAR_PAGE}
             nom="questions"
-            onPlus={() => definir({ vus: String(vus + PAR_PAGE) })}
+            onPlus={() => {
+              definir({ vus: String(vus + PAR_PAGE) });
+              void pageSuivante();
+            }}
           />
         </div>
       )}

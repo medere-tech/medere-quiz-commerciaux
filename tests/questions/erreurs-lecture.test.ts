@@ -38,6 +38,16 @@ describe('echecDeLecture', () => {
     expect(echec.texte).toContain('session a expiré');
   });
 
+  it('nomme l’index manquant et retire le bouton Réessayer', () => {
+    // Un index absent ne se répare pas en réessayant : il se déploie. Promettre
+    // un rétablissement enverrait Noémie cliquer indéfiniment.
+    const echec = echecDeLecture(erreurFirebase('failed-precondition'), 'la banque de questions');
+
+    expect(echec.reessayable).toBe(false);
+    expect(echec.texte).toContain('index');
+    expect(echec.texte).toContain('la banque de questions');
+  });
+
   it('laisse réessayer quand la base n’a pas répondu', () => {
     for (const code of ['unavailable', 'deadline-exceeded']) {
       const echec = echecDeLecture(erreurFirebase(code), 'la banque de questions');

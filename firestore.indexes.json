@@ -4,100 +4,368 @@
       "collectionGroup": "questions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "statut", "order": "ASCENDING" },
-        { "fieldPath": "formationIds", "arrayConfig": "CONTAINS" }
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "questions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "statut", "order": "ASCENDING" },
-        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "questions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "enonce",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "questions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "formationIds", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "questions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "statut", "order": "ASCENDING" },
-        { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "questions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "statut", "order": "ASCENDING" },
-        { "fieldPath": "formationIds", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "enonce",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "questions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "statut", "order": "ASCENDING" },
-        { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "formationIds", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "modifieeLe", "order": "DESCENDING" }
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "enonce",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "enonce",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "enonce",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "enonce",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "modifieeLe",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "statut",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "formationIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "enonce",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "formations",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "actif", "order": "ASCENDING" },
-        { "fieldPath": "nom", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "reponses",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "questionId", "order": "ASCENDING" },
-        { "fieldPath": "repondueLe", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "reponses",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "correcte", "order": "ASCENDING" },
-        { "fieldPath": "repondueLe", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "reponses",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "origine", "order": "ASCENDING" },
-        { "fieldPath": "repondueLe", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "sessions",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "statut", "order": "ASCENDING" },
-        { "fieldPath": "creeeLe", "order": "DESCENDING" }
+        {
+          "fieldPath": "actif",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "nom",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],
@@ -115,11 +383,6 @@
     {
       "collectionGroup": "questions",
       "fieldPath": "bonnesReponses",
-      "indexes": []
-    },
-    {
-      "collectionGroup": "questions",
-      "fieldPath": "enonce",
       "indexes": []
     },
     {

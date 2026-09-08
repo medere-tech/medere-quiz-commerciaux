@@ -9,7 +9,7 @@ import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { FormeFormation, Jauge } from '@/composants/ds/parcours';
 import { chargerFormations, identiteVisuelle, type Formation } from '@/lib/formations/depot';
-import { chargerQuestions, type Question } from '@/lib/questions/depot';
+import { chargerQuestionsParStatut, type Question } from '@/lib/questions/depot';
 import { chargerStatistiques } from '@/lib/statistiques/depot';
 import type { StatsQuestion } from '@/lib/statistiques/modele';
 import {
@@ -72,17 +72,18 @@ export default function PageStatistiques() {
 
     void (async () => {
       try {
-        const [questions, formations, stats] = await Promise.all([
-          chargerQuestions(),
+        // Le filtre part dans la requête : l'écran ne parle que des questions
+        // publiées, il n'a aucune raison de télécharger les brouillons. Sans
+        // tri : le classement se fait sur le taux d'échec, calculé ici.
+        const [publiees, formations, stats] = await Promise.all([
+          chargerQuestionsParStatut('publiee'),
           chargerFormations(),
           chargerStatistiques(),
         ]);
         if (vivant) {
           setChargement({
             etat: 'pret',
-            // L'écran ne parle que des questions publiées : un brouillon
-            // n'entre dans aucune série, il ne peut pas avoir de statistique.
-            questions: questions.filter((question) => question.statut === 'publiee'),
+            questions: publiees,
             formations,
             stats,
           });
@@ -259,6 +260,41 @@ export default function PageStatistiques() {
                     />
                   ))}
             </div>
+
+            {/* Une absence inexpliquée passe pour un oubli. On dit combien de
+                questions sont écartées du classement, et pourquoi. */}
+            {vue === 'ratees' && classement.tropPeu.length > 0 && (
+              <p
+                style={{
+                  margin: 'var(--space-4) 0 0',
+                  fontSize: 'var(--body-sm-size)',
+                  lineHeight: 1.55,
+                  color: 'var(--neutral-70)',
+                  textWrap: 'pretty',
+                }}
+              >
+                {classement.tropPeu.length > 1
+                  ? `${classement.tropPeu.length} questions n’apparaissent pas`
+                  : '1 question n’apparaît pas'}{' '}
+                dans ce classement : moins de {TENTATIVES_FIABLES} réponses, un taux n’y
+                voudrait rien dire.{' '}
+                <button
+                  type="button"
+                  onClick={() => definir({ vue: 'tropPeu', vus: String(PAR_PAGE) })}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    padding: 0,
+                    font: 'inherit',
+                    color: 'var(--accent-primary)',
+                    fontWeight: 'var(--weight-semibold)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Les voir
+                </button>
+              </p>
+            )}
 
             {total === 0 && (
               <EtatVide
