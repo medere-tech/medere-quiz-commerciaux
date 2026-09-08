@@ -69,6 +69,39 @@ describe('Statistiques agrégées', () => {
   });
 });
 
+describe('Marqueurs de dédoublonnage de l’agrégation', () => {
+  /*
+   * La Cloud Function pose un marqueur par événement traité, sous
+   * `questionStats/{id}/evenements`. Aucune règle ne déclare ce chemin, donc
+   * il est fermé — y compris à l'administrateur, qui n'a rien à y faire.
+   * Le test existe pour qu'une future règle trop large sur `questionStats`
+   * (un `{document=**}` distrait) ne l'ouvre pas sans qu'on s'en aperçoive.
+   */
+  async function semerMarqueur(): Promise<void> {
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await setDoc(doc(contexte.firestore(), 'questionStats/q1/evenements/e1'), {
+        expireLe: new Date('2026-09-10T08:00:00Z'),
+      });
+    });
+  }
+
+  it('REFUS — l’administrateur ne lit pas les marqueurs', async () => {
+    await semerMarqueur();
+    await assertFails(getDoc(doc(connecte(env, NOEMIE), 'questionStats/q1/evenements/e1')));
+  });
+
+  it('REFUS — un commercial ne lit pas les marqueurs', async () => {
+    await semerMarqueur();
+    await assertFails(getDoc(doc(connecte(env, JORDAN), 'questionStats/q1/evenements/e1')));
+  });
+
+  it('REFUS — personne n’écrit de marqueur depuis un client', async () => {
+    await assertFails(
+      setDoc(doc(connecte(env, NOEMIE), 'questionStats/q1/evenements/e2'), { expireLe: new Date() }),
+    );
+  });
+});
+
 describe('État des synchronisations', () => {
   const ETAT = {
     lanceeLe: new Date('2026-09-02T06:00:00Z'),

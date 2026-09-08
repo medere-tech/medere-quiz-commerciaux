@@ -464,6 +464,23 @@ a:hover {
   align-items: start;
 }
 
+/*
+ * Bandeau de chiffres clés. Quatre de front au bureau, deux dès que la
+ * largeur ne les porte plus — jamais un seul par ligne : ces chiffres se
+ * lisent par comparaison, les empiler leur ôte leur intérêt.
+ */
+.grille-chiffres {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+@media (max-width: 1040px) {
+  .grille-chiffres {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1040px) {
   /*
    * `minmax(0, 1fr)` et non `1fr` : le minimum automatique d'une piste vaut

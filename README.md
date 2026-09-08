@@ -92,6 +92,9 @@ questionStats/{questionId}         // agrégat anonyme, écrit par Cloud Functio
   tentatives, echecs : number
   majLe : timestamp
 
+questionStats/{questionId}/evenements/{evenementId}
+  expireLe : timestamp             // marqueur de dédoublonnage, fermé à tout client
+
 sessions/{sessionId}
   code : string                    // court, lisible à voix haute
   questionIds : string[]
@@ -109,6 +112,25 @@ sessions/{sessionId}/reponses/{uid_questionId}
 ```
 
 Le modèle `formations` est fixé par `docs/airtable-formations.md`, qui fait foi : il est relevé du schéma réel de la base. L'identifiant du document Firestore est l'identifiant d'enregistrement Airtable, ce qui rend la synchronisation idempotente — relancée deux fois, elle produit le même état.
+
+**Pourquoi l'agrégat porte des marqueurs d'événements.** Cloud Functions
+garantit une livraison *au moins une fois* : le même événement peut être remis
+deux fois, et un compteur incrémenté deux fois pour une seule réponse
+discrédite tout l'écran de statistiques. La fonction pose donc, dans la même
+transaction que l'incrément, un marqueur portant l'identifiant de l'événement ;
+si le marqueur existe déjà, elle ne touche à rien. Ces documents ne servent
+qu'à cela : aucune règle ne déclare leur chemin, ils sont donc fermés à tous
+les clients, administrateur compris. Ils portent `expireLe` pour qu'une
+stratégie TTL les reprenne — la fenêtre de reprise de Cloud Functions v2 étant
+de vingt-quatre heures, sept jours de conservation suffisent largement.
+
+**La reprise d'historique.** La fonction n'agrège que les réponses créées
+après son déploiement. `npm run stats:reprise` reconstruit les compteurs à
+partir des réponses déjà en base — sans quoi l'écran de statistiques
+s'ouvrirait vide alors que l'équipe a déjà répondu des centaines de fois. Le
+script recalcule chaque agrégat en entier, donc il est rejouable ; c'est aussi
+ce qui interdit de le lancer en routine, un incrément arrivé entre sa lecture
+et son écriture serait perdu.
 
 **Pourquoi les réponses sont sous le document utilisateur.** C'est ce qui rend l'isolation des scores applicable par les règles de sécurité, et pas seulement par un filtre d'affichage. Noémie ne peut pas voir qui rate quoi, même en ouvrant la console Firebase. Elle voit les statistiques par question via `questionStats`, qui ne contient aucun identifiant.
 

@@ -137,6 +137,28 @@ const VERIFICATIONS: Verification[] = [
     requete: (base) =>
       base.collection('sessions').where('statut', '==', 'encours').orderBy('creeeLe', 'desc'),
   },
+  {
+    /*
+     * L'écran de statistiques lit `questionStats` en entier, sans filtre ni
+     * tri : le classement porte sur `echecs / tentatives`, une expression que
+     * Firestore ne sait pas trier. Aucun index composite n'est donc requis —
+     * la vérification existe pour le prouver plutôt que pour le supposer, et
+     * pour tomber le jour où quelqu'un ajoutera un filtre à cette lecture.
+     */
+    nom: 'statistiques agrégées, lecture complète',
+    lot: 'lot 6',
+    requete: (base) => base.collection('questionStats'),
+  },
+  {
+    /*
+     * La banque et l'écran de statistiques lisent les questions par cette
+     * seule requête, puis filtrent dans le navigateur. Un champ, un tri :
+     * l'index à champ unique est automatique.
+     */
+    nom: 'questions, les plus récentes d’abord',
+    lot: 'lots 3 et 6',
+    requete: (base) => base.collection('questions').orderBy('modifieeLe', 'desc'),
+  },
 ];
 
 /** Les index se construisent en arrière-plan : on attend qu'ils soient prêts. */

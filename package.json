@@ -17,6 +17,7 @@
     "emulateurs": "firebase emulators:start --only firestore --project demo-medere-quiz",
     "regles:deploy": "firebase deploy --only firestore:rules && npm run regles:verifier",
     "index:verifier": "node --env-file=.env.local scripts/verifier-index.ts",
+    "stats:reprise": "node --env-file=.env.local scripts/agreger-historique.ts",
     "regles:verifier": "node --env-file=.env.local scripts/verifier-regles.ts"
   },
   "dependencies": {
