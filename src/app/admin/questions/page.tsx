@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Route } from 'next';
 import { useRouter } from 'next/navigation';
 
 import {
@@ -21,6 +22,9 @@ import { chargerFormations, type Formation } from '@/lib/formations/depot';
 import { chargerQuestions, dupliquerQuestion, type Question } from '@/lib/questions/depot';
 import { authentification } from '@/lib/firebase/client';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
+import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
+import { ChargerPlus } from '@/composants/admin/ChargerPlus';
+import { sansAccentNiCasse } from '@/lib/texte';
 
 /**
  * 06 · Banque de questions.
@@ -38,6 +42,39 @@ const ONGLETS_STATUT = [
   { valeur: 'brouillon' as const, libelle: 'Brouillons' },
 ];
 
+/**
+ * Les routes typées de Next n'acceptent pas toujours un littéral passé
+ * directement à `router.push`. L'annoter une fois, comme le fait la coquille
+ * pour sa navigation, vaut mieux qu'un cast à chaque appel.
+ */
+const ROUTE_IMPORT: Route = '/admin/import';
+
+/** Combien de lignes de plus à chaque « voir plus ». */
+const PAR_PAGE = 50;
+
+const TRIS = [
+  { valeur: 'recentes', libelle: 'Modifiées en dernier' },
+  { valeur: 'anciennes', libelle: 'Modifiées il y a longtemps' },
+  { valeur: 'alpha', libelle: 'Énoncé de A à Z' },
+] as const;
+
+type Tri = (typeof TRIS)[number]['valeur'];
+
+/**
+ * L'état de la liste, tenu par l'URL. Les valeurs par défaut ne s'y écrivent
+ * pas : `/admin/questions` reste l'adresse de la vue par défaut.
+ */
+const DEFAUTS = {
+  q: '',
+  formation: 'toutes',
+  type: 'tous',
+  statut: 'tout',
+  tri: 'recentes',
+  vus: String(PAR_PAGE),
+  /** Question qu'on vient de quitter : on la remet sous les yeux. */
+  surligne: '',
+};
+
 function dateCourte(valeur: Date | null): string {
   if (!valeur) return '—';
   return valeur.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
@@ -53,10 +90,21 @@ export default function PageBanque() {
   const [erreur, setErreur] = useState<EchecDeLecture>();
   const [duplicationEnCours, setDuplicationEnCours] = useState<string>();
 
-  const [recherche, setRecherche] = useState('');
-  const [formationId, setFormationId] = useState('toutes');
-  const [type, setType] = useState('tous');
-  const [statut, setStatut] = useState<FiltreStatut>('tout');
+  const { valeurs, definir, chaine } = useParametresUrl(DEFAUTS);
+  const recherche = valeurs.q;
+  const formationId = valeurs.formation;
+  const type = valeurs.type;
+  const statut = valeurs.statut as FiltreStatut;
+  const tri = valeurs.tri as Tri;
+  const vus = entierBorne(valeurs.vus, PAR_PAGE, 1);
+
+  /**
+   * Filtrer, chercher ou trier repose la question : on repart du haut de la
+   * liste. Continuer à afficher trois cents lignes d'un filtre qu'on vient de
+   * changer n'aurait aucun sens.
+   */
+  const filtrer = (modifications: Partial<typeof DEFAUTS>) =>
+    definir({ ...modifications, vus: String(PAR_PAGE), surligne: '' });
 
   // Le premier chargement n'écrit aucun état avant son premier `await` :
   // l'écran part déjà en chargement, inutile de le redemander.
@@ -124,20 +172,57 @@ export default function PageBanque() {
   );
 
   const filtrees = useMemo(() => {
-    const terme = recherche.trim().toLowerCase();
+    const terme = sansAccentNiCasse(recherche);
 
-    return questions.filter((question) => {
+    const retenues = questions.filter((question) => {
       if (statut !== 'tout' && question.statut !== statut) return false;
       if (type !== 'tous' && question.type !== type) return false;
       if (formationId !== 'toutes' && !question.formationIds.includes(formationId)) return false;
       if (terme.length > 0) {
-        const dansEnonce = question.enonce.toLowerCase().includes(terme);
-        const dansTheme = question.theme.toLowerCase().includes(terme);
-        if (!dansEnonce && !dansTheme) return false;
+        // Le nom de la formation est le mot que Noémie a en tête — pas le
+        // thème, qu'elle a choisi elle-même il y a trois semaines. Chercher
+        // « ménopause » sans rien trouver alors que dix questions y sont
+        // rattachées, c'est le moment où l'on conclut que l'outil ne marche pas.
+        const champs = [
+          question.enonce,
+          question.theme,
+          ...question.formationIds.map((identifiant) => nomsFormations.get(identifiant) ?? ''),
+        ];
+        if (!champs.some((champ) => sansAccentNiCasse(champ).includes(terme))) return false;
       }
       return true;
     });
-  }, [questions, recherche, formationId, type, statut]);
+
+    // Le dépôt trie déjà par date décroissante ; les deux autres tris se font
+    // ici, sur la copie filtrée, sans relire la base.
+    const instant = (question: Question) => question.modifieeLe?.getTime() ?? 0;
+
+    if (tri === 'anciennes') return [...retenues].sort((a, b) => instant(a) - instant(b));
+    if (tri === 'alpha') {
+      return [...retenues].sort((a, b) => a.enonce.localeCompare(b.enonce, 'fr'));
+    }
+    return retenues;
+  }, [questions, recherche, formationId, type, statut, tri, nomsFormations]);
+
+  const visibles = filtrees.slice(0, vus);
+
+  /**
+   * Retour d'édition : la question qu'on vient de quitter est ramenée sous
+   * les yeux. Sans cela, revenir d'une correction fait rouvrir la liste en
+   * haut, et il faut retrouver à la main la ligne qu'on tenait.
+   */
+  useEffect(() => {
+    if (!valeurs.surligne || chargement) return;
+    const ligne = document.getElementById(`question-${valeurs.surligne}`);
+    ligne?.scrollIntoView({ block: 'center', behavior: 'auto' });
+  }, [valeurs.surligne, chargement, vus]);
+
+  /** Lien vers l'éditeur, en emportant de quoi revenir exactement ici. */
+  const versEditeur = (identifiant: string) => {
+    const retour = new URLSearchParams(chaine);
+    retour.set('surligne', identifiant);
+    return `/admin/questions/${identifiant}?retour=${encodeURIComponent(retour.toString())}`;
+  };
 
   const publiees = questions.filter((question) => question.statut === 'publiee').length;
 
@@ -161,16 +246,7 @@ export default function PageBanque() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        padding: '36px 40px',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-6)',
-      }}
-    >
+    <div className="page-admin">
       <TitrePage
         titre="Banque de questions"
         sous={
@@ -179,13 +255,23 @@ export default function PageBanque() {
             : `${questions.length} question${questions.length > 1 ? 's' : ''}, dont ${publiees} publiée${publiees > 1 ? 's' : ''}. Seules les questions publiées entrent dans les séries.`
         }
         actions={
-          <Bouton
-            taille="lg"
-            iconeGauche={<Icone nom="plus" taille={16} />}
-            onClick={() => router.push('/admin/questions/nouvelle')}
-          >
-            Nouvelle question
-          </Bouton>
+          <>
+            <Bouton
+              taille="lg"
+              variante="secondaire"
+              iconeGauche={<Icone nom="upload" taille={16} />}
+              onClick={() => router.push(ROUTE_IMPORT)}
+            >
+              Importer
+            </Bouton>
+            <Bouton
+              taille="lg"
+              iconeGauche={<Icone nom="plus" taille={16} />}
+              onClick={() => router.push('/admin/questions/nouvelle')}
+            >
+              Nouvelle question
+            </Bouton>
+          </>
         }
       />
 
@@ -193,16 +279,16 @@ export default function PageBanque() {
         <Champ
           ref={champRecherche}
           value={recherche}
-          onChange={setRecherche}
-          placeholder="Rechercher dans les énoncés"
+          onChange={(valeur) => filtrer({ q: valeur })}
+          placeholder="Rechercher : énoncé, thème ou formation"
           prefixe={<Icone nom="search" taille={17} couleur="var(--neutral-50)" />}
           suffixe={<Touche>/</Touche>}
-          style={{ width: 340, flex: 'none' }}
+          style={{ flex: '1 1 240px', minWidth: 0, maxWidth: 340 }}
         />
         <Selecteur
           value={formationId}
-          onChange={setFormationId}
-          style={{ width: 240, flex: 'none' }}
+          onChange={(valeur) => filtrer({ formation: valeur })}
+          style={{ flex: '1 1 200px', minWidth: 0, maxWidth: 240 }}
           options={[
             { valeur: 'toutes', libelle: 'Toutes les formations' },
             ...formations
@@ -212,14 +298,24 @@ export default function PageBanque() {
         />
         <Selecteur
           value={type}
-          onChange={setType}
-          style={{ width: 190, flex: 'none' }}
+          onChange={(valeur) => filtrer({ type: valeur })}
+          style={{ flex: '1 1 160px', minWidth: 0, maxWidth: 190 }}
           options={[
             { valeur: 'tous', libelle: 'Tous les formats' },
             ...TYPES_QUESTION.map((valeur) => ({ valeur, libelle: LIBELLES_TYPE[valeur] })),
           ]}
         />
-        <Onglets items={ONGLETS_STATUT} valeur={statut} onChange={setStatut} />
+        <Onglets
+          items={ONGLETS_STATUT}
+          valeur={statut}
+          onChange={(valeur) => filtrer({ statut: valeur })}
+        />
+        <Selecteur
+          value={tri}
+          onChange={(valeur) => filtrer({ tri: valeur })}
+          style={{ flex: '1 1 190px', minWidth: 0, maxWidth: 230 }}
+          options={TRIS.map((option) => ({ valeur: option.valeur, libelle: option.libelle }))}
+        />
         <span style={{ marginLeft: 'auto' }}>
           <Meta>
             {filtrees.length} résultat{filtrees.length > 1 ? 's' : ''} sur {questions.length}
@@ -251,14 +347,23 @@ export default function PageBanque() {
         <EtatVide
           icone="layers"
           titre="Aucune question pour le moment"
-          texte="Écrivez la première. L'import en masse arrive au prochain lot ; en attendant, l'éditeur suffit à constituer la banque."
+          texte="Écrivez la première, ou collez un lot entier depuis votre tableur. Tout ce qui est importé arrive en brouillon."
           actions={
-            <Bouton
-              iconeGauche={<Icone nom="plus" taille={16} />}
-              onClick={() => router.push('/admin/questions/nouvelle')}
-            >
-              Nouvelle question
-            </Bouton>
+            <>
+              <Bouton
+                variante="secondaire"
+                iconeGauche={<Icone nom="upload" taille={16} />}
+                onClick={() => router.push(ROUTE_IMPORT)}
+              >
+                Importer un lot
+              </Bouton>
+              <Bouton
+                iconeGauche={<Icone nom="plus" taille={16} />}
+                onClick={() => router.push('/admin/questions/nouvelle')}
+              >
+                Nouvelle question
+              </Bouton>
+            </>
           }
         />
       )}
@@ -272,10 +377,7 @@ export default function PageBanque() {
             <Bouton
               variante="secondaire"
               onClick={() => {
-                setRecherche('');
-                setFormationId('toutes');
-                setType('tous');
-                setStatut('tout');
+                filtrer({ q: '', formation: 'toutes', type: 'tous', statut: 'tout' });
               }}
             >
               Effacer les filtres
@@ -287,6 +389,7 @@ export default function PageBanque() {
       {!chargement && filtrees.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div
+            className="entete-colonnes"
             style={{
               display: 'flex',
               gap: 'var(--space-5)',
@@ -306,20 +409,31 @@ export default function PageBanque() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {filtrees.map((question) => (
+            {visibles.map((question) => (
+              <div key={question.id} id={`question-${question.id}`}>
               <Carte
-                key={question.id}
                 rayon="var(--radius-md)"
                 rembourrage="14px 20px"
                 elevation="petite"
-                style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-5)' }}
+                className="ligne-tableau"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-5)',
+                  // Cadre complet, jamais un filet d'un seul côté : la ligne
+                  // qu'on vient de quitter se retrouve d'un coup d'œil.
+                  border:
+                    valeurs.surligne === question.id
+                      ? '1px solid var(--accent-primary)'
+                      : '1px solid transparent',
+                }}
               >
-                <span style={{ width: 82, flex: 'none' }}>
+                <span className="colonne-fixe" style={{ width: 82, flex: 'none' }}>
                   <EtiquetteStatut ton={question.statut === 'publiee' ? 'publiee' : 'brouillon'}>
                     {LIBELLES_STATUT[question.statut] ?? question.statut}
                   </EtiquetteStatut>
                 </span>
-                <span style={{ flex: 1, minWidth: 0 }}>
+                <span className="colonne-souple" style={{ flex: 1, minWidth: 0 }}>
                   <span
                     style={{
                       display: 'block',
@@ -339,6 +453,7 @@ export default function PageBanque() {
                   </Meta>
                 </span>
                 <span
+                  className="colonne-fixe"
                   style={{
                     width: 130,
                     flex: 'none',
@@ -349,6 +464,7 @@ export default function PageBanque() {
                   {LIBELLES_TYPE[question.type] ?? question.type}
                 </span>
                 <span
+                  className="colonne-fixe"
                   style={{
                     width: 110,
                     flex: 'none',
@@ -359,25 +475,27 @@ export default function PageBanque() {
                   {dateCourte(question.modifieeLe)}
                 </span>
                 <span
+                  className="colonne-fixe"
                   style={{
                     width: 64,
                     flex: 'none',
                     display: 'flex',
                     gap: 4,
                     justifyContent: 'flex-end',
+                    marginLeft: 'auto',
                   }}
                 >
                   <button
                     type="button"
-                    aria-label="Modifier cette question"
-                    onClick={() => router.push(`/admin/questions/${question.id}`)}
+                    aria-label={`Modifier : ${question.enonce}`}
+                    onClick={() => router.push(versEditeur(question.id) as Route)}
                     style={boutonLigne}
                   >
                     <Icone nom="pencil" taille={16} />
                   </button>
                   <button
                     type="button"
-                    aria-label="Dupliquer cette question"
+                    aria-label={`Dupliquer : ${question.enonce}`}
                     disabled={duplicationEnCours === question.id}
                     onClick={() => void dupliquer(question)}
                     style={boutonLigne}
@@ -386,8 +504,17 @@ export default function PageBanque() {
                   </button>
                 </span>
               </Carte>
+              </div>
             ))}
           </div>
+
+          <ChargerPlus
+            affichees={visibles.length}
+            total={filtrees.length}
+            parPage={PAR_PAGE}
+            nom="questions"
+            onPlus={() => definir({ vus: String(vus + PAR_PAGE) })}
+          />
         </div>
       )}
     </div>

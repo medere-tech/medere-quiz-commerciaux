@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers';
 import type { ReactNode } from 'react';
 
 import { ConnexionAdmin, GardeNavigateur } from '@/composants/admin/acces';
@@ -19,8 +20,15 @@ export default async function DispositionAdmin({ children }: { children: ReactNo
   if (!session) return <ConnexionAdmin motif="anonyme" />;
   if (!session.admin) return <ConnexionAdmin motif="sans-droits" />;
 
+  // Le repli de la barre latérale est lu ici plutôt que dans le navigateur :
+  // la barre s'affiche déjà dans le bon état au premier rendu, sans battement.
+  // Sans témoin, l'état reste « automatique » et c'est la largeur qui tranche.
+  const temoins = await cookies();
+  const choisi = temoins.get('medere-barre')?.value;
+  const barreReduite = choisi === 'reduite' || choisi === 'etendue' ? choisi : 'auto';
+
   return (
-    <CoquilleAdmin nom={session.nom || session.email}>
+    <CoquilleAdmin nom={session.nom || session.email} barreReduite={barreReduite}>
       <GardeNavigateur>{children}</GardeNavigateur>
     </CoquilleAdmin>
   );

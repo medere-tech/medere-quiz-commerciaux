@@ -21,6 +21,8 @@ import {
   type RapportSynchronisation,
 } from '@/lib/formations/depot';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
+import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
+import { ChargerPlus } from '@/composants/admin/ChargerPlus';
 
 /**
  * 11 · Formations.
@@ -80,6 +82,19 @@ function ecartsDe(rapport: {
     statutsAbsents: rapport.statutsAbsents ?? [],
   };
 }
+
+/** Combien de formations de plus à chaque « voir plus ». */
+const PAR_PAGE = 60;
+
+/**
+ * L'état de la liste vit dans l'URL, comme celui de la banque : on revient
+ * d'une recherche sans la refaire, et un lien désigne une vue précise.
+ */
+const DEFAUTS = {
+  q: '',
+  filtre: 'actives',
+  vus: String(PAR_PAGE),
+};
 
 const ONGLETS = [
   { valeur: 'actives' as const, libelle: 'Au catalogue' },
@@ -316,8 +331,14 @@ export default function PageFormations() {
   const [formations, setFormations] = useState<Formation[]>([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<EchecDeLecture>();
-  const [recherche, setRecherche] = useState('');
-  const [filtre, setFiltre] = useState<'actives' | 'inactives' | 'toutes'>('actives');
+  const { valeurs, definir } = useParametresUrl(DEFAUTS);
+  const recherche = valeurs.q;
+  const filtre = valeurs.filtre as 'actives' | 'inactives' | 'toutes';
+  const vus = entierBorne(valeurs.vus, PAR_PAGE, 1);
+
+  /** Chercher ou changer de filtre repose la question : on repart du haut. */
+  const filtrer = (modifications: Partial<typeof DEFAUTS>) =>
+    definir({ ...modifications, vus: String(PAR_PAGE) });
 
   const [synchronisation, setSynchronisation] = useState(false);
   const [rapport, setRapport] = useState<Rapport>();
@@ -413,23 +434,17 @@ export default function PageFormations() {
           formation.numeroActionDpc.toLowerCase().includes(terme) ||
           formation.cibles.some((cible) => cible.toLowerCase().includes(terme))
         );
-      })
-      .slice(0, 120);
+      });
   }, [formations, recherche, filtre]);
+
+  // Le plafond n'est plus une coupe sèche : il se relève à la demande, et le
+  // pied de liste dit toujours combien de formations restent derrière.
+  const visibles = filtrees.slice(0, vus);
 
   const actives = formations.filter((formation) => formation.actif).length;
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        padding: '36px 40px',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-6)',
-      }}
-    >
+    <div className="page-admin">
       <TitrePage
         titre="Formations"
         sous={
@@ -490,16 +505,15 @@ export default function PageFormations() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
         <Champ
           value={recherche}
-          onChange={setRecherche}
+          onChange={(valeur) => filtrer({ q: valeur })}
           placeholder="Chercher par nom, numéro d'action ou public"
           prefixe={<Icone nom="search" taille={17} couleur="var(--neutral-50)" />}
-          style={{ width: 380, flex: 'none' }}
+          style={{ flex: '1 1 260px', minWidth: 0, maxWidth: 380 }}
         />
-        <Onglets items={ONGLETS} valeur={filtre} onChange={setFiltre} />
+        <Onglets items={ONGLETS} valeur={filtre} onChange={(valeur) => filtrer({ filtre: valeur })} />
         <span style={{ marginLeft: 'auto' }}>
           <Meta>
-            {filtrees.length} affichée{filtrees.length > 1 ? 's' : ''}
-            {filtrees.length === 120 ? ' — affinez la recherche pour voir les suivantes' : ''}
+            {filtrees.length} résultat{filtrees.length > 1 ? 's' : ''} sur {formations.length}
           </Meta>
         </span>
       </div>
@@ -555,11 +569,11 @@ export default function PageFormations() {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(min(300px, 100%), 1fr))',
             gap: 'var(--space-4)',
           }}
         >
-          {filtrees.map((formation) => {
+          {visibles.map((formation) => {
             const identite = identiteVisuelle(formation);
             return (
               <Carte
@@ -644,6 +658,16 @@ export default function PageFormations() {
             );
           })}
         </div>
+      )}
+
+      {!chargement && (
+        <ChargerPlus
+          affichees={visibles.length}
+          total={filtrees.length}
+          parPage={PAR_PAGE}
+          nom="formations"
+          onPlus={() => definir({ vus: String(vus + PAR_PAGE) })}
+        />
       )}
     </div>
   );

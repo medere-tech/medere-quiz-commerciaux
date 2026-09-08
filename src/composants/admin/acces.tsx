@@ -138,7 +138,7 @@ export function GardeNavigateur({ children }: { children: ReactNode }) {
   // squelettes, sans phrase. Le mot « Firebase » ne disait rien à personne.
   if (utilisateur === undefined) {
     return attenteVisible ? (
-      <div style={{ padding: '36px 40px' }}>
+      <div style={{ padding: 'clamp(20px, 3.2vw, 36px) clamp(16px, 3.2vw, 40px)' }}>
         <Squelettes lignes={5} />
       </div>
     ) : null;
@@ -146,7 +146,7 @@ export function GardeNavigateur({ children }: { children: ReactNode }) {
 
   if (utilisateur === null) {
     return (
-      <div style={{ padding: '36px 40px' }}>
+      <div style={{ padding: 'clamp(20px, 3.2vw, 36px) clamp(16px, 3.2vw, 40px)' }}>
         <EtatErreur
           titre="Votre session a expiré dans ce navigateur"
           texte="Vos questions sont enregistrées. Reconnectez-vous pour reprendre la main sur la banque."

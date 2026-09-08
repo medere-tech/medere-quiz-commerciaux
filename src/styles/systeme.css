@@ -268,3 +268,260 @@ a:hover {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ------------------------------------------------------ coquille et pages */
+
+/*
+ * Le back-office se consulte au bureau et sur un téléphone. Noémie n'y
+ * écrira pas ses questions à la main sur un écran de 375 pixels, mais elle y
+ * vérifiera une question dont un commercial lui parle, et lancera une
+ * synchronisation depuis un train.
+ *
+ * Ces règles vivent ici et non en style en ligne : une bascule de mise en
+ * page appartient à une requête de média. La faire en JavaScript demanderait
+ * de mesurer la fenêtre au rendu, ce qui produit un écart entre le serveur
+ * et le navigateur, et un scintillement au chargement.
+ *
+ * Seuil unique : 900 pixels. Au-delà, barre latérale permanente, repliable
+ * aux icônes. En deçà, barre en tiroir et barre haute avec son bouton.
+ */
+
+.coquille {
+  display: flex;
+  min-height: 100vh;
+}
+
+.coquille-nav {
+  width: 232px;
+  flex: none;
+  background: var(--surface-card);
+  padding: 22px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  box-sizing: border-box;
+  transition: width var(--duration-base) var(--ease-standard);
+}
+
+/* Repliée : les icônes seules, et le libellé passe en infobulle native. */
+.coquille-nav[data-reduite='reduite'] {
+  width: 68px;
+  padding: 22px 10px;
+  align-items: stretch;
+}
+
+.coquille-libelle {
+  display: flex;
+  min-width: 0;
+}
+
+.coquille-nav[data-reduite='reduite'] .coquille-libelle {
+  display: none;
+}
+
+/* Le chevron pointe vers le mouvement à venir : replier, ou déplier. */
+.coquille-chevron {
+  display: flex;
+  transform: rotate(180deg);
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+
+.coquille-nav[data-reduite='reduite'] .coquille-chevron {
+  transform: none;
+}
+
+/*
+ * Second seuil. Entre les deux, la barre est repliée par défaut : sur une
+ * tablette en paysage, 232 pixels de navigation permanente prennent la place
+ * de la colonne de travail. Le bouton reste là pour l'étendre, et ce choix,
+ * une fois posé, l'emporte à toutes les largeurs.
+ */
+@media (max-width: 1200px) {
+  .coquille-nav[data-reduite='auto'] {
+    width: 68px;
+    padding: 22px 10px;
+    align-items: stretch;
+  }
+
+  .coquille-nav[data-reduite='auto'] .coquille-libelle {
+    display: none;
+  }
+
+  .coquille-nav[data-reduite='auto'] .coquille-initiales {
+    display: flex;
+    justify-content: center;
+  }
+
+  .coquille-nav[data-reduite='auto'] .coquille-chevron {
+    transform: none;
+  }
+}
+
+.coquille-contenu {
+  flex: 1;
+  min-width: 0;
+}
+
+.coquille-entete {
+  display: none;
+}
+
+.coquille-voile {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .coquille {
+    flex-direction: column;
+  }
+
+  /* Barre haute : la seule prise vers la navigation quand elle est cachée. */
+  .coquille-entete {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 10px 14px;
+    background: var(--surface-card);
+    box-shadow: var(--shadow-card-sm);
+  }
+
+  .coquille-nav {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 50;
+    width: min(272px, 82vw);
+    transform: translateX(-100%);
+    transition: transform var(--duration-base) var(--ease-out);
+    box-shadow: var(--shadow-raised);
+    overflow-y: auto;
+  }
+
+  /* Le repli est un confort de bureau : en tiroir, la barre est entière. */
+  .coquille-nav[data-reduite='reduite'],
+  .coquille-nav[data-reduite='auto'] {
+    width: min(272px, 82vw);
+    padding: 22px 16px;
+  }
+
+  .coquille-nav[data-reduite='reduite'] .coquille-libelle,
+  .coquille-nav[data-reduite='auto'] .coquille-libelle {
+    display: flex;
+  }
+
+  .coquille-nav[data-ouvert='true'] {
+    transform: translateX(0);
+  }
+
+  .coquille-voile {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(48, 45, 45, 0.38);
+    border: none;
+    padding: 0;
+  }
+}
+
+/*
+ * Gouttière des pages. Quarante pixels de chaque côté sur un écran de 375 en
+ * mangent un cinquième : la marge se resserre avec la fenêtre.
+ */
+.page-admin {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: clamp(20px, 3.2vw, 36px) clamp(16px, 3.2vw, 40px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* Deux colonnes au bureau, une seule dès que la place manque. */
+.grille-deux-colonnes {
+  display: grid;
+  gap: var(--space-8);
+  align-items: start;
+}
+
+@media (max-width: 1040px) {
+  .grille-deux-colonnes {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/*
+ * Ligne de tableau. Au bureau, des colonnes alignées ; en dessous, la ligne
+ * se replie en bloc — le titre d'abord, ses attributs ensuite — et l'en-tête
+ * de colonnes disparaît puisqu'il n'a plus de colonnes à nommer.
+ */
+@media (max-width: 760px) {
+  .entete-colonnes {
+    display: none !important;
+  }
+
+  .ligne-tableau {
+    flex-wrap: wrap;
+    row-gap: var(--space-2) !important;
+  }
+
+  .ligne-tableau .colonne-souple {
+    flex: 1 1 100% !important;
+    order: -1;
+  }
+
+  .ligne-tableau .colonne-fixe {
+    width: auto !important;
+  }
+}
+
+/*
+ * Repli et tiroir : ce que l'un cache, l'autre le montre.
+ *
+ * Le composant ne sait pas s'il est rendu en colonne ou en tiroir — c'est une
+ * affaire de largeur, donc de feuille de style. Il rend les deux formes, et
+ * les règles ci-dessous décident laquelle paraît.
+ */
+.coquille-menu,
+.coquille-repli,
+.coquille-fermer {
+  align-items: center;
+  justify-content: center;
+}
+
+.coquille-repli {
+  display: flex;
+}
+
+.coquille-initiales,
+.coquille-fermer,
+.coquille-menu {
+  display: none;
+}
+
+.coquille-nav[data-reduite='reduite'] .coquille-initiales {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  /* En tiroir, la place ne manque pas : la barre est toujours entière. */
+  .coquille-nav[data-reduite='reduite'] .coquille-initiales,
+  .coquille-nav[data-reduite='auto'] .coquille-initiales {
+    display: none;
+  }
+
+  /* Replier un tiroir n'a pas de sens ; le fermer, si. */
+  .coquille-repli {
+    display: none;
+  }
+
+  .coquille-fermer,
+  .coquille-menu {
+    display: flex;
+  }
+}
