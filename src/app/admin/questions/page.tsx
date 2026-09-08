@@ -24,6 +24,7 @@ import { authentification } from '@/lib/firebase/client';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
 import { ChargerPlus } from '@/composants/admin/ChargerPlus';
+import { sansAccentNiCasse } from '@/lib/texte';
 
 /**
  * 06 · Banque de questions.
@@ -171,16 +172,23 @@ export default function PageBanque() {
   );
 
   const filtrees = useMemo(() => {
-    const terme = recherche.trim().toLowerCase();
+    const terme = sansAccentNiCasse(recherche);
 
     const retenues = questions.filter((question) => {
       if (statut !== 'tout' && question.statut !== statut) return false;
       if (type !== 'tous' && question.type !== type) return false;
       if (formationId !== 'toutes' && !question.formationIds.includes(formationId)) return false;
       if (terme.length > 0) {
-        const dansEnonce = question.enonce.toLowerCase().includes(terme);
-        const dansTheme = question.theme.toLowerCase().includes(terme);
-        if (!dansEnonce && !dansTheme) return false;
+        // Le nom de la formation est le mot que Noémie a en tête — pas le
+        // thème, qu'elle a choisi elle-même il y a trois semaines. Chercher
+        // « ménopause » sans rien trouver alors que dix questions y sont
+        // rattachées, c'est le moment où l'on conclut que l'outil ne marche pas.
+        const champs = [
+          question.enonce,
+          question.theme,
+          ...question.formationIds.map((identifiant) => nomsFormations.get(identifiant) ?? ''),
+        ];
+        if (!champs.some((champ) => sansAccentNiCasse(champ).includes(terme))) return false;
       }
       return true;
     });
@@ -194,7 +202,7 @@ export default function PageBanque() {
       return [...retenues].sort((a, b) => a.enonce.localeCompare(b.enonce, 'fr'));
     }
     return retenues;
-  }, [questions, recherche, formationId, type, statut, tri]);
+  }, [questions, recherche, formationId, type, statut, tri, nomsFormations]);
 
   const visibles = filtrees.slice(0, vus);
 
@@ -272,7 +280,7 @@ export default function PageBanque() {
           ref={champRecherche}
           value={recherche}
           onChange={(valeur) => filtrer({ q: valeur })}
-          placeholder="Rechercher dans les énoncés"
+          placeholder="Rechercher : énoncé, thème ou formation"
           prefixe={<Icone nom="search" taille={17} couleur="var(--neutral-50)" />}
           suffixe={<Touche>/</Touche>}
           style={{ flex: '1 1 240px', minWidth: 0, maxWidth: 340 }}

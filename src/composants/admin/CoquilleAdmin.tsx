@@ -3,10 +3,11 @@
 import type { Route } from 'next';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Icone, type NomIcone } from '@/composants/ds/Icone';
 import { seDeconnecter } from '@/lib/auth/connexion-client';
+import { usePanneauSuperpose } from '@/lib/navigation/panneau-superpose';
 
 /**
  * Coquille du back-office : navigation et zone de travail.
@@ -31,6 +32,17 @@ import { seDeconnecter } from '@/lib/auth/connexion-client';
 
 /** Témoin de préférence, sans donnée personnelle. Un an. */
 const TEMOIN_BARRE = 'medere-barre';
+
+/**
+ * Trois états, et non deux.
+ *
+ * Tant que personne n'a choisi, la barre est en « automatique » : c'est la
+ * largeur qui décide, et la feuille de style s'en charge — repliée sur une
+ * tablette en paysage, entière sur un grand écran. Dès que Noémie touche au
+ * bouton, son choix l'emporte à toutes les largeurs : une préférence exprimée
+ * ne se fait pas contredire par une rotation d'écran.
+ */
+type EtatBarre = 'auto' | 'reduite' | 'etendue';
 
 type Entree = {
   libelle: string;
@@ -213,17 +225,22 @@ function PastilleUtilisateur({ nom, role }: { nom: string; role: string }) {
 
 export function CoquilleAdmin({
   nom,
-  barreReduite = false,
+  barreReduite = 'auto',
   children,
 }: {
   nom: string;
   /** État du repli au premier rendu, lu du témoin par le serveur. */
-  barreReduite?: boolean;
+  barreReduite?: EtatBarre;
   children: ReactNode;
 }) {
   const chemin = usePathname();
-  const [reduite, setReduite] = useState(barreReduite);
+  const [etat, setEtat] = useState<EtatBarre>(barreReduite);
   const [tiroirOuvert, setTiroirOuvert] = useState(false);
+  const tiroir = useRef<HTMLElement | null>(null);
+
+  // Le fond devient inerte tant que le tiroir est ouvert, le focus y entre,
+  // et il revient au bouton qui l'a ouvert à la fermeture.
+  usePanneauSuperpose(tiroirOuvert, tiroir);
 
   // Échap referme, comme tout ce qui se superpose à une page.
   useEffect(() => {
@@ -235,10 +252,16 @@ export function CoquilleAdmin({
     return () => window.removeEventListener('keydown', surTouche);
   }, [tiroirOuvert]);
 
+  /**
+   * En automatique, le composant ignore si la barre paraît repliée ou non :
+   * c'est une requête de média qui en décide. On bascule donc par rapport à
+   * ce qui est réellement affiché, mesuré sur l'élément.
+   */
   function basculerRepli() {
-    const suivant = !reduite;
-    setReduite(suivant);
-    document.cookie = `${TEMOIN_BARRE}=${suivant ? 'reduite' : 'etendue'}; path=/; max-age=31536000; samesite=lax`;
+    const largeur = tiroir.current?.getBoundingClientRect().width ?? 0;
+    const suivant: EtatBarre = largeur < 120 ? 'etendue' : 'reduite';
+    setEtat(suivant);
+    document.cookie = `${TEMOIN_BARRE}=${suivant}; path=/; max-age=31536000; samesite=lax`;
   }
 
   return (
@@ -261,14 +284,16 @@ export function CoquilleAdmin({
         <button
           type="button"
           className="coquille-voile"
+          data-superpose="voile"
           aria-label="Fermer la navigation"
           onClick={() => setTiroirOuvert(false)}
         />
       )}
 
       <nav
+        ref={tiroir}
         className="coquille-nav"
-        data-reduite={reduite ? 'true' : 'false'}
+        data-reduite={etat}
         data-ouvert={tiroirOuvert ? 'true' : 'false'}
         aria-label="Sections du back-office"
       >
@@ -294,19 +319,16 @@ export function CoquilleAdmin({
             type="button"
             className="coquille-repli"
             onClick={basculerRepli}
-            aria-label={reduite ? 'Étendre la navigation' : 'Réduire la navigation'}
-            title={reduite ? 'Étendre la navigation' : 'Réduire la navigation'}
+            // Le libellé vaut dans les deux sens : en automatique, le
+            // composant ne sait pas laquelle des deux formes est affichée.
+            aria-label="Replier ou déplier la navigation"
+            title="Replier ou déplier la navigation"
             style={boutonIcone}
           >
             {/* Un seul chevron dans le jeu d'icônes : on le retourne plutôt
-                que d'en dessiner un second. */}
-            <span
-              style={{
-                display: 'flex',
-                transform: reduite ? 'none' : 'rotate(180deg)',
-                transition: 'var(--transition-base)',
-              }}
-            >
+                que d'en dessiner un second. La rotation est portée par la
+                feuille de style, seule à connaître la forme affichée. */}
+            <span className="coquille-chevron">
               <Icone nom="chevronRight" taille={16} />
             </span>
           </button>
@@ -353,11 +375,7 @@ export function CoquilleAdmin({
               return (
                 <span
                   key={entree.chemin}
-                  title={
-                    reduite
-                      ? `${entree.libelle} — disponible à un prochain lot`
-                      : 'Disponible à un prochain lot'
-                  }
+                  title={`${entree.libelle} — disponible à un prochain lot`}
                   style={{ ...style, opacity: 0.4, cursor: 'not-allowed' }}
                 >
                   {contenu}
@@ -369,7 +387,9 @@ export function CoquilleAdmin({
               <Link
                 key={entree.chemin}
                 href={entree.route}
-                title={reduite ? entree.libelle : undefined}
+                // Toujours posé : au repli, c'est la seule façon de lire le
+                // nom de la section à la souris.
+                title={entree.libelle}
                 // Changer d'écran referme le tiroir : le laisser ouvert
                 // masquerait la page qu'on vient de demander.
                 onClick={() => setTiroirOuvert(false)}

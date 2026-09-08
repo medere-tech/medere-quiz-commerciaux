@@ -22,8 +22,10 @@ export default async function DispositionAdmin({ children }: { children: ReactNo
 
   // Le repli de la barre latérale est lu ici plutôt que dans le navigateur :
   // la barre s'affiche déjà dans le bon état au premier rendu, sans battement.
+  // Sans témoin, l'état reste « automatique » et c'est la largeur qui tranche.
   const temoins = await cookies();
-  const barreReduite = temoins.get('medere-barre')?.value === 'reduite';
+  const choisi = temoins.get('medere-barre')?.value;
+  const barreReduite = choisi === 'reduite' || choisi === 'etendue' ? choisi : 'auto';
 
   return (
     <CoquilleAdmin nom={session.nom || session.email} barreReduite={barreReduite}>

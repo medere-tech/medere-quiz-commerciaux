@@ -304,7 +304,7 @@ a:hover {
 }
 
 /* Repliée : les icônes seules, et le libellé passe en infobulle native. */
-.coquille-nav[data-reduite='true'] {
+.coquille-nav[data-reduite='reduite'] {
   width: 68px;
   padding: 22px 10px;
   align-items: stretch;
@@ -315,8 +315,46 @@ a:hover {
   min-width: 0;
 }
 
-.coquille-nav[data-reduite='true'] .coquille-libelle {
+.coquille-nav[data-reduite='reduite'] .coquille-libelle {
   display: none;
+}
+
+/* Le chevron pointe vers le mouvement à venir : replier, ou déplier. */
+.coquille-chevron {
+  display: flex;
+  transform: rotate(180deg);
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+
+.coquille-nav[data-reduite='reduite'] .coquille-chevron {
+  transform: none;
+}
+
+/*
+ * Second seuil. Entre les deux, la barre est repliée par défaut : sur une
+ * tablette en paysage, 232 pixels de navigation permanente prennent la place
+ * de la colonne de travail. Le bouton reste là pour l'étendre, et ce choix,
+ * une fois posé, l'emporte à toutes les largeurs.
+ */
+@media (max-width: 1200px) {
+  .coquille-nav[data-reduite='auto'] {
+    width: 68px;
+    padding: 22px 10px;
+    align-items: stretch;
+  }
+
+  .coquille-nav[data-reduite='auto'] .coquille-libelle {
+    display: none;
+  }
+
+  .coquille-nav[data-reduite='auto'] .coquille-initiales {
+    display: flex;
+    justify-content: center;
+  }
+
+  .coquille-nav[data-reduite='auto'] .coquille-chevron {
+    transform: none;
+  }
 }
 
 .coquille-contenu {
@@ -364,12 +402,14 @@ a:hover {
   }
 
   /* Le repli est un confort de bureau : en tiroir, la barre est entière. */
-  .coquille-nav[data-reduite='true'] {
+  .coquille-nav[data-reduite='reduite'],
+  .coquille-nav[data-reduite='auto'] {
     width: min(272px, 82vw);
     padding: 22px 16px;
   }
 
-  .coquille-nav[data-reduite='true'] .coquille-libelle {
+  .coquille-nav[data-reduite='reduite'] .coquille-libelle,
+  .coquille-nav[data-reduite='auto'] .coquille-libelle {
     display: flex;
   }
 
@@ -463,14 +503,15 @@ a:hover {
   display: none;
 }
 
-.coquille-nav[data-reduite='true'] .coquille-initiales {
+.coquille-nav[data-reduite='reduite'] .coquille-initiales {
   display: flex;
   justify-content: center;
 }
 
 @media (max-width: 900px) {
   /* En tiroir, la place ne manque pas : la barre est toujours entière. */
-  .coquille-nav[data-reduite='true'] .coquille-initiales {
+  .coquille-nav[data-reduite='reduite'] .coquille-initiales,
+  .coquille-nav[data-reduite='auto'] .coquille-initiales {
     display: none;
   }
 
