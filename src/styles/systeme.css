@@ -258,6 +258,22 @@ a:hover {
   box-shadow: var(--focus-halo);
 }
 
+/*
+ * Option de réponse. Bordure et ombre viennent de variables posées par le
+ * composant, pour que le halo de focus puisse les remplacer — un style en
+ * ligne l'aurait emporté sur la règle ci-dessus.
+ */
+.option-reponse {
+  border: 1px solid var(--bordure-option, transparent);
+  box-shadow: var(--ombre-option, none);
+}
+
+.option-reponse:focus-visible {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: var(--focus-halo);
+}
+
 /* Le mouvement est un confort, pas une information. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -449,8 +465,34 @@ a:hover {
 }
 
 @media (max-width: 1040px) {
+  /*
+   * `minmax(0, 1fr)` et non `1fr` : le minimum automatique d'une piste vaut
+   * la largeur maximale de son contenu, si bien qu'une ligne en `nowrap`
+   * élargit la colonne au-delà de l'écran. La colonne repliée doit pouvoir
+   * descendre sous son contenu, c'est au contenu de se tronquer ou de passer
+   * à la ligne.
+   */
   .grille-deux-colonnes {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/*
+ * Ligne du récapitulatif de fin de série. Au large, l'énoncé tient sur une
+ * ligne et se tronque ; sur un téléphone, tronquer masquerait l'essentiel de
+ * la question, donc il passe à la ligne.
+ */
+.titre-recap {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 700px) {
+  .titre-recap {
+    white-space: normal;
+    overflow: visible;
+    text-wrap: pretty;
   }
 }
 

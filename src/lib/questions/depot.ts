@@ -60,7 +60,12 @@ function listeDeTextes(valeur: unknown): string[] {
   return Array.isArray(valeur) ? valeur.filter((element): element is string => typeof element === 'string') : [];
 }
 
-function enQuestion(identifiant: string, donnees: Record<string, unknown>): Question {
+/**
+ * Un document Firestore vers le modèle. Exporté parce que le parcours
+ * commercial lit les mêmes documents : deux convertisseurs pour une même
+ * collection finiraient par diverger sur un champ.
+ */
+export function enQuestion(identifiant: string, donnees: Record<string, unknown>): Question {
   const options = (donnees.options ?? {}) as Record<string, string>;
 
   return {
