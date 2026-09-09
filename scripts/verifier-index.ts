@@ -50,9 +50,8 @@ const VERIFICATIONS: Verification[] = [
   /* --- Banque de questions : filtres et tri, tous côté serveur (lot 3) ---
    *
    * Sept combinaisons de filtres, trois tris. Sans filtre, l'index à champ
-   * unique suffit ; avec, il faut un index composite par couple. Le tri par
-   * date décroissante et croissante partage le même index, qui se parcourt
-   * dans les deux sens.
+   * unique suffit ; avec, il faut un index composite par couple — et un par
+   * direction de tri, voir le bloc « tri par date croissante » plus bas.
    */
   {
     nom: 'banque sans filtre, par date',
@@ -289,6 +288,17 @@ const VERIFICATIONS: Verification[] = [
     nom: 'questions publiées, pour le tirage des séries',
     lot: 'lot 5',
     requete: (base) => base.collection('questions').where('statut', '==', 'publiee'),
+  },
+
+  {
+    /*
+     * Détection des doublons à l'import : les énoncés collés sont demandés
+     * par lots de trente. Égalité sur un seul champ, donc index automatique.
+     */
+    nom: 'énoncés déjà en banque (doublons à l’import)',
+    lot: 'lot 4',
+    requete: (base) =>
+      base.collection('questions').where('enonceNormalise', 'in', ['enonce verification']),
   },
 
   /* --- Référentiel des formations (lots 2 et 3) --- */

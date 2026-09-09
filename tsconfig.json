@@ -11,6 +11,12 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
+    // Les scripts de `scripts/` sont exécutés directement par Node, qui exige
+    // l'extension `.ts` dans les chemins d'import. Sans cela, ils devraient
+    // dupliquer les fonctions de `src/` — et une normalisation dupliquée qui
+    // dérive de son original rend la détection de doublons silencieusement
+    // aveugle. Sans émission, l'option est sans conséquence sur le paquet.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

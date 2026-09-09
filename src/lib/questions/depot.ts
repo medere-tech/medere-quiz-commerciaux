@@ -17,17 +17,15 @@ import {
   where,
   type QueryConstraint,
   type QueryDocumentSnapshot,
-  type Timestamp,
+
 } from 'firebase/firestore';
 
 import { baseDeDonnees } from '@/lib/firebase/client';
-import type {
-  BrouillonQuestion,
-  Difficulte,
-  QuestionAEcrire,
-  StatutQuestion,
-  TypeQuestion,
-} from '@/lib/questions/modele';
+import { enQuestion, type Question } from '@/lib/questions/lecture';
+import { normaliserEnonce } from '@/lib/texte';
+import type { QuestionAEcrire, StatutQuestion, TypeQuestion } from '@/lib/questions/modele';
+
+export type { Question } from '@/lib/questions/lecture';
 
 /**
  * Accès aux questions, depuis le navigateur.
@@ -51,57 +49,6 @@ import type {
  * par les filtres serveur — que `chargerToutesLesQuestions` rapatrie page par
  * page, sous un plafond.
  */
-
-export type Question = BrouillonQuestion & {
-  id: string;
-  creeePar: string;
-  modifieeLe: Date | null;
-  creeeLe: Date | null;
-};
-
-function enDate(valeur: unknown): Date | null {
-  if (valeur && typeof (valeur as Timestamp).toDate === 'function') {
-    return (valeur as Timestamp).toDate();
-  }
-  return null;
-}
-
-function texte(valeur: unknown): string {
-  return typeof valeur === 'string' ? valeur : '';
-}
-
-function listeDeTextes(valeur: unknown): string[] {
-  return Array.isArray(valeur) ? valeur.filter((element): element is string => typeof element === 'string') : [];
-}
-
-/**
- * Un document Firestore vers le modèle. Exporté parce que le parcours
- * commercial lit les mêmes documents : deux convertisseurs pour une même
- * collection finiraient par diverger sur un champ.
- */
-export function enQuestion(identifiant: string, donnees: Record<string, unknown>): Question {
-  const options = (donnees.options ?? {}) as Record<string, string>;
-
-  return {
-    id: identifiant,
-    type: texte(donnees.type) as TypeQuestion,
-    contexte: texte(donnees.contexte),
-    enonce: texte(donnees.enonce),
-    options,
-    ordreOptions: listeDeTextes(donnees.ordreOptions),
-    bonnesReponses: listeDeTextes(donnees.bonnesReponses),
-    explication: texte(donnees.explication),
-    formationIds: listeDeTextes(donnees.formationIds),
-    theme: texte(donnees.theme),
-    difficulte: (typeof donnees.difficulte === 'number' ? donnees.difficulte : 1) as Difficulte,
-    statut: texte(donnees.statut) as StatutQuestion,
-    sourceFiche: texte(donnees.sourceFiche),
-    sourceVersion: texte(donnees.sourceVersion),
-    creeePar: texte(donnees.creeePar),
-    modifieeLe: enDate(donnees.modifieeLe),
-    creeeLe: enDate(donnees.creeeLe),
-  };
-}
 
 export async function chargerQuestions(): Promise<Question[]> {
   const instantane = await getDocs(
@@ -206,6 +153,49 @@ export async function chargerToutesLesQuestions(
 }
 
 /**
+ * Limite d'un filtre `in` chez Firestore : trente valeurs par requête.
+ * https://firebase.google.com/docs/firestore/query-data/queries#in_not-in
+ */
+export const VALEURS_PAR_REQUETE_IN = 30;
+
+/**
+ * Parmi les énoncés proposés, ceux que la banque contient déjà.
+ *
+ * **Pourquoi une requête plutôt qu'une lecture complète.** La détection de
+ * doublons comparait chaque ligne collée à la banque entière : soixante lignes
+ * importées faisaient télécharger trois cents questions. Avec `enonce` indexé,
+ * deux requêtes suffisent et ne ramènent que les doublons réels.
+ *
+ * **La comparaison reste normalisée.** Firestore ne sait comparer que des
+ * chaînes exactes : la requête porte donc sur `enonceNormalise`, champ dérivé
+ * écrit à chaque enregistrement. Casse, accents et ponctuation ne créent plus
+ * de faux négatif — « Le DPC est-il obligatoire ? » et « le dpc est il
+ * obligatoire » sont reconnus comme le même énoncé, comme dans le navigateur.
+ *
+ * Rend les formes normalisées trouvées, pas les énoncés d'origine : c'est sur
+ * cette forme que l'appelant compare.
+ */
+export async function enoncesDejaEnBanque(enonces: string[]): Promise<Set<string>> {
+  const distincts = [...new Set(enonces.map(normaliserEnonce).filter(Boolean))];
+  const trouves = new Set<string>();
+
+  for (let debut = 0; debut < distincts.length; debut += VALEURS_PAR_REQUETE_IN) {
+    const lot = distincts.slice(debut, debut + VALEURS_PAR_REQUETE_IN);
+
+    const instantane = await getDocs(
+      query(collection(baseDeDonnees(), 'questions'), where('enonceNormalise', 'in', lot)),
+    );
+
+    for (const document of instantane.docs) {
+      const normalise = document.data().enonceNormalise;
+      if (typeof normalise === 'string') trouves.add(normalise);
+    }
+  }
+
+  return trouves;
+}
+
+/**
  * Toutes les questions d'un statut, sans tri.
  *
  * **Pas de `orderBy`, et c'est délibéré.** L'écran de statistiques classe par
@@ -253,6 +243,9 @@ export async function creerQuestion(
 ): Promise<string> {
   const reference = await addDoc(collection(baseDeDonnees(), 'questions'), {
     ...question,
+    // Champ dérivé, jamais saisi : c'est lui que la détection de doublons
+    // interroge, Firestore ne sachant comparer que des chaînes exactes.
+    enonceNormalise: normaliserEnonce(question.enonce),
     creeePar: auteur,
     creeeLe: serverTimestamp(),
     modifieeLe: serverTimestamp(),
@@ -268,6 +261,7 @@ export async function enregistrerQuestion(
   // il faut les effacer du document, pas les laisser à leur ancienne valeur.
   await updateDoc(doc(baseDeDonnees(), 'questions', identifiant), {
     ...question,
+    enonceNormalise: normaliserEnonce(question.enonce),
     sourceFiche: question.sourceFiche ?? '',
     sourceVersion: question.sourceVersion ?? '',
     modifieeLe: serverTimestamp(),

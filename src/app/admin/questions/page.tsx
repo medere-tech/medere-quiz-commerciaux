@@ -155,21 +155,32 @@ export default function PageBanque() {
       setErreur(undefined);
       curseur.current = null;
 
-      try {
-        const [listeFormations, compte, compteBanque, comptePubliees] = await Promise.all([
-          chargerFormations(),
-          compterQuestions(filtres),
-          compterQuestions({}),
-          compterQuestions({ statut: 'publiee' }),
-        ]);
-        if (!vivant) return;
-        setFormations(listeFormations);
-        setTotal(compte);
-        // L'en-tête décrit la banque, pas le filtre en cours ni la page
-        // chargée : compter les lignes à l'écran donnerait un chiffre faux.
-        setTotalBanque(compteBanque);
-        setTotalPubliees(comptePubliees);
+      /*
+       * Rien n'oblige la liste à attendre les compteurs. Les agrégats partent
+       * en même temps qu'elle et se posent dès qu'ils arrivent : le pied de
+       * liste et l'en-tête se complètent sous les yeux plutôt que de retarder
+       * les lignes. Chaque compteur porte son propre `catch` — un total
+       * manquant n'est pas une raison de vider l'écran.
+       */
+      const poser = <T,>(promesse: Promise<T>, appliquer: (valeur: T) => void) => {
+        void promesse.then(
+          (valeur) => {
+            if (vivant) appliquer(valeur);
+          },
+          (probleme) => {
+            console.error('Compteur indisponible', probleme);
+          },
+        );
+      };
 
+      poser(chargerFormations(), setFormations);
+      poser(compterQuestions(filtres), setTotal);
+      // L'en-tête décrit la banque, pas le filtre en cours ni la page chargée :
+      // compter les lignes à l'écran donnerait un chiffre faux.
+      poser(compterQuestions({}), setTotalBanque);
+      poser(compterQuestions({ statut: 'publiee' }), setTotalPubliees);
+
+      try {
         if (enRecherche) {
           // Firestore ne cherche pas dans un texte : pour chercher, il faut
           // avoir sous la main l'ensemble que les filtres ont déjà réduit.

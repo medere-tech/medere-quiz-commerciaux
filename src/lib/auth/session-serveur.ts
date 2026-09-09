@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 
 import { authAdmin } from '@/lib/firebase/admin';
@@ -22,8 +23,17 @@ export type Session = {
  * Lit et vérifie le cookie de session. Renvoie `null` si l'utilisateur n'est
  * pas connecté, si son jeton a été révoqué, ou s'il n'appartient plus au
  * domaine autorisé.
+ *
+ * **Mémoïsée par requête.** `verifySessionCookie(cookie, true)` demande à
+ * Firebase si la session a été révoquée, ce qui coûte un aller-retour réseau
+ * mesuré à 234 ms de médiane. Or le rendu d'une page appelle cette fonction
+ * plusieurs fois — la disposition puis la page — et payait donc deux fois le
+ * même contrôle, sur le même cookie, dans le même rendu. `cache` de React
+ * déduplique pour la durée d'une requête : la vérification est identique, le
+ * contrôle de révocation reste actif, il n'a simplement plus lieu deux fois.
+ * Rien n'est conservé entre deux requêtes.
  */
-export async function lireSession(): Promise<Session | null> {
+export const lireSession = cache(async function lireSession(): Promise<Session | null> {
   const cookie = (await cookies()).get(NOM_COOKIE_SESSION)?.value;
   if (!cookie) return null;
 
@@ -43,7 +53,7 @@ export async function lireSession(): Promise<Session | null> {
     // Cookie expiré, révoqué ou falsifié : traité comme une absence de session.
     return null;
   }
-}
+});
 
 /** Session obligatoire. Lève si l'utilisateur n'est pas connecté. */
 export async function exigerSession(): Promise<Session> {

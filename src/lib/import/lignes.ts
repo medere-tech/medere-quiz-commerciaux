@@ -9,6 +9,7 @@ import {
 } from '@/lib/questions/modele';
 import { validerQuestion, type ErreurChamp } from '@/lib/questions/validation';
 import { COLONNES, LIBELLES_COLONNE, normaliserEntete, type Colonne } from '@/lib/import/colonnes';
+import { normaliserEnonce } from '@/lib/texte';
 
 /**
  * D'une ligne de tableau à une question.
@@ -298,11 +299,14 @@ export function signalerDoublons(
   analyses: LigneAnalysee[],
   enoncesExistants: string[],
 ): LigneAnalysee[] {
-  const enBanque = new Set(enoncesExistants.map(comparable));
+  // `enoncesExistants` arrive déjà normalisé : c'est la forme que Firestore a
+  // rendue. On normalise de la même manière ce qui vient du tableau collé,
+  // pour que les deux ensembles se comparent sur le même pied.
+  const enBanque = new Set(enoncesExistants.map(normaliserEnonce));
   const vusDansLeLot = new Map<string, number>();
 
   return analyses.map((analyse) => {
-    const enonce = comparable(analyse.ligne.valeurs.enonce);
+    const enonce = normaliserEnonce(analyse.ligne.valeurs.enonce);
     if (enonce.length === 0) return analyse;
 
     const avertissements = [...analyse.avertissements];

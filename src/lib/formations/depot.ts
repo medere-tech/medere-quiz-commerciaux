@@ -17,7 +17,10 @@ import {
 } from 'firebase/firestore';
 
 import { baseDeDonnees } from '@/lib/firebase/client';
+import { enFormation, type Formation } from '@/lib/formations/lecture';
 import { SYNCHRONISATION_FORMATIONS } from '@/lib/formations/chemins';
+
+export type { Formation } from '@/lib/formations/lecture';
 
 /**
  * Lecture du référentiel des formations, depuis le navigateur.
@@ -32,19 +35,6 @@ import { SYNCHRONISATION_FORMATIONS } from '@/lib/formations/chemins';
  * `chargerPageFormations` sert la liste du back-office, filtrée et paginée par
  * Firestore.
  */
-
-export type Formation = {
-  id: string;
-  nom: string;
-  numeroActionDpc: string;
-  cibles: string[];
-  format: string;
-  modalite: string;
-  dureeTotale: string;
-  urlWebflow: string;
-  blocsCertification: string[];
-  actif: boolean;
-};
 
 /** Ce que l'onglet du back-office demande au serveur. */
 export type FiltreFormations = 'actives' | 'inactives' | 'toutes';
@@ -112,23 +102,6 @@ export async function compterFormations(filtre: FiltreFormations): Promise<numbe
   );
 
   return agregat.data().count;
-}
-
-export function enFormation(identifiant: string, donnees: Record<string, unknown>): Formation {
-  return {
-    id: identifiant,
-    nom: typeof donnees.nom === 'string' ? donnees.nom : '',
-    numeroActionDpc: typeof donnees.numeroActionDpc === 'string' ? donnees.numeroActionDpc : '',
-    cibles: Array.isArray(donnees.cibles) ? (donnees.cibles as string[]) : [],
-    format: typeof donnees.format === 'string' ? donnees.format : '',
-    modalite: typeof donnees.modalite === 'string' ? donnees.modalite : '',
-    dureeTotale: typeof donnees.dureeTotale === 'string' ? donnees.dureeTotale : '',
-    urlWebflow: typeof donnees.urlWebflow === 'string' ? donnees.urlWebflow : '',
-    blocsCertification: Array.isArray(donnees.blocsCertification)
-      ? (donnees.blocsCertification as string[])
-      : [],
-    actif: donnees.actif === true,
-  };
 }
 
 export async function chargerFormations(): Promise<Formation[]> {

@@ -20,7 +20,7 @@ import { Icone } from '@/composants/ds/Icone';
 import { chargerFormations, type Formation } from '@/lib/formations/depot';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import { authentification } from '@/lib/firebase/client';
-import { chargerQuestions, creerQuestion } from '@/lib/questions/depot';
+import { creerQuestion, enoncesDejaEnBanque } from '@/lib/questions/depot';
 import { LIBELLES_DIFFICULTE, DIFFICULTES } from '@/lib/questions/modele';
 import { ENTETE_MODELE, LIBELLES_COLONNE, type Colonne } from '@/lib/import/colonnes';
 import { lireCollage, lireFeuille, type ResultatCollage } from '@/lib/import/collage';
@@ -105,10 +105,9 @@ export default function PageImport() {
 
     async function charger() {
       try {
-        const [liste, questions] = await Promise.all([chargerFormations(), chargerQuestions()]);
+        const liste = await chargerFormations();
         if (!vivant) return;
         setFormations(liste);
-        setEnoncesExistants(questions.map((question) => question.enonce));
       } catch (probleme) {
         if (vivant) setErreurChargement(echecDeLecture(probleme, 'le référentiel des formations'));
       } finally {
@@ -205,6 +204,36 @@ export default function PageImport() {
   }
 
   const index = useMemo(() => indexerFormations(formations), [formations]);
+
+  /*
+   * On ne demande à la banque que les énoncés effectivement collés, par lots
+   * de trente — au lieu de la télécharger en entier pour comparer. La requête
+   * part à chaque changement du tableau, jamais au chargement de l'écran :
+   * sans tableau, il n'y a rien à comparer.
+   */
+  useEffect(() => {
+    let vivant = true;
+    const enonces = lignes
+      .map((ligne) => ligne.valeurs.enonce ?? '')
+      .filter((enonce) => enonce.trim().length > 0);
+
+    void (async () => {
+      try {
+        // Sans énoncé collé, rien à demander : la liste se vide sans requête.
+        const trouves = enonces.length === 0 ? new Set<string>() : await enoncesDejaEnBanque(enonces);
+        if (vivant) setEnoncesExistants([...trouves]);
+      } catch (probleme) {
+        // Un doublon non signalé n'empêche pas d'importer : on n'interrompt
+        // pas la prévisualisation pour autant, on le dit à la console.
+        console.error('Recherche de doublons impossible', probleme);
+        if (vivant) setEnoncesExistants([]);
+      }
+    })();
+
+    return () => {
+      vivant = false;
+    };
+  }, [lignes]);
 
   const analyses = useMemo(
     () => signalerDoublons(lignes.map((ligne) => analyserLigne(ligne, index)), enoncesExistants),

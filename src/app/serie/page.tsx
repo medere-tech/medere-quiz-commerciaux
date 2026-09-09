@@ -2,9 +2,12 @@ import { Suspense } from 'react';
 
 import { Serie } from '@/composants/parcours/Serie';
 import { Squelettes } from '@/composants/ds/etats';
+import { chargerReferentiel } from '@/lib/serveur/referentiel';
 
 /** 02, 03 et 04 · La série, de la première question au décompte final. */
-export default function PageSerie() {
+export default async function PageSerie() {
+  const referentiel = await chargerReferentiel();
+
   return (
     <Suspense
       fallback={
@@ -13,7 +16,7 @@ export default function PageSerie() {
         </div>
       }
     >
-      <Serie />
+      <Serie referentiel={referentiel} />
     </Suspense>
   );
 }

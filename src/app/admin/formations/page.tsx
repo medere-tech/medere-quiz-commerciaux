@@ -372,17 +372,24 @@ export default function PageFormations() {
       setChargement(true);
       curseur.current = null;
 
-      try {
-        const [compteTotal, compteActives, compteFiltre] = await Promise.all([
-          compterFormations('toutes'),
-          compterFormations('actives'),
-          compterFormations(filtre as FiltreFormations),
-        ]);
-        if (!vivant) return;
-        setTotal(compteTotal);
-        setTotalActives(compteActives);
-        setTotalFiltre(compteFiltre);
+      // Les compteurs partent avec la liste, pas devant elle : ils se posent
+      // dès qu'ils arrivent, sans retarder les lignes.
+      const poser = <T,>(promesse: Promise<T>, appliquer: (valeur: T) => void) => {
+        void promesse.then(
+          (valeur) => {
+            if (vivant) appliquer(valeur);
+          },
+          (probleme) => {
+            console.error('Compteur indisponible', probleme);
+          },
+        );
+      };
 
+      poser(compterFormations('toutes'), setTotal);
+      poser(compterFormations('actives'), setTotalActives);
+      poser(compterFormations(filtre as FiltreFormations), setTotalFiltre);
+
+      try {
         if (enRecherche) {
           // Firestore ne cherche ni dans un nom ni dans une liste de cibles :
           // la recherche s'applique à l'ensemble que le filtre a réduit.

@@ -81,12 +81,17 @@ users/{uid}
   etoiles, seriesTerminees : number
   creeLe, vuLe : timestamp
 
-users/{uid}/reponses/{reponseId}
+users/{uid}/reponses/{reponseId}   // source de vérité, une par tentative
   questionId : string
   correcte : boolean
   optionsChoisies : string[]
   origine : 'entrainement' | 'session'
   repondueLe : timestamp
+
+users/{uid}/etats/{questionId}     // résumé, une par question rencontrée
+  reussies, tentatives : number
+  derniereRatee : boolean
+  majLe : timestamp
 
 questionStats/{questionId}         // agrégat anonyme, écrit par Cloud Function
   tentatives, echecs : number
@@ -112,6 +117,29 @@ sessions/{sessionId}/reponses/{uid_questionId}
 ```
 
 Le modèle `formations` est fixé par `docs/airtable-formations.md`, qui fait foi : il est relevé du schéma réel de la base. L'identifiant du document Firestore est l'identifiant d'enregistrement Airtable, ce qui rend la synchronisation idempotente — relancée deux fois, elle produit le même état.
+
+**Pourquoi un résumé par question en plus des réponses.** Le tirage et la
+maîtrise ne s'intéressent qu'à trois chiffres par question : combien de
+réussites, la dernière tentative est-elle un échec, la question a-t-elle été
+vue. Les recalculer imposait de relire tout l'historique — dix réponses par
+jour sur deux ans font cinq mille documents rapatriés à chaque ouverture du
+parcours, pour un résultat qui tient en une ligne par question.
+`users/{uid}/etats` porte ces trois chiffres, écrits dans le même lot que la
+réponse : ou les deux, ou aucun. Le volume est borné par la banque, plus par
+l'activité.
+
+Mesuré sur la base réelle, avec 158 réponses sur 14 questions : 270 ms pour
+lire les réponses, 119 ms pour lire les états. Sur l'émulateur, à la
+volumétrie de deux ans (5 000 réponses, 300 questions) : 712 ms contre 33 ms.
+
+Les réponses restent la source de vérité — c'est d'elles que la Cloud Function
+tire `questionStats`, et c'est d'elles que `npm run etats:reprise` reconstruit
+les états si l'un d'eux dérive. **Ce que les règles ne vérifient pas :** que
+l'état corresponde aux réponses. Il faudrait relire l'historique à chaque
+écriture. Elles vérifient la forme, la propriété, et qu'un compteur ne monte
+que d'un pas à la fois ; la portée d'un mensonge est bornée à l'affichage du
+menteur, puisque `questionStats` est alimentée par les réponses, elles-mêmes
+validées verdict compris.
 
 **Pourquoi l'agrégat porte des marqueurs d'événements.** Cloud Functions
 garantit une livraison *au moins une fois* : le même événement peut être remis
@@ -179,6 +207,33 @@ Cette décision peut être révisée si Noémie ou la direction demandent le nom
 
 Vingt-et-un index pour la banque : sept combinaisons de filtres, trois tris.
 
+### Ce que ces index coûtent
+
+Le filtrage serveur se paie, et la décision doit porter son prix pour qu'on
+puisse la réévaluer.
+
+**À l'écriture.** Chaque question écrite met à jour les 21 index composites de
+`questions`, plus ses index à champ unique. Firestore facture ces mises à jour
+dans l'écriture du document : une écriture reste une écriture, quel que soit
+le nombre d'index — ce n'est pas le compteur d'opérations qui enfle, c'est la
+latence de l'écriture et le stockage. À notre rythme — des imports en lot
+quelques fois par mois, quelques corrections par semaine — c'est invisible.
+
+**Au stockage.** Une entrée d'index pèse la taille des valeurs indexées plus
+celle du chemin du document. Pour 300 questions × 22 index, avec des valeurs
+courtes (`statut`, `type`, un identifiant Airtable, une date) et un énoncé
+borné à 180 caractères par les règles, l'ordre de grandeur est de quelques
+mégaoctets — à comparer au gigaoctet du quota gratuit. Là encore, invisible.
+
+**Quand le réévaluer.** Deux signaux : une banque qui dépasse quelques
+milliers de questions, ou un filtre supplémentaire dans la banque — chaque
+nouveau filtre double le nombre de combinaisons, donc le nombre d'index. À ce
+moment-là, la question à poser n'est pas « faut-il moins d'index » mais
+« faut-il encore proposer ces filtres croisés ».
+
+Ce coût est le contrepoids d'un gain mesuré : sans filtrage serveur, chaque
+ouverture de la banque téléchargeait la collection entière.
+
 **Un index composite ne se parcourt pas dans les deux sens.** Firestore
 inverse l'ordre complet, pas un champ isolé : `(statut ASC, modifieeLe DESC)`
 ne sert pas un tri `(statut ASC, modifieeLe ASC)`. Chaque direction de tri
@@ -211,18 +266,30 @@ d'indexation externe, décision à prendre pour elle-même.
 liste complète des questions publiées : aucun filtre serveur ne la réduit sans
 changer l'algorithme.
 
-**L'historique d'un commercial.** Savoir si la *dernière* tentative sur une
-question est un échec suppose de connaître tout l'historique de cette
-question. `users/{uid}/reponses` est donc lu en entier — ce sont les données
-du commercial lui-même, pas la base entière, mais le volume croît avec son
-activité. Le jour où il devient gênant, la parade est un document d'état par
-question sous `users/{uid}`, tenu à jour à chaque réponse : c'est un
-changement de modèle, pas un réglage de requête.
+**Le tirage des séries lit toutes les questions publiées.** La pondération
+attribue un poids à *chaque* question publiée avant d'en tirer dix sans
+remise : il faut la liste entière. Le SDK navigateur ne sait pas projeter sur
+les seuls identifiants — `select()` n'existe que côté Admin — si bien que lire
+trois cents identifiants coûte trois cents documents. Aucun filtre serveur ne
+réduit cela sans changer l'algorithme.
 
-**La détection des doublons à l'import.** Elle compare l'énoncé de chaque
-ligne collée à ceux de la banque entière. Maintenant que `enonce` est indexé,
-elle pourrait passer à des requêtes `in` par lots de trente ; ce n'est pas
-fait.
+L'ordre de grandeur, à maturité : 300 questions par lancement de série. Dix
+commerciaux, trois séries par jour, vingt jours par mois font 600 séries, donc
+180 000 lectures par mois — environ 12 % du quota gratuit (50 000 lectures par
+jour). Un cache mémoire de cinq minutes évite la double lecture entre l'accueil
+et l'écran de série, ce qui ramène le compte à une lecture de banque par série.
+Le seuil à surveiller est la taille de la banque : à mille questions, la même
+arithmétique donne 40 % du quota, et il faudra alors trancher entre
+dénormaliser la liste des identifiants publiés et revoir le tirage.
+
+**La détection des doublons à l'import** interroge la banque par lots de
+trente énoncés (`where('enonce', 'in', …)`, la limite de Firestore), au lieu
+de la télécharger en entier. Une réserve : Firestore compare des chaînes
+exactes, alors que la comparaison du navigateur était normalisée. Deux énoncés
+qui ne diffèrent que par la casse ou les accents ne sont donc plus signalés
+comme doublons de la banque. Le rétablir demanderait un champ
+`enonceNormalise` sur chaque question et son index. La détection à l'intérieur
+du tableau collé, elle, reste normalisée.
 
 **Vérification obligatoire avant tout déploiement.** L'émulateur n'exige aucun index : une requête qui en manque y passe sans broncher, et n'échoue qu'en production, sur un `FAILED_PRECONDITION`, à la première requête d'un commercial. La parade est un test d'intégration contre une vraie base :
 

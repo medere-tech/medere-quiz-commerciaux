@@ -8,7 +8,7 @@ import { Bouton, Carte, EtiquetteStatut, Meta, Touche, TitreSection } from '@/co
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { Jauge, OptionReponse, ProgressionSerie, Verdict } from '@/composants/ds/parcours';
-import { useDonneesParcours } from '@/composants/parcours/donnees';
+import { useDonneesParcours, type Referentiel } from '@/composants/parcours/donnees';
 import type { Question } from '@/lib/questions/depot';
 import { LIBELLES_TYPE } from '@/lib/questions/modele';
 import { crediterSerie, enregistrerReponse } from '@/lib/serie/depot';
@@ -57,12 +57,12 @@ type Passage = {
   correction: Correction;
 };
 
-export function Serie() {
+export function Serie({ referentiel }: { referentiel: Referentiel }) {
   const routeur = useRouter();
   const requete = useSearchParams();
   const rattrapage = requete.get('mode') === 'rattrapage';
 
-  const chargement = useDonneesParcours();
+  const chargement = useDonneesParcours(referentiel);
 
   // Tirée une fois, conservée : c'est elle qui rend la série reproductible.
   const [graine, setGraine] = useState(graineNeuve);
