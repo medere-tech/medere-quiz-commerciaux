@@ -39,8 +39,10 @@ const TAILLE_LOT = 400;
 
 /**
  * Intervalle minimal entre deux synchronisations déclenchées à la main. La
- * tâche planifiée passe toutes les six heures ; le bouton du back-office ne
- * doit pas pouvoir marteler l'API Airtable.
+ * tâche planifiée ne passe qu'une fois par jour, si bien que le bouton du
+ * back-office est le vrai recours quand une formation vient d'être corrigée
+ * dans Airtable — il reste disponible, mais ne doit pas pouvoir marteler
+ * l'API.
  */
 export const INTERVALLE_MINIMAL_MS = 5 * 60 * 1000;
 

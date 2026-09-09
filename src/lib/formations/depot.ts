@@ -145,10 +145,10 @@ export function identiteVisuelle(formation: Formation): { fichier: string; coule
  *
  * Écrit par la route serveur (SDK Admin), relu ici. Sans cette lecture, le
  * détail des rejets ne s'afficherait que dans les secondes qui suivent un
- * clic sur « Synchroniser » — alors que la tâche planifiée passe toutes les
- * six heures et qu'un enregistrement écarté le reste jusqu'à correction dans
- * Airtable. Un problème qui disparaît au rechargement de la page n'est pas un
- * problème signalé.
+ * clic sur « Synchroniser » — alors que la tâche planifiée ne passe qu'une
+ * fois par jour et qu'un enregistrement écarté le reste jusqu'à correction
+ * dans Airtable. Un problème qui disparaît au rechargement de la page n'est
+ * pas un problème signalé.
  *
  * Les listes sont bornées à l'écriture : `rejetees` et `statutsAbsentsNombre`
  * portent le compte réel, `rejets` et `statutsAbsents` au plus 20 et 50

@@ -475,10 +475,18 @@ Création des nouvelles, mise à jour des existantes par `airtableId`, passage �
 
 | Appelant | Méthode | Authentification |
 |---|---|---|
-| Tâche planifiée Vercel, toutes les six heures | `GET /api/airtable/sync` | `Authorization: Bearer <CRON_SECRET>` |
-| Bouton du back-office | `POST /api/airtable/sync` | session administrateur, custom claim vérifié côté serveur |
+| Tâche planifiée Vercel, une fois par jour à 4 h UTC | `GET /api/airtable/sync` | `Authorization: Bearer <CRON_SECRET>` |
+| Bouton du back-office, à la demande | `POST /api/airtable/sync` | session administrateur, custom claim vérifié côté serveur |
 
 La planification est déclarée dans `vercel.json`. Vercel pose lui-même l'en-tête d'autorisation dès que `CRON_SECRET` existe côté projet ; sans en-tête valide, la route répond 401. Cette route écrit dans Firestore : elle n'est jamais accessible anonymement.
+
+**Pourquoi une seule fois par jour.** Le plan Vercel de l'équipe est Hobby, qui limite les tâches planifiées à une exécution quotidienne : une expression plus fréquente est refusée au déploiement, pas à l'exécution. Le `0 */6 * * *` d'origine faisait donc échouer le déploiement entier.
+
+**Pourquoi 4 h UTC.** Hobby n'assure pas l'heure exacte : la précision est horaire, une tâche déclarée à 4 h part quelque part entre 4 h 00 et 4 h 59. Paris étant à UTC+1 l'hiver et UTC+2 l'été, le pire cas est l'été : le départ se situe entre 6 h et 7 h heure de Paris, et la synchronisation est passée bien avant l'arrivée de l'équipe. L'hiver, elle tombe entre 5 h et 6 h. Reculer à 6 h UTC ferait démarrer certaines exécutions à 8 h 59 heure de Paris l'été, soit pendant que Noémie ouvre le back-office — c'est la marge que ce choix protège.
+
+**Ce qu'un passage en Pro rendrait possible.** Le plan Pro autorise une exécution par minute et une précision à la minute. Revenir à `0 */6 * * *` y serait immédiat, et n'aurait de sens que si le référentiel se mettait à bouger plusieurs fois par jour — ce qui n'est pas le cas aujourd'hui. La décision se prendra sur ce constat, pas par principe.
+
+**Le déclenchement manuel n'est pas concerné.** Le bouton de l'écran Formations appelle la route en `POST` avec la session administrateur : il ne passe pas par la planification, et reste disponible autant de fois qu'il le faut. C'est le recours quand une formation vient d'être corrigée dans Airtable et qu'on ne veut pas attendre le lendemain.
 
 Le déclenchement manuel est refusé si une synchronisation a eu lieu il y a moins de cinq minutes, sauf demande explicite. Le référentiel ne change pas si vite, et un bouton se martèle. Aucune page n'appelle l'API Airtable : les écrans lisent `formations` dans Firestore, la synchronisation est le seul chemin vers Airtable.
 

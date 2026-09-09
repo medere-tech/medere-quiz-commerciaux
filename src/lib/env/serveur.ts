@@ -19,9 +19,9 @@ const brutes = exigerVariables('serveur', {
   AIRTABLE_BASE_ID: process.env.AIRTABLE_BASE_ID,
   AIRTABLE_TABLE_FORMATIONS: process.env.AIRTABLE_TABLE_FORMATIONS,
   // Secret partagé avec la tâche planifiée Vercel. Sans lui, la
-  // synchronisation automatique de six heures en six heures n'a aucun moyen
-  // de s'authentifier, et une route qui écrit dans la base ne peut pas rester
-  // ouverte sans authentification.
+  // synchronisation quotidienne n'a aucun moyen de s'authentifier, et une
+  // route qui écrit dans la base ne peut pas rester ouverte sans
+  // authentification.
   CRON_SECRET: process.env.CRON_SECRET,
 });
 
