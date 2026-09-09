@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm --prefix functions run typecheck",
     "test": "npm run test:regles",
     "test:regles": "firebase emulators:exec --only firestore --project demo-medere-quiz \"vitest run\"",
     "emulateurs": "firebase emulators:start --only firestore --project demo-medere-quiz",

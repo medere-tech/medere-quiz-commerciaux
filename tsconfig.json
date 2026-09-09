@@ -43,7 +43,15 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
+  // `functions/` est un paquet npm à part, avec ses propres dépendances et son
+  // propre `tsconfig.json`. Il se déploie sur Firebase, jamais sur Vercel, qui
+  // n'installe que les dépendances de la racine : le compilateur y trouvait
+  // donc des imports irrésolus et faisait échouer le build de l'application.
+  // Sa vérification de types vit désormais dans `npm run typecheck`, qui
+  // appelle son compilateur à lui — l'exclure ici ne revient pas à cesser de
+  // le vérifier.
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "functions"
   ]
 }

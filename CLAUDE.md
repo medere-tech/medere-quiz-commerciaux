@@ -20,7 +20,8 @@ Next.js (App Router, TypeScript) sur Vercel · Firestore · Firebase Authenticat
 
 ```bash
 npm run dev            # développement local
-npm run build          # vérifier avant tout commit
+npm run build          # compile l'application Next
+npm run typecheck      # types de l'application ET de functions/
 npm run lint
 npm test
 firebase emulators:start   # tester les règles de sécurité
@@ -44,7 +45,7 @@ firebase deploy --only firestore:rules
 - Interface, contenu et messages d'erreur en **français**, en vouvoyant l'utilisateur.
 - Code, noms de variables, commentaires et messages de commit en français également, pour rester cohérent avec le métier (`bonnesReponses`, pas `correctAnswers`).
 - Une branche par lot, une PR par lot. Jamais de commit direct sur `main`.
-- `npm run build` doit passer avant tout commit.
+- Avant tout commit : `npm run build && npm run typecheck && npm run lint && npm test`. Les quatre, pas seulement le premier — le build de Next ne compile plus `functions/`, qui est un paquet npm à part, avec ses propres dépendances, et que seul `npm run typecheck` vérifie.
 - Les règles de sécurité Firestore sont versionnées et testées avec l'émulateur. Jamais de mode test.
 
 ## Interface
@@ -70,6 +71,8 @@ Trois interdits fermes, valables partout :
 **Session hybride.** Certains participants sont en visioconférence et voient l'écran partagé avec du retard. La question doit être poussée sur l'appareil de chaque participant via un écouteur temps réel, jamais dépendre de la projection.
 
 **QCM à réponses multiples.** Une réponse n'est juste que si l'ensemble sélectionné correspond exactement à l'ensemble attendu. Une réponse partielle est fausse, et l'interface doit montrer ce qui manquait.
+
+**Ce qui passe en local ne prouve pas ce qui passe au déploiement.** Deux fois déjà, un artefact vérifié d'un côté était utilisé de l'autre, sans que rien ne signale l'écart. Au lot 3, les règles publiées sur le projet Firebase étaient restées celles du mode production alors que le dépôt en portait trois cents lignes validées par l'émulateur : les tests portaient sur le fichier, pas sur le jeu déployé. Au lot 6, `functions/` compilait en local grâce à un `npm install` fait à la main dans ce dossier, et échouait sur Vercel qui n'installe que les dépendances de la racine. À chaque fois, se demander : **ce que je viens de vérifier est-il bien ce qui sera exécuté ?** En cas de doute, reproduire les conditions du déploiement plutôt que les supposer — retirer les dépendances, relire le jeu de règles publié, mesurer sur le domaine réel.
 
 ## Méthode de travail
 

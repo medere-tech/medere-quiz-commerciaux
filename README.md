@@ -152,6 +152,25 @@ les clients, administrateur compris. Ils portent `expireLe` pour qu'une
 stratégie TTL les reprenne — la fenêtre de reprise de Cloud Functions v2 étant
 de vingt-quatre heures, sept jours de conservation suffisent largement.
 
+**`functions/` est un paquet à part, et le reste.** Il a ses propres
+dépendances, son propre `tsconfig.json`, et se déploie sur Firebase — jamais
+sur Vercel, qui n'installe que les dépendances de la racine. Il est donc exclu
+de la compilation de l'application : sans cette exclusion, le compilateur de
+Next inspectait `functions/src` sans trouver `firebase-functions`, et le
+déploiement Vercel échouait sur des imports irrésolus.
+
+**Exclu ne veut pas dire non vérifié.** `npm run typecheck` enchaîne les deux
+compilateurs — celui de l'application, puis celui de `functions/` :
+
+```bash
+npm run typecheck   # tsc --noEmit && npm --prefix functions run typecheck
+```
+
+`npm run build` ne couvre donc plus `functions/`, par construction. **Le
+contrôle avant commit est `npm run build && npm run typecheck`**, et le second
+échoue clairement si les dépendances de `functions/` ne sont pas installées —
+un `npm install --prefix functions` suffit.
+
 **Déployer l'agrégation, et purger ses marqueurs.** Trois gestes, dans cet
 ordre :
 
@@ -547,6 +566,24 @@ Un lot, une branche, une PR, une validation. On ne passe pas au suivant sans que
 6. **Cloud Function d'agrégation et statistiques.**
 7. **Session collective temps réel.**
 8. **Finition** — états vides, erreurs, chargements, navigation clavier, mobile.
+
+### Candidat pour le lot 8 : une vérification en intégration continue
+
+Un workflow GitHub Actions qui rejoue `build`, `typecheck`, `lint` et les tests
+sur chaque poussée, dans un environnement propre — dépendances installées
+depuis les fichiers de verrouillage, racine et `functions/`, sans rien qui
+traîne d'une manipulation antérieure.
+
+**Ce que ça aurait attrapé.** Les deux pannes de déploiement de ce projet ont
+la même forme : un artefact vérifié d'un côté, utilisé de l'autre. Les règles
+Firestore publiées qui divergeaient du dépôt au lot 3, et `functions/` qui ne
+compilait en local que grâce à un `npm install` fait à la main dans ce dossier,
+au lot 6. Un environnement neuf à chaque poussée rend ces deux écarts visibles
+avant le déploiement, pas après.
+
+À cadrer au moment du lot : quels secrets exposer au workflow — l'émulateur
+Firestore n'en demande aucun, la vérification des index en demande —, et si la
+vérification des règles publiées y entre ou reste un geste de déploiement.
 
 ---
 
