@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Route } from 'next';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+import { usePrechargementCertain } from '@/lib/navigation/intention';
+
 import { Bouton, Carte, EtiquetteStatut, Meta, Touche, TitreSection } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
@@ -59,6 +61,9 @@ type Passage = {
 
 export function Serie({ referentiel }: { referentiel: Referentiel }) {
   const routeur = useRouter();
+  // D'une serie, on revient toujours a l'accueil : autant le charger pendant
+  // que le commercial repond, quand le reseau ne fait rien.
+  usePrechargementCertain(ROUTE_ACCUEIL);
   const requete = useSearchParams();
   const rattrapage = requete.get('mode') === 'rattrapage';
 
@@ -279,7 +284,7 @@ export function Serie({ referentiel }: { referentiel: Referentiel }) {
               : 'Aucune question n’est publiée pour l’instant. L’entraînement s’ouvrira dès qu’il y en aura.'
           }
           actions={
-            <Bouton variante="secondaire" onClick={() => routeur.push(ROUTE_ACCUEIL)}>
+            <Bouton variante="secondaire" href={ROUTE_ACCUEIL}>
               Revenir à l’accueil
             </Bouton>
           }

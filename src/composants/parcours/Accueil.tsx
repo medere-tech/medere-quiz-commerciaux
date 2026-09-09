@@ -2,7 +2,6 @@
 
 import { useMemo } from 'react';
 import type { Route } from 'next';
-import { useRouter } from 'next/navigation';
 
 import { Bouton, Carte, Meta, TitreSection } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
@@ -31,7 +30,6 @@ const ROUTE_SERIE: Route = '/serie';
 const ROUTE_A_REVOIR: Route = '/a-revoir';
 
 export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: Referentiel }) {
-  const routeur = useRouter();
   const chargement = useDonneesParcours(referentiel);
 
   const calculs = useMemo(() => {
@@ -177,7 +175,7 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
             taille="lg"
             disabled={disponibles === 0}
             iconeGauche={<Icone nom="play" taille={16} />}
-            onClick={() => routeur.push(ROUTE_SERIE)}
+            href={ROUTE_SERIE}
           >
             {disponibles >= TAILLE_SERIE
               ? `Lancer une série de ${TAILLE_SERIE}`
@@ -188,7 +186,7 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
             variante="secondaire"
             disabled={ratees === 0}
             iconeGauche={<Icone nom="refresh" taille={16} />}
-            onClick={() => routeur.push(ROUTE_A_REVOIR)}
+            href={ROUTE_A_REVOIR}
           >
             {ratees === 0
               ? 'Aucune question à revoir'

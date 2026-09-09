@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Route } from 'next';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
+import { usePrechargementCertain } from '@/lib/navigation/intention';
+
 import {
   Bouton,
   Carte,
@@ -76,6 +78,8 @@ export default function PageEditeur() {
    */
   const retour = requete.get('retour');
   const versLaBanque = (retour ? `/admin/questions?${retour}` : '/admin/questions') as Route;
+  // Enregistrer ou renoncer ramene a la banque : elle se precharge des l'ouverture.
+  usePrechargementCertain(versLaBanque);
   const identifiant = parametres.id;
   const creation = identifiant === 'nouvelle';
 
@@ -281,7 +285,7 @@ export default function PageEditeur() {
           titre="Question introuvable"
           texte="Cette question n'existe plus. Elle a peut-être été supprimée depuis un autre onglet."
           action={
-            <Bouton variante="secondaire" onClick={() => router.push(versLaBanque)}>
+            <Bouton variante="secondaire" href={versLaBanque}>
               Revenir à la banque
             </Bouton>
           }
@@ -306,7 +310,7 @@ export default function PageEditeur() {
                 Réessayer
               </Bouton>
             ) : (
-              <Bouton variante="secondaire" onClick={() => router.push(versLaBanque)}>
+              <Bouton variante="secondaire" href={versLaBanque}>
                 Revenir à la banque
               </Bouton>
             )
@@ -362,7 +366,7 @@ export default function PageEditeur() {
             flexWrap: 'wrap',
           }}
         >
-          <Bouton variante="fantome" taille="lg" onClick={() => router.push(versLaBanque)}>
+          <Bouton variante="fantome" taille="lg" href={versLaBanque}>
             Revenir
           </Bouton>
           {!creation && (

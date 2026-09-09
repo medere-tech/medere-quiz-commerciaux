@@ -7,7 +7,6 @@ import {
   initializeAuth,
   type Auth,
 } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
 
 import { demarrerAppCheck } from '@/lib/firebase/app-check';
 import { envPubliques } from '@/lib/env/publiques';
@@ -66,10 +65,6 @@ export function authentification(): Auth {
     // application : au second appel, l'instance existante fait l'affaire.
     return getAuth(application);
   }
-}
-
-export function baseDeDonnees(): Firestore {
-  return getFirestore(applicationFirebase());
 }
 
 /**

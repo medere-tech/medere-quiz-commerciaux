@@ -20,7 +20,7 @@ import {
 
 } from 'firebase/firestore';
 
-import { baseDeDonnees } from '@/lib/firebase/client';
+import { baseDeDonnees } from '@/lib/firebase/firestore';
 import { enQuestion, type Question } from '@/lib/questions/lecture';
 import { normaliserEnonce } from '@/lib/texte';
 import type { QuestionAEcrire, StatutQuestion, TypeQuestion } from '@/lib/questions/modele';

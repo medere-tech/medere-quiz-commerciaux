@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Route } from 'next';
 import { useRouter } from 'next/navigation';
+import { useIntentionDeNavigation } from '@/lib/navigation/intention';
 
 import {
   Bouton,
@@ -97,6 +98,7 @@ function dateCourte(valeur: Date | null): string {
 
 export default function PageBanque() {
   const router = useRouter();
+  const intention = useIntentionDeNavigation();
   const champRecherche = useRef<HTMLInputElement>(null);
 
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -364,14 +366,14 @@ export default function PageBanque() {
               taille="lg"
               variante="secondaire"
               iconeGauche={<Icone nom="upload" taille={16} />}
-              onClick={() => router.push(ROUTE_IMPORT)}
+              href={ROUTE_IMPORT}
             >
               Importer
             </Bouton>
             <Bouton
               taille="lg"
               iconeGauche={<Icone nom="plus" taille={16} />}
-              onClick={() => router.push('/admin/questions/nouvelle')}
+              href={'/admin/questions/nouvelle' as Route}
             >
               Nouvelle question
             </Bouton>
@@ -459,13 +461,13 @@ export default function PageBanque() {
               <Bouton
                 variante="secondaire"
                 iconeGauche={<Icone nom="upload" taille={16} />}
-                onClick={() => router.push(ROUTE_IMPORT)}
+                href={ROUTE_IMPORT}
               >
                 Importer un lot
               </Bouton>
               <Bouton
                 iconeGauche={<Icone nom="plus" taille={16} />}
-                onClick={() => router.push('/admin/questions/nouvelle')}
+                href={'/admin/questions/nouvelle' as Route}
               >
                 Nouvelle question
               </Bouton>
@@ -602,6 +604,7 @@ export default function PageBanque() {
                     type="button"
                     aria-label={`Modifier : ${question.enonce}`}
                     onClick={() => router.push(versEditeur(question.id) as Route)}
+                    {...intention(versEditeur(question.id) as Route)}
                     style={boutonLigne}
                   >
                     <Icone nom="pencil" taille={16} />

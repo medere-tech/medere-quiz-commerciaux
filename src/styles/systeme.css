@@ -12,53 +12,18 @@
 /* ---------------------------------------------------------------- polices */
 
 /*
- * Aileron et DM Serif Text sont fournis avec le système, sous forme de
- * fichiers. Déposez-les dans `public/polices/` — voir README, section 7.
- * Tant qu'ils manquent, les piles de repli s'appliquent : la mise en page
- * reste juste, la personnalité typographique manque.
+ * Les six déclarations `@font-face` qui étaient ici ont été remplacées par
+ * `src/styles/polices.ts`, qui appelle `next/font/local`. Elles ne se
+ * réécrivent pas à la main : `next/font` les produit, avec le nom de fichier
+ * haché qui autorise un cache définitif, le préchargement, `font-display` et
+ * les métriques de la police de repli. Les raisons du changement sont
+ * détaillées dans ce fichier-là.
+ *
+ * Les deux jetons de famille, plus bas, pointent vers les variables que
+ * `next/font` expose. C'est la seule valeur de `systeme.css` qui s'écarte de
+ * l'import Claude Design, et elle nomme les mêmes deux polices : ce qui
+ * change est la manière de les charger, pas le dessin.
  */
-@font-face {
-  font-family: 'Aileron';
-  src: url('/polices/Aileron-Light.ttf') format('truetype');
-  font-weight: 300;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Aileron';
-  src: url('/polices/Aileron-Regular.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Aileron';
-  src: url('/polices/Aileron-SemiBold.ttf') format('truetype');
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Aileron';
-  src: url('/polices/Aileron-Bold.ttf') format('truetype');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'DM Serif Text';
-  src: url('/polices/DMSerifText-Regular.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'DM Serif Text';
-  src: url('/polices/DMSerifText-Italic.ttf') format('truetype');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
 
 /* ---------------------------------------------------------------- couleurs */
 
@@ -125,8 +90,13 @@
 
   /* ------------------------------------------------------------ typographie */
 
-  --font-display: 'DM Serif Text', Georgia, serif;
-  --font-sans: 'Aileron', -apple-system, 'Segoe UI', sans-serif;
+  /* Les deux variables viennent de `next/font` et portent déjà leur pile de
+     repli, police aux métriques ajustées comprise. La seconde valeur du
+     `var()` ne sert que si les classes du layout racine n'ont pas été
+     appliquées : la mise en page reste alors juste, la personnalité
+     typographique manque. */
+  --font-display: var(--police-display, Georgia, serif);
+  --font-sans: var(--police-sans, -apple-system, 'Segoe UI', sans-serif);
 
   --weight-light: 300;
   --weight-regular: 400;
