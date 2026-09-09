@@ -165,7 +165,7 @@ porte désormais `engine-strict=true` pour qu'un écart de ce genre tombe à
 l'installation. **Cette correction répare une déclaration, elle n'a pas réparé
 le 500 décrit ci-dessous.**
 
-### Le 500 en production, et ce qu'on en sait
+### Le 500 en production : cause et correction
 
 Toutes les pages ont répondu 500 sur `ERR_REQUIRE_ESM`, au fond de la chaîne
 `firebase-admin` → `jwks-rsa` → `jose`, alors que le build passait, que la
@@ -184,13 +184,63 @@ qui échoue est celui de `jwks-rsa/src/utils.js` ligne 1, qui charge `jose` —
 en modules ES purs depuis la version 6, sans condition `require` dans ses
 `exports`. Voir [vercel/next.js#91654](https://github.com/vercel/next.js/issues/91654).
 
-**Ce qui reste inconnu :** pourquoi le processus Vercel n'accepte pas ce
-`require`, alors que Node l'autorise depuis 20.19, 22.12 et 23.0.
-`process.features.require_module`, journalisé depuis la disposition racine,
-doit trancher.
+**La cause, mesurée en production.** Une sonde placée dans `register` de
+`instrumentation.ts` — le seul point atteint avant tout chargement de module —
+a donné :
+
+```
+[SONDE] node=v22.23.2 require_module=false cwd=/var/task
+[SONDE] import haché  : ECHEC ERR_REQUIRE_ESM
+[SONDE] import direct : ECHEC ERR_REQUIRE_ESM
+```
+
+`process.features.require_module` vaut **`false`** sur Node 22.23.2, alors que
+la fonctionnalité est stabilisée depuis 22.12 : l'exécutant Vercel la désactive
+au lancement. Les deux imports échouent, donc ni Turbopack ni le lien
+symbolique ne sont en cause — c'est l'environnement d'exécution.
+
+C'est cohérent avec AWS Lambda, sur quoi reposent les fonctions Vercel : « Lambda
+disables these features to ensure runtime stability ». Sur Lambda nu, un
+`NODE_OPTIONS=--experimental-require-module` lève la désactivation ; sur Vercel,
+un membre de l'équipe l'a proposé et cela n'a pas fonctionné, le drapeau
+`--no-experimental-require-module` étant présent dans `process.execArgv`, qui
+l'emporte sur `NODE_OPTIONS`.
+
+**La correction : `firebase-admin` en 13.x.** C'est la dernière ligne dont la
+chaîne ne dépend pas de `require(esm)` :
+
+| Version | `jwks-rsa` | `jose` chargée |
+|---|---|---|
+| firebase-admin **14** | 4.x | v6, modules ES purs, aucune condition `require` |
+| firebase-admin **13** | 3.x | v4, `dist/node/cjs/index.js` |
+
+Ce n'est pas un `override` qui force une version contre la déclaration d'un
+paquet : c'est une combinaison publiée et cohérente. Vérifié localement sous la
+condition exacte de production :
+
+```bash
+node --no-experimental-require-module -e "import('firebase-admin/auth')"
+```
+
+Réenclencher la fonctionnalité aurait été plus élégant si c'était possible.
+Ce ne l'est pas sur Vercel, et ce ne serait pas propre pour autant : AWS
+désactive ces fonctionnalités « to ensure runtime stability », et les fonctions
+qui les réactivent « aren't eligible for the Lambda Service Level Agreement ».
+Dépendre d'un drapeau expérimental en production n'est pas une correction.
+
+**Deux versions de `firebase-admin` dans le dépôt.** La racine est en 13.10.0,
+`functions/` reste en 14.3.0 : les Cloud Functions tournent sur le runtime
+Firebase, qui n'a ni Turbopack ni cette désactivation, et rien ne justifie de
+les rétrograder. Les deux paquets sont indépendants — dépendances séparées,
+runtimes séparés, aucun objet `firebase-admin` ne circule de l'un à l'autre.
+**Le risque est humain :** on oublie la divergence, et un jour du code est
+recopié de `functions/` vers `src/` en supposant la même API. À remonter dès
+que la chaîne `jose` cessera d'exiger `require(esm)`, ou que Vercel cessera de
+la désactiver.
 
 **Reproduire la panne en local**, sur une machine à jour — c'est le seul moyen
-de ne pas corriger à l'aveugle :
+de ne pas corriger à l'aveugle. Avec `firebase-admin` 14 la commande échouait,
+avec la 13 elle passe :
 
 ```bash
 npm run build                       # avec output: 'standalone' temporairement
