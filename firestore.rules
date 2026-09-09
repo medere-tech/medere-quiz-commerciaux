@@ -144,6 +144,15 @@ service cloud.firestore {
               'creeeLe', 'modifieeLe', 'creeePar'];
     }
 
+    // Forme normalisée de l'énoncé, dérivée et jamais saisie : elle sert la
+    // détection de doublons, que Firestore ne sait faire que sur une égalité
+    // exacte. Facultative dans les règles — les questions écrites avant sa
+    // mise en service n'en portent pas, et l'exiger casserait leur prochaine
+    // mise à jour. **Ce que les règles ne vérifient pas :** qu'elle
+    // corresponde vraiment à l'énoncé. Elles ne savent ni décomposer les
+    // accents ni appliquer une expression régulière. Une valeur fausse ne
+    // dégrade que la détection de doublons, un avertissement d'import.
+    //
     // Traçabilité de la fiche d'argumentaire : facultative, et elle doit le
     // rester. L'exiger reviendrait à supposer que toute fiche porte un numéro
     // de version — vrai de la trame d'aujourd'hui, pas du produit. Le jour où
@@ -151,7 +160,7 @@ service cloud.firestore {
     // regarde pas. Absents ou vides, ces champs passent ; renseignés, ils
     // sont bornés comme les autres.
     function champsQuestionFacultatifs() {
-      return ['sourceFiche', 'sourceVersion'];
+      return ['sourceFiche', 'sourceVersion', 'enonceNormalise'];
     }
 
     function questionValide(donnees) {
@@ -196,6 +205,7 @@ service cloud.firestore {
         // Traçabilité de la source, facultative : absente ou vide, elle
         // passe ; renseignée, elle est bornée comme le reste. Une question
         // qui la porte se retrouve d'une requête le jour où sa fiche change.
+        && (!('enonceNormalise' in donnees) || texteFacultatifBorne(donnees.enonceNormalise, 500))
         && (!('sourceFiche' in donnees) || texteFacultatifBorne(donnees.sourceFiche, 200))
         && (!('sourceVersion' in donnees) || texteFacultatifBorne(donnees.sourceVersion, 40))
         && identifiantBorne(donnees.creeePar)
@@ -246,6 +256,32 @@ service cloud.firestore {
         && apres.seriesTerminees >= avant.seriesTerminees
         && apres.seriesTerminees - avant.seriesTerminees <= 1
         && horodatagePasse(apres.vuLe);
+    }
+
+    function champsEtat() {
+      return ['reussies', 'tentatives', 'derniereRatee', 'majLe'];
+    }
+
+    function formeEtatValide(donnees) {
+      return donnees.keys().hasOnly(champsEtat())
+        && donnees.keys().hasAll(champsEtat())
+        && donnees.reussies is int
+        && donnees.reussies >= 0
+        && donnees.tentatives is int
+        && donnees.tentatives >= 1
+        && donnees.reussies <= donnees.tentatives
+        && donnees.derniereRatee is bool
+        && horodatagePasse(donnees.majLe);
+    }
+
+    function majEtatAutorisee() {
+      let avant = resource.data;
+      let apres = request.resource.data;
+      // Une écriture close une tentative : les deux compteurs montent, jamais
+      // de plus d'un, et jamais ils ne redescendent.
+      return apres.tentatives - avant.tentatives == 1
+        && apres.reussies >= avant.reussies
+        && apres.reussies - avant.reussies <= 1;
     }
 
     // --- Verdict ---------------------------------------------------------
@@ -300,6 +336,30 @@ service cloud.firestore {
           && formeReponseValide(request.resource.data)
           && verdictConforme(request.resource.data);
         allow update, delete: if false;
+      }
+
+      // --- État par question ---------------------------------------------
+      // Résumé de l'historique d'une question pour son propriétaire : ce que
+      // le tirage et la maîtrise ont besoin de savoir, sans relire toutes les
+      // réponses. Un document par question rencontrée, jamais plus.
+      //
+      // Ce que les règles garantissent : la forme, la propriété, et le fait
+      // qu'un compteur ne peut que monter, d'un pas à la fois. Ce qu'elles ne
+      // garantissent pas : que l'état corresponde aux réponses écrites — il
+      // faudrait relire l'historique à chaque écriture. La portée d'un
+      // mensonge est bornée à l'affichage du menteur : `questionStats` est
+      // écrite par la Cloud Function à partir des réponses, pas des états, et
+      // les réponses, elles, sont validées verdict compris.
+      match /etats/{questionId} {
+        allow read: if estProprietaire(uid);
+        allow create: if estProprietaire(uid)
+          && formeEtatValide(request.resource.data)
+          && request.resource.data.tentatives == 1
+          && request.resource.data.reussies <= 1;
+        allow update: if estProprietaire(uid)
+          && formeEtatValide(request.resource.data)
+          && majEtatAutorisee();
+        allow delete: if false;
       }
     }
 

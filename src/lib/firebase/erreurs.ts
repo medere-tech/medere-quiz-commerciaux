@@ -67,6 +67,21 @@ export function echecDeLecture(erreur: unknown, ceQuiEstLu: string): EchecDeLect
     };
   }
 
+  if (identifiant === 'failed-precondition') {
+    // Un index manquant ne se répare pas en réessayant. Il se déploie
+    // (`firebase deploy --only firestore:indexes`) et se construit ensuite en
+    // arrière-plan, quelques minutes. Sans ce cas, l'écran promettrait un
+    // rétablissement qui ne viendra jamais.
+    return {
+      texte:
+        `La base n'a pas l'index nécessaire pour trier et filtrer ${ceQuiEstLu} ` +
+        `de cette manière. Rien n'est perdu : les index du dépôt doivent être ` +
+        `déployés sur le projet Firebase. Signalez-le à l'équipe technique, ` +
+        `réessayer n'y changera rien.`,
+      reessayable: false,
+    };
+  }
+
   if (identifiant === 'unavailable' || identifiant === 'deadline-exceeded') {
     return {
       texte:

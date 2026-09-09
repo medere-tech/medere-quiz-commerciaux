@@ -1,9 +1,26 @@
 'use client';
 
-import { collection, doc, getDoc, getDocs, orderBy, query, type Timestamp } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getCountFromServer,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  startAfter,
+  where,
+  type QueryConstraint,
+  type QueryDocumentSnapshot,
+  type Timestamp,
+} from 'firebase/firestore';
 
 import { baseDeDonnees } from '@/lib/firebase/client';
+import { enFormation, type Formation } from '@/lib/formations/lecture';
 import { SYNCHRONISATION_FORMATIONS } from '@/lib/formations/chemins';
+
+export type { Formation } from '@/lib/formations/lecture';
 
 /**
  * Lecture du référentiel des formations, depuis le navigateur.
@@ -11,44 +28,88 @@ import { SYNCHRONISATION_FORMATIONS } from '@/lib/formations/chemins';
  * **Lecture seule côté application.** La collection est tenue par la
  * synchronisation Airtable ; rien ici n'écrit. Une formation ne se crée ni ne
  * se corrige dans ce back-office, elle se corrige dans Airtable.
+ *
+ * **Deux lectures, deux usages.** `chargerFormations` rapatrie le référentiel
+ * entier : les écrans qui rattachent une question à sa formation ont besoin de
+ * toutes les entrées, actives ou non, pour nommer celle qui est déjà liée.
+ * `chargerPageFormations` sert la liste du back-office, filtrée et paginée par
+ * Firestore.
  */
 
-export type Formation = {
-  id: string;
-  nom: string;
-  numeroActionDpc: string;
-  cibles: string[];
-  format: string;
-  modalite: string;
-  dureeTotale: string;
-  urlWebflow: string;
-  blocsCertification: string[];
-  actif: boolean;
+/** Ce que l'onglet du back-office demande au serveur. */
+export type FiltreFormations = 'actives' | 'inactives' | 'toutes';
+
+export type PageFormations = {
+  formations: Formation[];
+  curseur: QueryDocumentSnapshot | null;
+  encore: boolean;
 };
+
+function contraintesFormations(filtre: FiltreFormations): QueryConstraint[] {
+  const liste: QueryConstraint[] = [];
+  if (filtre === 'actives') liste.push(where('actif', '==', true));
+  if (filtre === 'inactives') liste.push(where('actif', '==', false));
+  liste.push(orderBy('nom'));
+  return liste;
+}
+
+export async function chargerPageFormations(
+  filtre: FiltreFormations,
+  taille: number,
+  apres?: QueryDocumentSnapshot | null,
+): Promise<PageFormations> {
+  const suite = apres ? [startAfter(apres)] : [];
+
+  const instantane = await getDocs(
+    query(
+      collection(baseDeDonnees(), 'formations'),
+      ...contraintesFormations(filtre),
+      ...suite,
+      limit(taille),
+    ),
+  );
+
+  return {
+    formations: instantane.docs.map((document) => enFormation(document.id, document.data())),
+    curseur: instantane.docs.at(-1) ?? null,
+    encore: instantane.size === taille,
+  };
+}
+
+/**
+ * L'ensemble filtré, pour la recherche plein texte. Firestore ne sait chercher
+ * ni dans un nom, ni dans une liste de cibles : la recherche s'applique donc à
+ * ce que le filtre serveur a déjà réduit. Le référentiel tient en quelques
+ * centaines d'entrées, il n'y a pas de plafond à poser.
+ */
+export async function chargerToutesLesFormations(
+  filtre: FiltreFormations,
+): Promise<Formation[]> {
+  const instantane = await getDocs(
+    query(collection(baseDeDonnees(), 'formations'), ...contraintesFormations(filtre)),
+  );
+
+  return instantane.docs.map((document) => enFormation(document.id, document.data()));
+}
+
+export async function compterFormations(filtre: FiltreFormations): Promise<number> {
+  const liste: QueryConstraint[] = [];
+  if (filtre === 'actives') liste.push(where('actif', '==', true));
+  if (filtre === 'inactives') liste.push(where('actif', '==', false));
+
+  const agregat = await getCountFromServer(
+    query(collection(baseDeDonnees(), 'formations'), ...liste),
+  );
+
+  return agregat.data().count;
+}
 
 export async function chargerFormations(): Promise<Formation[]> {
   const instantane = await getDocs(
     query(collection(baseDeDonnees(), 'formations'), orderBy('nom')),
   );
 
-  return instantane.docs.map((document) => {
-    const donnees = document.data();
-    return {
-      id: document.id,
-      nom: typeof donnees.nom === 'string' ? donnees.nom : '',
-      numeroActionDpc:
-        typeof donnees.numeroActionDpc === 'string' ? donnees.numeroActionDpc : '',
-      cibles: Array.isArray(donnees.cibles) ? (donnees.cibles as string[]) : [],
-      format: typeof donnees.format === 'string' ? donnees.format : '',
-      modalite: typeof donnees.modalite === 'string' ? donnees.modalite : '',
-      dureeTotale: typeof donnees.dureeTotale === 'string' ? donnees.dureeTotale : '',
-      urlWebflow: typeof donnees.urlWebflow === 'string' ? donnees.urlWebflow : '',
-      blocsCertification: Array.isArray(donnees.blocsCertification)
-        ? (donnees.blocsCertification as string[])
-        : [],
-      actif: donnees.actif === true,
-    };
-  });
+  return instantane.docs.map((document) => enFormation(document.id, document.data()));
 }
 
 /**
@@ -84,10 +145,10 @@ export function identiteVisuelle(formation: Formation): { fichier: string; coule
  *
  * Écrit par la route serveur (SDK Admin), relu ici. Sans cette lecture, le
  * détail des rejets ne s'afficherait que dans les secondes qui suivent un
- * clic sur « Synchroniser » — alors que la tâche planifiée passe toutes les
- * six heures et qu'un enregistrement écarté le reste jusqu'à correction dans
- * Airtable. Un problème qui disparaît au rechargement de la page n'est pas un
- * problème signalé.
+ * clic sur « Synchroniser » — alors que la tâche planifiée ne passe qu'une
+ * fois par jour et qu'un enregistrement écarté le reste jusqu'à correction
+ * dans Airtable. Un problème qui disparaît au rechargement de la page n'est
+ * pas un problème signalé.
  *
  * Les listes sont bornées à l'écriture : `rejetees` et `statutsAbsentsNombre`
  * portent le compte réel, `rejets` et `statutsAbsents` au plus 20 et 50

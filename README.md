@@ -81,16 +81,24 @@ users/{uid}
   etoiles, seriesTerminees : number
   creeLe, vuLe : timestamp
 
-users/{uid}/reponses/{reponseId}
+users/{uid}/reponses/{reponseId}   // source de vérité, une par tentative
   questionId : string
   correcte : boolean
   optionsChoisies : string[]
   origine : 'entrainement' | 'session'
   repondueLe : timestamp
 
+users/{uid}/etats/{questionId}     // résumé, une par question rencontrée
+  reussies, tentatives : number
+  derniereRatee : boolean
+  majLe : timestamp
+
 questionStats/{questionId}         // agrégat anonyme, écrit par Cloud Function
   tentatives, echecs : number
   majLe : timestamp
+
+questionStats/{questionId}/evenements/{evenementId}
+  expireLe : timestamp             // marqueur de dédoublonnage, fermé à tout client
 
 sessions/{sessionId}
   code : string                    // court, lisible à voix haute
@@ -110,6 +118,89 @@ sessions/{sessionId}/reponses/{uid_questionId}
 
 Le modèle `formations` est fixé par `docs/airtable-formations.md`, qui fait foi : il est relevé du schéma réel de la base. L'identifiant du document Firestore est l'identifiant d'enregistrement Airtable, ce qui rend la synchronisation idempotente — relancée deux fois, elle produit le même état.
 
+**Pourquoi un résumé par question en plus des réponses.** Le tirage et la
+maîtrise ne s'intéressent qu'à trois chiffres par question : combien de
+réussites, la dernière tentative est-elle un échec, la question a-t-elle été
+vue. Les recalculer imposait de relire tout l'historique — dix réponses par
+jour sur deux ans font cinq mille documents rapatriés à chaque ouverture du
+parcours, pour un résultat qui tient en une ligne par question.
+`users/{uid}/etats` porte ces trois chiffres, écrits dans le même lot que la
+réponse : ou les deux, ou aucun. Le volume est borné par la banque, plus par
+l'activité.
+
+Mesuré sur la base réelle, avec 158 réponses sur 14 questions : 270 ms pour
+lire les réponses, 119 ms pour lire les états. Sur l'émulateur, à la
+volumétrie de deux ans (5 000 réponses, 300 questions) : 712 ms contre 33 ms.
+
+Les réponses restent la source de vérité — c'est d'elles que la Cloud Function
+tire `questionStats`, et c'est d'elles que `npm run etats:reprise` reconstruit
+les états si l'un d'eux dérive. **Ce que les règles ne vérifient pas :** que
+l'état corresponde aux réponses. Il faudrait relire l'historique à chaque
+écriture. Elles vérifient la forme, la propriété, et qu'un compteur ne monte
+que d'un pas à la fois ; la portée d'un mensonge est bornée à l'affichage du
+menteur, puisque `questionStats` est alimentée par les réponses, elles-mêmes
+validées verdict compris.
+
+**Pourquoi l'agrégat porte des marqueurs d'événements.** Cloud Functions
+garantit une livraison *au moins une fois* : le même événement peut être remis
+deux fois, et un compteur incrémenté deux fois pour une seule réponse
+discrédite tout l'écran de statistiques. La fonction pose donc, dans la même
+transaction que l'incrément, un marqueur portant l'identifiant de l'événement ;
+si le marqueur existe déjà, elle ne touche à rien. Ces documents ne servent
+qu'à cela : aucune règle ne déclare leur chemin, ils sont donc fermés à tous
+les clients, administrateur compris. Ils portent `expireLe` pour qu'une
+stratégie TTL les reprenne — la fenêtre de reprise de Cloud Functions v2 étant
+de vingt-quatre heures, sept jours de conservation suffisent largement.
+
+**`functions/` est un paquet à part, et le reste.** Il a ses propres
+dépendances, son propre `tsconfig.json`, et se déploie sur Firebase — jamais
+sur Vercel, qui n'installe que les dépendances de la racine. Il est donc exclu
+de la compilation de l'application : sans cette exclusion, le compilateur de
+Next inspectait `functions/src` sans trouver `firebase-functions`, et le
+déploiement Vercel échouait sur des imports irrésolus.
+
+**Exclu ne veut pas dire non vérifié.** `npm run typecheck` enchaîne les deux
+compilateurs — celui de l'application, puis celui de `functions/` :
+
+```bash
+npm run typecheck   # tsc --noEmit && npm --prefix functions run typecheck
+```
+
+`npm run build` ne couvre donc plus `functions/`, par construction. **Le
+contrôle avant commit est `npm run build && npm run typecheck`**, et le second
+échoue clairement si les dépendances de `functions/` ne sont pas installées —
+un `npm install --prefix functions` suffit.
+
+**Déployer l'agrégation, et purger ses marqueurs.** Trois gestes, dans cet
+ordre :
+
+1. `firebase deploy --only functions` — la fonction se déploie depuis
+   `functions/`, en `europe-west1`.
+2. `npm run stats:reprise -- --faire` — reconstruit les compteurs à partir des
+   réponses déjà en base.
+3. **Une stratégie TTL sur les marqueurs**, à créer une fois en console :
+   *Firestore → Time-to-live (TTL) → Créer une stratégie*. Groupe de
+   collections `evenements`, champ d'horodatage `expireLe`. Le groupe de
+   collections, pas un chemin : les marqueurs vivent sous
+   `questionStats/{questionId}/evenements`, et une stratégie TTL se déclare
+   toujours au niveau du groupe. En ligne de commande, l'équivalent est
+   `gcloud firestore fields ttls update expireLe --collection-group=evenements
+   --enable-ttl --project=<id>`.
+
+Sans cette stratégie, les marqueurs s'accumulent indéfiniment : environ vingt-
+six mille documents par an à raison de dix commerciaux et cinquante réponses
+par semaine. Rien ne casse, mais la base enfle pour rien. La suppression est
+asynchrone et gratuite en lecture ; seules les suppressions se facturent, au
+tarif d'une suppression ordinaire.
+
+**La reprise d'historique.** La fonction n'agrège que les réponses créées
+après son déploiement. `npm run stats:reprise` reconstruit les compteurs à
+partir des réponses déjà en base — sans quoi l'écran de statistiques
+s'ouvrirait vide alors que l'équipe a déjà répondu des centaines de fois. Le
+script recalcule chaque agrégat en entier, donc il est rejouable ; c'est aussi
+ce qui interdit de le lancer en routine, un incrément arrivé entre sa lecture
+et son écriture serait perdu.
+
 **Pourquoi les réponses sont sous le document utilisateur.** C'est ce qui rend l'isolation des scores applicable par les règles de sécurité, et pas seulement par un filtre d'affichage. Noémie ne peut pas voir qui rate quoi, même en ouvrant la console Firebase. Elle voit les statistiques par question via `questionStats`, qui ne contient aucun identifiant.
 
 Cette décision peut être révisée si Noémie ou la direction demandent le nominatif. C'est alors une décision managériale explicite, à assumer comme telle, avec une évolution du modèle. Ne pas l'anticiper dans le code.
@@ -128,17 +219,96 @@ Cette décision peut être révisée si Noémie ou la direction demandent le nom
 
 | Collection | Champs | Sert à |
 |---|---|---|
-| `questions` | `statut` + `formationIds` | le tirage des séries, restreint aux publiées d'une formation (lot 5) |
-| `questions` | `statut` / `type` / `formationIds`, puis `modifieeLe` décroissant | les filtres du back-office, seuls ou combinés (lot 3) |
-| `formations` | `actif` + `nom` | la liste des formations actives, par ordre alphabétique |
-| `reponses` | `questionId` + `repondueLe` décroissant | retrouver la dernière tentative sur une question, pour la pondération du tirage |
-| `reponses` | `correcte` + `repondueLe` décroissant | l'écran « revoir mes questions ratées » |
-| `reponses` | `origine` + `repondueLe` décroissant | distinguer entraînement et session dans l'historique |
-| `sessions` | `statut` + `creeeLe` décroissant | retrouver la session en cours |
+| `questions` | `statut` / `type` / `formationIds`, seuls ou combinés, puis `modifieeLe` décroissant | les filtres de la banque, du plus récent au plus ancien (lot 3) |
+| `questions` | les mêmes sept combinaisons, puis `modifieeLe` croissant | les mêmes filtres, du plus ancien au plus récent (lot 3) |
+| `questions` | les mêmes sept combinaisons, puis `enonce` croissant | les mêmes filtres, par énoncé (lot 3) |
+| `formations` | `actif` + `nom` | la liste du back-office, au catalogue ou hors catalogue |
 
-Les dérogations (`fieldOverrides`) désactivent l'indexation automatique de `options`, `ordreOptions`, `bonnesReponses`, `optionsChoisies`, `enonce`, `explication` et `contexte`. Aucune requête ne les filtre — la recherche sur l'énoncé se fait dans le navigateur, sur une banque de quelques centaines de questions. Pour `options`, la raison est plus forte : chaque clé de map crée sinon son propre chemin indexé, et une banque de questions aux identifiants d'options variés ferait enfler l'index sans qu'aucune lecture n'en profite.
+Vingt-et-un index pour la banque : sept combinaisons de filtres, trois tris.
 
-Les index à champ unique restent automatiques : `sessions.code`, `questionStats.echecs` et les autres tris simples n'ont rien à déclarer ici.
+### Ce que ces index coûtent
+
+Le filtrage serveur se paie, et la décision doit porter son prix pour qu'on
+puisse la réévaluer.
+
+**À l'écriture.** Chaque question écrite met à jour les 21 index composites de
+`questions`, plus ses index à champ unique. Firestore facture ces mises à jour
+dans l'écriture du document : une écriture reste une écriture, quel que soit
+le nombre d'index — ce n'est pas le compteur d'opérations qui enfle, c'est la
+latence de l'écriture et le stockage. À notre rythme — des imports en lot
+quelques fois par mois, quelques corrections par semaine — c'est invisible.
+
+**Au stockage.** Une entrée d'index pèse la taille des valeurs indexées plus
+celle du chemin du document. Pour 300 questions × 22 index, avec des valeurs
+courtes (`statut`, `type`, un identifiant Airtable, une date) et un énoncé
+borné à 180 caractères par les règles, l'ordre de grandeur est de quelques
+mégaoctets — à comparer au gigaoctet du quota gratuit. Là encore, invisible.
+
+**Quand le réévaluer.** Deux signaux : une banque qui dépasse quelques
+milliers de questions, ou un filtre supplémentaire dans la banque — chaque
+nouveau filtre double le nombre de combinaisons, donc le nombre d'index. À ce
+moment-là, la question à poser n'est pas « faut-il moins d'index » mais
+« faut-il encore proposer ces filtres croisés ».
+
+Ce coût est le contrepoids d'un gain mesuré : sans filtrage serveur, chaque
+ouverture de la banque téléchargeait la collection entière.
+
+**Un index composite ne se parcourt pas dans les deux sens.** Firestore
+inverse l'ordre complet, pas un champ isolé : `(statut ASC, modifieeLe DESC)`
+ne sert pas un tri `(statut ASC, modifieeLe ASC)`. Chaque direction de tri
+demande son propre index. Seule la direction d'un champ filtré par égalité est
+libre, puisqu'elle ne contraint pas le résultat.
+
+**Le fichier décrit exactement ce que le code émet, dans les deux sens.** Un
+index déclaré que personne n'interroge se paie à chaque écriture sans jamais
+servir une lecture ; une requête non déclarée tombe en production. Les index
+prévus pour les lots à venir n'y figurent donc pas : ils s'ajouteront avec la
+requête qui les justifie.
+
+Les dérogations (`fieldOverrides`) désactivent l'indexation automatique de `options`, `ordreOptions`, `bonnesReponses`, `optionsChoisies`, `explication` et `contexte`. **`enonce` n'en fait plus partie** : la banque le trie côté serveur, l'index à champ unique est donc nécessaire. Les règles bornent sa longueur, l'entrée d'index reste courte. Aucune requête ne les filtre — la recherche sur l'énoncé se fait dans le navigateur, sur une banque de quelques centaines de questions. Pour `options`, la raison est plus forte : chaque clé de map crée sinon son propre chemin indexé, et une banque de questions aux identifiants d'options variés ferait enfler l'index sans qu'aucune lecture n'en profite.
+
+Les index à champ unique restent automatiques : `questions.statut`, `questions.modifieeLe`, `questions.enonce`, `formations.nom` et les autres tris simples n'ont rien à déclarer ici.
+
+### Ce qui reste au navigateur, et pourquoi
+
+**La recherche plein texte.** Firestore ne sait pas chercher dans un texte :
+ni sous-chaîne, ni insensibilité aux accents, ni recherche simultanée sur
+l'énoncé, le thème et le nom de la formation. C'est une limite du produit, pas
+un choix d'implémentation. La recherche s'applique donc à l'ensemble que les
+filtres serveur ont déjà réduit : taper un terme rapatrie cet ensemble, page
+par page, sous un plafond de mille questions — au-delà, l'écran le dit et
+invite à resserrer un filtre. Une vraie recherche exigerait un service
+d'indexation externe, décision à prendre pour elle-même.
+
+**Le tirage des séries.** La pondération du README attribue un poids à
+*chaque* question publiée avant d'en tirer dix sans remise. Il faut donc la
+liste complète des questions publiées : aucun filtre serveur ne la réduit sans
+changer l'algorithme.
+
+**Le tirage des séries lit toutes les questions publiées.** La pondération
+attribue un poids à *chaque* question publiée avant d'en tirer dix sans
+remise : il faut la liste entière. Le SDK navigateur ne sait pas projeter sur
+les seuls identifiants — `select()` n'existe que côté Admin — si bien que lire
+trois cents identifiants coûte trois cents documents. Aucun filtre serveur ne
+réduit cela sans changer l'algorithme.
+
+L'ordre de grandeur, à maturité : 300 questions par lancement de série. Dix
+commerciaux, trois séries par jour, vingt jours par mois font 600 séries, donc
+180 000 lectures par mois — environ 12 % du quota gratuit (50 000 lectures par
+jour). Un cache mémoire de cinq minutes évite la double lecture entre l'accueil
+et l'écran de série, ce qui ramène le compte à une lecture de banque par série.
+Le seuil à surveiller est la taille de la banque : à mille questions, la même
+arithmétique donne 40 % du quota, et il faudra alors trancher entre
+dénormaliser la liste des identifiants publiés et revoir le tirage.
+
+**La détection des doublons à l'import** interroge la banque par lots de
+trente énoncés (`where('enonce', 'in', …)`, la limite de Firestore), au lieu
+de la télécharger en entier. Une réserve : Firestore compare des chaînes
+exactes, alors que la comparaison du navigateur était normalisée. Deux énoncés
+qui ne diffèrent que par la casse ou les accents ne sont donc plus signalés
+comme doublons de la banque. Le rétablir demanderait un champ
+`enonceNormalise` sur chaque question et son index. La détection à l'intérieur
+du tableau collé, elle, reste normalisée.
 
 **Vérification obligatoire avant tout déploiement.** L'émulateur n'exige aucun index : une requête qui en manque y passe sans broncher, et n'échoue qu'en production, sur un `FAILED_PRECONDITION`, à la première requête d'un commercial. La parade est un test d'intégration contre une vraie base :
 
@@ -324,10 +494,18 @@ Création des nouvelles, mise à jour des existantes par `airtableId`, passage �
 
 | Appelant | Méthode | Authentification |
 |---|---|---|
-| Tâche planifiée Vercel, toutes les six heures | `GET /api/airtable/sync` | `Authorization: Bearer <CRON_SECRET>` |
-| Bouton du back-office | `POST /api/airtable/sync` | session administrateur, custom claim vérifié côté serveur |
+| Tâche planifiée Vercel, une fois par jour à 4 h UTC | `GET /api/airtable/sync` | `Authorization: Bearer <CRON_SECRET>` |
+| Bouton du back-office, à la demande | `POST /api/airtable/sync` | session administrateur, custom claim vérifié côté serveur |
 
 La planification est déclarée dans `vercel.json`. Vercel pose lui-même l'en-tête d'autorisation dès que `CRON_SECRET` existe côté projet ; sans en-tête valide, la route répond 401. Cette route écrit dans Firestore : elle n'est jamais accessible anonymement.
+
+**Pourquoi une seule fois par jour.** Le plan Vercel de l'équipe est Hobby, qui limite les tâches planifiées à une exécution quotidienne : une expression plus fréquente est refusée au déploiement, pas à l'exécution. Le `0 */6 * * *` d'origine faisait donc échouer le déploiement entier.
+
+**Pourquoi 4 h UTC.** Hobby n'assure pas l'heure exacte : la précision est horaire, une tâche déclarée à 4 h part quelque part entre 4 h 00 et 4 h 59. Paris étant à UTC+1 l'hiver et UTC+2 l'été, le pire cas est l'été : le départ se situe entre 6 h et 7 h heure de Paris, et la synchronisation est passée bien avant l'arrivée de l'équipe. L'hiver, elle tombe entre 5 h et 6 h. Reculer à 6 h UTC ferait démarrer certaines exécutions à 8 h 59 heure de Paris l'été, soit pendant que Noémie ouvre le back-office — c'est la marge que ce choix protège.
+
+**Ce qu'un passage en Pro rendrait possible.** Le plan Pro autorise une exécution par minute et une précision à la minute. Revenir à `0 */6 * * *` y serait immédiat, et n'aurait de sens que si le référentiel se mettait à bouger plusieurs fois par jour — ce qui n'est pas le cas aujourd'hui. La décision se prendra sur ce constat, pas par principe.
+
+**Le déclenchement manuel n'est pas concerné.** Le bouton de l'écran Formations appelle la route en `POST` avec la session administrateur : il ne passe pas par la planification, et reste disponible autant de fois qu'il le faut. C'est le recours quand une formation vient d'être corrigée dans Airtable et qu'on ne veut pas attendre le lendemain.
 
 Le déclenchement manuel est refusé si une synchronisation a eu lieu il y a moins de cinq minutes, sauf demande explicite. Le référentiel ne change pas si vite, et un bouton se martèle. Aucune page n'appelle l'API Airtable : les écrans lisent `formations` dans Firestore, la synchronisation est le seul chemin vers Airtable.
 
@@ -388,6 +566,24 @@ Un lot, une branche, une PR, une validation. On ne passe pas au suivant sans que
 6. **Cloud Function d'agrégation et statistiques.**
 7. **Session collective temps réel.**
 8. **Finition** — états vides, erreurs, chargements, navigation clavier, mobile.
+
+### Candidat pour le lot 8 : une vérification en intégration continue
+
+Un workflow GitHub Actions qui rejoue `build`, `typecheck`, `lint` et les tests
+sur chaque poussée, dans un environnement propre — dépendances installées
+depuis les fichiers de verrouillage, racine et `functions/`, sans rien qui
+traîne d'une manipulation antérieure.
+
+**Ce que ça aurait attrapé.** Les deux pannes de déploiement de ce projet ont
+la même forme : un artefact vérifié d'un côté, utilisé de l'autre. Les règles
+Firestore publiées qui divergeaient du dépôt au lot 3, et `functions/` qui ne
+compilait en local que grâce à un `npm install` fait à la main dans ce dossier,
+au lot 6. Un environnement neuf à chaque poussée rend ces deux écarts visibles
+avant le déploiement, pas après.
+
+À cadrer au moment du lot : quels secrets exposer au workflow — l'émulateur
+Firestore n'en demande aucun, la vérification des index en demande —, et si la
+vérification des règles publiées y entre ou reste un geste de déploiement.
 
 ---
 

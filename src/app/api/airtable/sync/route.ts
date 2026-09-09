@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
  *
  * - `POST` — le bouton du back-office. Exige une session administrateur,
  *   vérifiée côté serveur sur le custom claim.
- * - `GET` — la tâche planifiée Vercel, toutes les six heures. Exige l'en-tête
+ * - `GET` — la tâche planifiée Vercel, une fois par jour. Exige l'en-tête
  *   `Authorization: Bearer <CRON_SECRET>`, que Vercel pose lui-même dès que la
  *   variable est définie.
  *
@@ -79,8 +79,9 @@ export async function GET(requete: Request): Promise<NextResponse> {
     );
   }
 
-  // La tâche planifiée passe outre l'intervalle minimal : c'est elle qui
-  // fixe le rythme, toutes les six heures.
+  // La tâche planifiée passe outre l'intervalle minimal : c'est elle qui fixe
+  // le rythme, une fois par jour vers 4 h UTC. Le plan Vercel Hobby n'en
+  // autorise pas davantage — voir README, section 6.
   return executer(true);
 }
 

@@ -36,6 +36,11 @@ export function ChargerPlus({
 
   const reste = total - affichees;
 
+  // « 1 questions, tout est affiché » : le compte final descend à un dès que
+  // la liste est filtrée, et l'accord doit suivre. Les noms passés ici sont
+  // des pluriels réguliers en -s.
+  const accorde = (quantite: number) => (quantite > 1 ? nom : nom.replace(/s$/, ''));
+
   return (
     <div
       style={{
@@ -53,13 +58,13 @@ export function ChargerPlus({
           iconeGauche={<Icone nom="chevronDown" taille={16} />}
           onClick={onPlus}
         >
-          {`Voir ${Math.min(parPage, reste)} ${nom} de plus`}
+          {`Voir ${Math.min(parPage, reste)} ${accorde(Math.min(parPage, reste))} de plus`}
         </Bouton>
       )}
       <Meta aria-live="polite">
         {reste > 0
-          ? `${affichees} ${nom} sur ${total}`
-          : `${total} ${nom}, tout est affiché.`}
+          ? `${affichees} ${accorde(affichees)} sur ${total}`
+          : `${total} ${accorde(total)}, tout est affiché.`}
       </Meta>
     </div>
   );

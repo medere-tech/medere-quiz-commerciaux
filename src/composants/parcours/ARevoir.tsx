@@ -8,7 +8,7 @@ import { Bouton, Carte, Meta, Onglets, TitrePage } from '@/composants/ds/primiti
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { FormeFormation } from '@/composants/ds/parcours';
-import { useDonneesParcours } from '@/composants/parcours/donnees';
+import { useDonneesParcours, type Referentiel } from '@/composants/parcours/donnees';
 import { identiteVisuelle } from '@/lib/formations/depot';
 import { LIBELLES_TYPE, TYPES_QUESTION } from '@/lib/questions/modele';
 import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
@@ -32,9 +32,9 @@ const PAR_PAGE = 20;
 
 const DEFAUTS = { format: 'tous', vus: String(PAR_PAGE) };
 
-export function ARevoir() {
+export function ARevoir({ referentiel }: { referentiel: Referentiel }) {
   const routeur = useRouter();
-  const chargement = useDonneesParcours();
+  const chargement = useDonneesParcours(referentiel);
   const { valeurs, definir } = useParametresUrl(DEFAUTS);
 
   const format = valeurs.format;
@@ -42,21 +42,19 @@ export function ARevoir() {
 
   const aRevoir = useMemo(() => {
     if (chargement.etat !== 'pret') return [];
-    const { questions, etats, reponses } = chargement.donnees;
+    const { questions, etats } = chargement.donnees;
 
-    const ratees = new Set(
-      etats.filter((etat) => etat.derniereRatee).map((etat) => etat.id),
+    // Le compte d'échecs se déduit de l'état, sans relire l'historique :
+    // tentatives moins réussites. Une question ratée en compte au moins un.
+    const ratees = new Map(
+      etats
+        .filter((etat) => etat.derniereRatee)
+        .map((etat) => [etat.id, Math.max(1, etat.tentatives - etat.reussies)]),
     );
-
-    const echecs = new Map<string, number>();
-    for (const reponse of reponses) {
-      if (reponse.correcte) continue;
-      echecs.set(reponse.questionId, (echecs.get(reponse.questionId) ?? 0) + 1);
-    }
 
     return questions
       .filter((question) => ratees.has(question.id))
-      .map((question) => ({ question, echecs: echecs.get(question.id) ?? 1 }))
+      .map((question) => ({ question, echecs: ratees.get(question.id) ?? 1 }))
       .sort((a, b) => b.echecs - a.echecs);
   }, [chargement]);
 

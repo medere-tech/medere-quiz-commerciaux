@@ -11,12 +11,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm --prefix functions run typecheck",
     "test": "npm run test:regles",
     "test:regles": "firebase emulators:exec --only firestore --project demo-medere-quiz \"vitest run\"",
     "emulateurs": "firebase emulators:start --only firestore --project demo-medere-quiz",
     "regles:deploy": "firebase deploy --only firestore:rules && npm run regles:verifier",
     "index:verifier": "node --env-file=.env.local scripts/verifier-index.ts",
+    "stats:reprise": "node --env-file=.env.local scripts/agreger-historique.ts",
+    "etats:reprise": "node --env-file=.env.local scripts/reconstruire-etats.ts",
+    "enonces:normaliser": "node --env-file=.env.local scripts/normaliser-enonces.ts",
     "regles:verifier": "node --env-file=.env.local scripts/verifier-regles.ts"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { QueryDocumentSnapshot } from 'firebase/firestore';
 
 import {
   Bouton,
@@ -15,7 +16,10 @@ import { Confirmation, EtatErreur, EtatVide, Squelettes } from '@/composants/ds/
 import { Icone } from '@/composants/ds/Icone';
 import {
   chargerDernierRapport,
-  chargerFormations,
+  chargerPageFormations,
+  chargerToutesLesFormations,
+  compterFormations,
+  type FiltreFormations,
   identiteVisuelle,
   type Formation,
   type RapportSynchronisation,
@@ -329,6 +333,13 @@ function Ligne({
 
 export default function PageFormations() {
   const [formations, setFormations] = useState<Formation[]>([]);
+  /** Totaux exacts, obtenus par agrégat sans lire les documents. */
+  const [total, setTotal] = useState(0);
+  const [totalActives, setTotalActives] = useState(0);
+  const [totalFiltre, setTotalFiltre] = useState(0);
+  const [chargementSuite, setChargementSuite] = useState(false);
+  const curseur = useRef<QueryDocumentSnapshot | null>(null);
+  const [rechargements, setRechargements] = useState(0);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<EchecDeLecture>();
   const { valeurs, definir } = useParametresUrl(DEFAUTS);
@@ -345,27 +356,73 @@ export default function PageFormations() {
   const [ecarts, setEcarts] = useState<Ecarts>();
   const [erreurSync, setErreurSync] = useState<string>();
 
-  async function charger() {
-    try {
-      const liste = await chargerFormations();
-      setFormations(liste);
-      setErreur(undefined);
-    } catch (probleme) {
-      setErreur(echecDeLecture(probleme, 'le référentiel des formations'));
-    } finally {
-      setChargement(false);
-    }
+  function charger() {
+    setRechargements((precedents) => precedents + 1);
   }
+
+  /** Une recherche porte sur l'ensemble filtré, pas sur la page affichée. */
+  const enRecherche = recherche.trim().length > 0;
+
+  const cle = `${filtre}|${enRecherche}|${rechargements}`;
 
   useEffect(() => {
     let vivant = true;
 
     async function premierChargement() {
+      setChargement(true);
+      curseur.current = null;
+
+      // Les compteurs partent avec la liste, pas devant elle : ils se posent
+      // dès qu'ils arrivent, sans retarder les lignes.
+      const poser = <T,>(promesse: Promise<T>, appliquer: (valeur: T) => void) => {
+        void promesse.then(
+          (valeur) => {
+            if (vivant) appliquer(valeur);
+          },
+          (probleme) => {
+            console.error('Compteur indisponible', probleme);
+          },
+        );
+      };
+
+      poser(compterFormations('toutes'), setTotal);
+      poser(compterFormations('actives'), setTotalActives);
+      poser(compterFormations(filtre as FiltreFormations), setTotalFiltre);
+
       try {
-        const liste = await chargerFormations();
-        if (vivant) setFormations(liste);
+        if (enRecherche) {
+          // Firestore ne cherche ni dans un nom ni dans une liste de cibles :
+          // la recherche s'applique à l'ensemble que le filtre a réduit.
+          const toutes = await chargerToutesLesFormations(filtre as FiltreFormations);
+          if (!vivant) return;
+          setFormations(toutes);
+        } else {
+          const cumul: Formation[] = [];
+          let suivant: QueryDocumentSnapshot | null = null;
+          let reste = true;
+
+          while (reste && cumul.length < Math.max(vus, PAR_PAGE)) {
+            const page = await chargerPageFormations(
+              filtre as FiltreFormations,
+              PAR_PAGE,
+              suivant,
+            );
+            if (!vivant) return;
+            cumul.push(...page.formations);
+            suivant = page.curseur;
+            reste = page.encore;
+          }
+
+          setFormations(cumul);
+          curseur.current = suivant;
+        }
+        setErreur(undefined);
       } catch (probleme) {
-        if (vivant) setErreur(echecDeLecture(probleme, 'le référentiel des formations'));
+        if (!vivant) return;
+        // Même raison qu'à la banque : une liste périmée sous un filtre en
+        // échec se lit comme un filtre appliqué.
+        setFormations([]);
+        setErreur(echecDeLecture(probleme, 'le référentiel des formations'));
       } finally {
         if (vivant) setChargement(false);
       }
@@ -388,7 +445,27 @@ export default function PageFormations() {
     return () => {
       vivant = false;
     };
-  }, []);
+    // `cle` résume le filtre, la recherche et les rechargements demandés.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cle]);
+
+  async function pageSuivante() {
+    if (chargementSuite || !curseur.current) return;
+    setChargementSuite(true);
+    try {
+      const page = await chargerPageFormations(
+        filtre as FiltreFormations,
+        PAR_PAGE,
+        curseur.current,
+      );
+      setFormations((precedentes) => [...precedentes, ...page.formations]);
+      curseur.current = page.curseur;
+    } catch (probleme) {
+      setErreur(echecDeLecture(probleme, 'le référentiel des formations'));
+    } finally {
+      setChargementSuite(false);
+    }
+  }
 
   async function synchroniser() {
     setSynchronisation(true);
@@ -422,26 +499,28 @@ export default function PageFormations() {
     }
   }
 
+  /**
+   * Le filtre « au catalogue » est déjà appliqué par Firestore. Il ne reste
+   * ici que la recherche plein texte, que Firestore ne sait pas faire — ni
+   * sous-chaîne, ni recherche dans une liste de cibles.
+   */
   const filtrees = useMemo(() => {
     const terme = recherche.trim().toLowerCase();
-    return formations
-      .filter((formation) => {
-        if (filtre === 'actives' && !formation.actif) return false;
-        if (filtre === 'inactives' && formation.actif) return false;
-        if (terme.length === 0) return true;
-        return (
-          formation.nom.toLowerCase().includes(terme) ||
-          formation.numeroActionDpc.toLowerCase().includes(terme) ||
-          formation.cibles.some((cible) => cible.toLowerCase().includes(terme))
-        );
-      });
-  }, [formations, recherche, filtre]);
+    if (terme.length === 0) return formations;
+
+    return formations.filter(
+      (formation) =>
+        formation.nom.toLowerCase().includes(terme) ||
+        formation.numeroActionDpc.toLowerCase().includes(terme) ||
+        formation.cibles.some((cible) => cible.toLowerCase().includes(terme)),
+    );
+  }, [formations, recherche]);
 
   // Le plafond n'est plus une coupe sèche : il se relève à la demande, et le
   // pied de liste dit toujours combien de formations restent derrière.
-  const visibles = filtrees.slice(0, vus);
+  const visibles = enRecherche ? filtrees : filtrees.slice(0, vus);
 
-  const actives = formations.filter((formation) => formation.actif).length;
+  const actives = totalActives;
 
   return (
     <div className="page-admin">
@@ -450,7 +529,7 @@ export default function PageFormations() {
         sous={
           chargement
             ? 'Lecture du référentiel.'
-            : `${formations.length} formations, dont ${actives} au catalogue. Le référentiel vient d'Airtable : il se consulte ici, il se corrige là-bas.`
+            : `${total} formations, dont ${actives} au catalogue. Le référentiel vient d'Airtable : il se consulte ici, il se corrige là-bas.`
         }
         actions={
           <Bouton
@@ -513,7 +592,9 @@ export default function PageFormations() {
         <Onglets items={ONGLETS} valeur={filtre} onChange={(valeur) => filtrer({ filtre: valeur })} />
         <span style={{ marginLeft: 'auto' }}>
           <Meta>
-            {filtrees.length} résultat{filtrees.length > 1 ? 's' : ''} sur {formations.length}
+            {enRecherche
+              ? `${filtrees.length} résultat${filtrees.length > 1 ? 's' : ''} sur ${formations.length}`
+              : `${visibles.length} formation${visibles.length > 1 ? 's' : ''} sur ${totalFiltre}`}
           </Meta>
         </span>
       </div>
@@ -541,7 +622,7 @@ export default function PageFormations() {
 
       {chargement && <Squelettes lignes={6} />}
 
-      {!chargement && !erreur && formations.length === 0 && (
+      {!chargement && !erreur && total === 0 && (
         <EtatVide
           icone="book"
           titre="Aucune formation au référentiel"
@@ -663,10 +744,13 @@ export default function PageFormations() {
       {!chargement && (
         <ChargerPlus
           affichees={visibles.length}
-          total={filtrees.length}
+          total={enRecherche ? filtrees.length : totalFiltre}
           parPage={PAR_PAGE}
           nom="formations"
-          onPlus={() => definir({ vus: String(vus + PAR_PAGE) })}
+          onPlus={() => {
+            definir({ vus: String(vus + PAR_PAGE) });
+            void pageSuivante();
+          }}
         />
       )}
     </div>

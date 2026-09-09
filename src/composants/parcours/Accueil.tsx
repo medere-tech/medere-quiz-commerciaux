@@ -8,7 +8,7 @@ import { Bouton, Carte, Meta, TitreSection } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { FormeFormation, Jauge } from '@/composants/ds/parcours';
-import { useDonneesParcours } from '@/composants/parcours/donnees';
+import { useDonneesParcours, type Referentiel } from '@/composants/parcours/donnees';
 import { identiteVisuelle } from '@/lib/formations/depot';
 import { avancementParFormation, maitrise } from '@/lib/serie/maitrise';
 import { libelleSeuilsEtoiles } from '@/lib/serie/verdict';
@@ -30,9 +30,9 @@ import { LIBELLE_PONDERATION, TAILLE_SERIE } from '@/lib/serie/tirage';
 const ROUTE_SERIE: Route = '/serie';
 const ROUTE_A_REVOIR: Route = '/a-revoir';
 
-export function Accueil({ prenom }: { prenom: string }) {
+export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: Referentiel }) {
   const routeur = useRouter();
-  const chargement = useDonneesParcours();
+  const chargement = useDonneesParcours(referentiel);
 
   const calculs = useMemo(() => {
     if (chargement.etat !== 'pret') return null;
@@ -190,7 +190,11 @@ export function Accueil({ prenom }: { prenom: string }) {
             iconeGauche={<Icone nom="refresh" taille={16} />}
             onClick={() => routeur.push(ROUTE_A_REVOIR)}
           >
-            {ratees > 0 ? `Revoir mes ${ratees} questions ratées` : 'Aucune question à revoir'}
+            {ratees === 0
+              ? 'Aucune question à revoir'
+              : ratees === 1
+                ? 'Revoir ma question ratée'
+                : `Revoir mes ${ratees} questions ratées`}
           </Bouton>
         </div>
       </div>

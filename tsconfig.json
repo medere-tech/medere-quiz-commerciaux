@@ -11,6 +11,12 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
+    // Les scripts de `scripts/` sont exécutés directement par Node, qui exige
+    // l'extension `.ts` dans les chemins d'import. Sans cela, ils devraient
+    // dupliquer les fonctions de `src/` — et une normalisation dupliquée qui
+    // dérive de son original rend la détection de doublons silencieusement
+    // aveugle. Sans émission, l'option est sans conséquence sur le paquet.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
@@ -37,7 +43,15 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
+  // `functions/` est un paquet npm à part, avec ses propres dépendances et son
+  // propre `tsconfig.json`. Il se déploie sur Firebase, jamais sur Vercel, qui
+  // n'installe que les dépendances de la racine : le compilateur y trouvait
+  // donc des imports irrésolus et faisait échouer le build de l'application.
+  // Sa vérification de types vit désormais dans `npm run typecheck`, qui
+  // appelle son compilateur à lui — l'exclure ici ne revient pas à cesser de
+  // le vérifier.
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "functions"
   ]
 }

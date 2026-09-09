@@ -69,7 +69,12 @@ export const NAVIGATION_ADMIN: Entree[] = [
     chemin: '/admin/import',
     route: '/admin/import',
   },
-  { libelle: 'Statistiques', icone: 'chart', chemin: '/admin/statistiques' },
+  {
+    libelle: 'Statistiques',
+    icone: 'chart',
+    chemin: '/admin/statistiques',
+    route: '/admin/statistiques',
+  },
   { libelle: 'Session collective', icone: 'presentation', chemin: '/admin/session' },
   {
     libelle: 'Formations',

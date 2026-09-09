@@ -4,35 +4,50 @@ import { useEffect, useState } from 'react';
 
 import { authentification } from '@/lib/firebase/client';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
-import { chargerFormations, type Formation } from '@/lib/formations/depot';
-import type { Question } from '@/lib/questions/depot';
+import type { Formation } from '@/lib/formations/lecture';
+import type { Question } from '@/lib/questions/lecture';
 import {
-  chargerMesReponses,
+  chargerMesEtats,
   chargerProgression,
-  chargerQuestionsPubliees,
-  historiques,
+  etatsDesQuestions,
+  type EtatComplet,
   type Progression,
-  type Reponse,
 } from '@/lib/serie/depot';
-import type { EtatQuestion } from '@/lib/serie/tirage';
+
 
 /**
  * Ce que le parcours a besoin de savoir, chargé d'un bloc.
  *
- * Les trois lectures partent ensemble : elles ne dépendent pas les unes des
- * autres, et les enchaîner tripleraient l'attente avant le premier écran. Une
- * seule d'entre elles qui échoue fait échouer l'ensemble — sans les questions
- * ou sans l'historique, il n'y a pas de série à tirer, et un écran à moitié
- * chargé mentirait sur la maîtrise.
+ * **Le référentiel arrive déjà rendu.** Questions publiées et formations sont
+ * lues au serveur et passées en propriétés : elles n'attendent donc ni le
+ * jeton App Check ni l'ouverture d'une connexion Firestore. Ne restent ici que
+ * les deux lectures privées — états et progression — que les règles protègent
+ * et qui doivent donc passer par le SDK client.
+ *
+ * Les deux partent ensemble : elles ne dépendent pas l'une de l'autre, et les
+ * enchaîner doublerait l'attente. Une seule qui échoue fait échouer
+ * l'ensemble — un écran à moitié chargé mentirait sur la maîtrise.
+ *
+ * **L'historique se lit résumé, pas déroulé.** `users/{uid}/etats` porte une
+ * ligne par question rencontrée ; `users/{uid}/reponses` en porte une par
+ * tentative. À dix réponses par jour, la seconde collection dépasse le millier
+ * en quelques mois, pour un résultat qui tient dans la première. Les réponses
+ * restent écrites — elles sont la source de vérité — mais le parcours ne les
+ * lit plus.
  */
+
+/** Ce que le serveur a déjà lu et transmis. */
+export type Referentiel = {
+  questions: Question[];
+  formations: Formation[];
+};
 
 export type DonneesParcours = {
   uid: string;
   questions: Question[];
   formations: Formation[];
-  reponses: Reponse[];
   progression: Progression;
-  etats: EtatQuestion[];
+  etats: EtatComplet[];
 };
 
 export type EtatChargement =
@@ -41,7 +56,7 @@ export type EtatChargement =
   | { etat: 'erreur'; echec: EchecDeLecture }
   | { etat: 'pret'; donnees: DonneesParcours };
 
-export function useDonneesParcours(): EtatChargement {
+export function useDonneesParcours(referentiel: Referentiel): EtatChargement {
   const [resultat, setResultat] = useState<EtatChargement>({ etat: 'chargement' });
 
   useEffect(() => {
@@ -55,10 +70,8 @@ export function useDonneesParcours(): EtatChargement {
       }
 
       try {
-        const [questions, formations, reponses, progression] = await Promise.all([
-          chargerQuestionsPubliees(),
-          chargerFormations(),
-          chargerMesReponses(utilisateur.uid),
+        const [etats, progression] = await Promise.all([
+          chargerMesEtats(utilisateur.uid),
           chargerProgression(utilisateur.uid),
         ]);
 
@@ -68,13 +81,12 @@ export function useDonneesParcours(): EtatChargement {
           etat: 'pret',
           donnees: {
             uid: utilisateur.uid,
-            questions,
-            formations,
-            reponses,
+            questions: referentiel.questions,
+            formations: referentiel.formations,
             progression,
-            etats: historiques(
-              questions.map((question) => question.id),
-              reponses,
+            etats: etatsDesQuestions(
+              referentiel.questions.map((question) => question.id),
+              etats,
             ),
           },
         });
@@ -89,7 +101,7 @@ export function useDonneesParcours(): EtatChargement {
     return () => {
       vivant = false;
     };
-  }, []);
+  }, [referentiel]);
 
   return resultat;
 }
