@@ -60,6 +60,57 @@ Trois interdits fermes, valables partout :
 
 États vides, erreurs et chargements sont des écrans à part entière. Une erreur dit ce qui s'est passé et quoi faire, elle ne s'excuse pas.
 
+## Ce qui est acquis en performance, et ne doit pas régresser
+
+Ces points ont été gagnés en rattrapant six lots d'accumulation, mesure à
+l'appui. Ils se défont en une ligne d'import mal placée. Les traiter comme les
+tests : on ne livre pas en les cassant.
+
+**Polices.** Du woff2 sous-ensemblé, chargé par `next/font/local`
+(`src/styles/polices.ts`). Jamais un `.ttf` servi, jamais un `@font-face` écrit
+à la main. Toute nouvelle face passe par `scripts/convertir-polices.py` —
+déposer le `.ttf` dans `polices-source/`, l'ajouter à `FACES`, relancer, puis la
+déclarer. Servir depuis `public/` ferait retomber les polices sous le
+`Cache-Control: max-age=0, must-revalidate` de Vercel, soit un aller-retour par
+police et par visite.
+
+**Navigation.** Tout ce qui navigue est un `<Link>` — la primitive `Bouton`
+accepte un `href` pour ça. Pas de `router.push` pour une navigation simple : il
+ne précharge rien. Les listes cliquables, qui ne peuvent pas être des liens,
+utilisent `useIntentionDeNavigation` ; les sorties connues d'avance,
+`usePrechargementCertain`. **Toute nouvelle section a son `loading.tsx`** : sans
+frontière de chargement, le clic reste figé le temps de l'aller-retour serveur —
+mesuré à 425 ms contre 23 ms avec.
+
+**Firestore n'est importé que par les modules qui s'en servent.** Ne jamais
+remettre un `import` de `firebase/firestore` dans `src/lib/firebase/client.ts` :
+ce module est le chemin d'accès à l'authentification, et l'écran de connexion
+embarquerait de nouveau tout le SDK — 166 ko pour du code qu'il n'exécute pas.
+`baseDeDonnees()` vit dans `src/lib/firebase/firestore.ts`, et nulle part
+ailleurs.
+
+**Cache.** Les ressources statiques sont `immutable` — c'est ce que donne
+`/_next/static`, nom de fichier haché compris. Le HTML reste `no-store` : il
+porte le prénom, l'avancement et le rôle. Ces deux règles ne se négocient pas
+l'une contre l'autre.
+
+**Aucune ressource lourde sur un écran qui ne s'en sert pas.** Avant d'ajouter
+un import en tête d'un module partagé, se demander quel écran le tirera sans
+l'employer.
+
+### La règle de méthode
+
+À chaque lot qui touche au front, **avant livraison**, mesurer sur les écrans
+touchés :
+
+1. le **poids transféré** au premier chargement ;
+2. le **délai entre le clic et le premier affichage**.
+
+Comparer au lot précédent. **Si l'un des deux se dégrade, le dire avec le
+chiffre — même quand la dégradation est justifiée.** Une régression annoncée est
+un arbitrage ; une régression tue se découvre six lots plus tard, et coûte une
+journée à rattraper. C'est exactement ce qui vient d'arriver.
+
 ## Pièges connus
 
 **Custom claims non rafraîchis.** Après attribution d'un rôle, la valeur n'apparaît dans les règles qu'au rafraîchissement du jeton, jusqu'à une heure plus tard. Prévoir `getIdToken(true)` ou une reconnexion.

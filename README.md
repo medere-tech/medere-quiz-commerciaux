@@ -738,6 +738,27 @@ avant le déploiement, pas après.
 Firestore n'en demande aucun, la vérification des index en demande —, et si la
 vérification des règles publiées y entre ou reste un geste de déploiement.
 
+### Candidat pour le lot 8 : le préchargement après une déconnexion
+
+Le préchargement introduit avec la navigation instantanée continue de travailler
+après que la session est fermée. `seDeconnecter()` détruit le cookie serveur puis
+vide l'état Firebase, mais les requêtes de préchargement déjà lancées — celles
+des `<Link>` visibles, celles de `usePrechargementCertain` — arrivent au serveur
+sans cookie valable. `exigerSession()` lève alors une `ErreurAcces` que
+`onRequestError` écrit dans les journaux Vercel.
+
+**Aucune conséquence de sécurité** : c'est le refus qui fonctionne comme prévu,
+aucune donnée ne sort. Le problème est ailleurs — **ces refus attendus vont noyer
+les vraies erreurs**, et l'on sait déjà ce que coûte un journal illisible : le 500
+de production a demandé deux déploiements faute de voir l'erreur réelle.
+
+Deux directions à trancher au moment du lot : distinguer côté serveur une requête
+de préchargement (elle porte l'en-tête `next-router-prefetch`, posé par Next — la constante est dans `next/dist/client/components/app-router-headers.js`) pour la refuser en
+silence, ou annuler le préchargement côté navigateur au moment de la déconnexion.
+La première est la plus sûre — elle couvre aussi le cookie expiré en cours de
+route —, mais elle touche à la frontière entre « session absente » et « panne »,
+qui a déjà coûté cher : à instruire avec soin, pas à improviser.
+
 ---
 
 ## 9. Qualité attendue
