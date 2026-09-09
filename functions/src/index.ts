@@ -1,9 +1,10 @@
 import { initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { logger, setGlobalOptions } from 'firebase-functions/v2';
 
-import { agreger, lireReponse } from './agregation.js';
+import { agreger, estAdministrateur, lireReponse } from './agregation.js';
 
 /**
  * Agrégation des réponses vers `questionStats`.
@@ -45,8 +46,29 @@ export const agregerReponseEntrainement = onDocumentCreated(
       return;
     }
 
-    // `evenement.params.uid` existe et n'est jamais transmis : l'agrégat ne
-    // doit porter aucun identifiant d'utilisateur.
+    // Les essais de l'équipe pédagogique ne comptent pas.
+    //
+    // Noémie parcourt le quiz pour relire ses propres explications en
+    // situation : ses réponses sont justes par construction et fausseraient à
+    // la baisse le taux d'échec des questions qu'elle inspecte. Le rôle est lu
+    // sur le custom claim, seule source qui fasse autorité — un marqueur posé
+    // par le navigateur laisserait n'importe qui se retirer de l'agrégat.
+    //
+    // **Rien n'est attrapé ici.** Si l'Auth ne répond pas, on ne sait pas qui
+    // a répondu : l'erreur remonte, elle apparaît dans les journaux, et cette
+    // réponse-là n'est pas agrégée. La traiter comme « pas administrateur »
+    // rendrait une panne d'Auth invisible, exactement le défaut que ce projet
+    // s'interdit.
+    const utilisateur = await getAuth().getUser(evenement.params.uid);
+
+    if (estAdministrateur(utilisateur.customClaims)) {
+      // Aucun identifiant dans ce journal : le rôle suffit à expliquer.
+      logger.info('Réponse d’un compte administrateur, tenue hors de l’agrégat');
+      return;
+    }
+
+    // `evenement.params.uid` a servi à décider, il n'est jamais transmis :
+    // l'agrégat ne doit porter aucun identifiant d'utilisateur.
     const resultat = await agreger(getFirestore(), {
       questionId: reponse.questionId,
       correcte: reponse.correcte,

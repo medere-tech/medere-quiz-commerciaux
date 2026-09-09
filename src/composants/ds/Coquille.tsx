@@ -56,6 +56,15 @@ export type Entree = {
   route?: Route;
 };
 
+/**
+ * Passage vers l'autre espace. Absent pour un commercial, qui n'a qu'un monde.
+ */
+export type Bascule = {
+  route: Route;
+  libelle: string;
+  icone: NomIcone;
+};
+
 export const NAVIGATION_ADMIN: Entree[] = [
   {
     libelle: 'Banque de questions',
@@ -84,7 +93,14 @@ export const NAVIGATION_ADMIN: Entree[] = [
   },
 ];
 
-function Marque() {
+/**
+ * La marque, et le nom du monde où l'on se trouve.
+ *
+ * Le libellé était « Entraînement » dans les deux coquilles, y compris dans le
+ * back-office. Nommer le contexte est la moitié du travail d'une bascule : on
+ * ne sait pas qu'on peut passer ailleurs si l'on ne sait pas où l'on est.
+ */
+function Marque({ contexte }: { contexte: string }) {
   return (
     <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <span
@@ -113,9 +129,65 @@ function Marque() {
           color: 'var(--text-heading)',
         }}
       >
-        Entraînement
+        {contexte}
       </span>
     </span>
+  );
+}
+
+/**
+ * Passage d'un monde à l'autre.
+ *
+ * **Ce n'est pas une entrée de navigation.** Les entrées désignent des sections
+ * du même espace ; celle-ci change d'espace. Noémie écrit les explications qui
+ * s'affichent après chaque réponse : sans voir le parcours en situation, elle
+ * travaille à l'aveugle. Les outils qui séparent un mode auteur d'un mode
+ * lecteur posent tous ce passage à côté de l'identité du site, jamais dans la
+ * liste des sections — et c'est ce qu'on fait ici.
+ *
+ * **Aucun cas de maquette ne le couvre.** La forme est construite avec les
+ * jetons existants et la géométrie des entrées de navigation, pour qu'elle
+ * appartienne à la même famille : mêmes rembourrages, même rayon, même corps.
+ * Ce qui la distingue est le fond, pas un filet ni une majuscule.
+ */
+function BasculeContexte({
+  bascule,
+  onNavigation,
+}: {
+  bascule: Bascule;
+  onNavigation: () => void;
+}) {
+  return (
+    <Link
+      href={bascule.route}
+      title={bascule.libelle}
+      onClick={onNavigation}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        // Un pixel de moins en haut et en bas : la bordure le rend, et la
+        // bascule garde exactement la hauteur d'une entrée de section.
+        padding: '8px 9px',
+        borderRadius: 'var(--radius-md)',
+        // **Le fond plein est interdit ici.** C'est celui de l'entrée active :
+        // le premier rendu donnait une bascule qui se lisait comme la section
+        // en cours. Une bordure complète — jamais un filet d'un seul côté —
+        // la sort de la liste sans la déguiser en section.
+        background: 'transparent',
+        border: '1px solid var(--border-default)',
+        color: 'var(--text-heading)',
+        fontSize: 'var(--body-sm-size)',
+        fontWeight: 600,
+        textDecoration: 'none',
+        boxSizing: 'border-box',
+      }}
+    >
+      <Icone nom={bascule.icone} taille={18} />
+      <span className="coquille-libelle" style={{ flex: 1 }}>
+        {bascule.libelle}
+      </span>
+    </Link>
   );
 }
 
@@ -231,15 +303,21 @@ function PastilleUtilisateur({ nom, role }: { nom: string; role: string }) {
 export function Coquille({
   nom,
   role,
+  contexte,
   entrees,
+  bascule,
   barreReduite = 'auto',
   children,
 }: {
   nom: string;
   /** Affiché sous le nom, dans la pastille du bas. */
   role: string;
+  /** Nom du monde où l'on se trouve, affiché à côté de la marque. */
+  contexte: string;
   /** Sections de l'espace. Celles sans route restent visibles mais inertes. */
   entrees: Entree[];
+  /** Passage vers l'autre espace. Omis pour qui n'a accès qu'à celui-ci. */
+  bascule?: Bascule;
   /** État du repli au premier rendu, lu du témoin par le serveur. */
   barreReduite?: EtatBarre;
   children: ReactNode;
@@ -288,7 +366,7 @@ export function Coquille({
         >
           <Icone nom="table" taille={20} />
         </button>
-        <Marque />
+        <Marque contexte={contexte} />
       </header>
 
       {tiroirOuvert && (
@@ -306,7 +384,7 @@ export function Coquille({
         className="coquille-nav"
         data-reduite={etat}
         data-ouvert={tiroirOuvert ? 'true' : 'false'}
-        aria-label="Sections du back-office"
+        aria-label={`Sections de l'espace ${contexte}`}
       >
         <div
           style={{
@@ -323,7 +401,7 @@ export function Coquille({
           {/* Sans `display` en ligne : c'est la feuille de style qui le
               masque au repli, et un style en ligne l'emporterait sur elle. */}
           <span className="coquille-libelle" style={{ flex: 1 }}>
-            <Marque />
+            <Marque contexte={contexte} />
           </span>
 
           <button
@@ -354,6 +432,10 @@ export function Coquille({
             <Icone nom="close" taille={18} />
           </button>
         </div>
+        {bascule && (
+          <BasculeContexte bascule={bascule} onNavigation={() => setTiroirOuvert(false)} />
+        )}
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {entrees.map((entree) => {
             const actif =
