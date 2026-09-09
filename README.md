@@ -152,6 +152,26 @@ les clients, administrateur compris. Ils portent `expireLe` pour qu'une
 stratégie TTL les reprenne — la fenêtre de reprise de Cloud Functions v2 étant
 de vingt-quatre heures, sept jours de conservation suffisent largement.
 
+**Node 22, déclaré et vérifié.** `engines.node` vaut `22.x` à la racine comme
+dans `functions/`. Ce n'est pas une préférence : `firebase-admin` déclare
+`>=22`, et sa dépendance `jwks-rsa` `^20.19.0 || ^22.12.0 || >= 23.0.0` — les
+versions exactes où Node accepte de charger un module ES par `require()`.
+`jwks-rsa` charge `jose`, qui est en modules ES purs et n'expose aucune
+condition `require` dans ses `exports`.
+
+Vercel lit `engines.node` pour choisir l'exécutant, et ce champ l'emporte sur
+le réglage du projet. Tant qu'il annonçait `>=20.9.0`, l'application partait
+sur un Node antérieur à 20.19 et toutes les pages répondaient 500 sur
+`ERR_REQUIRE_ESM`. `.npmrc` porte `engine-strict=true` : une installation sur
+un Node trop ancien échoue désormais tout de suite, au lieu de casser au
+démarrage.
+
+Pour reproduire la panne en local, sur une machine à jour :
+
+```bash
+node --no-experimental-require-module -e "require('firebase-admin/auth')"
+```
+
 **`functions/` est un paquet à part, et le reste.** Il a ses propres
 dépendances, son propre `tsconfig.json`, et se déploie sur Firebase — jamais
 sur Vercel, qui n'installe que les dépendances de la racine. Il est donc exclu
