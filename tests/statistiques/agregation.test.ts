@@ -2,7 +2,7 @@ import { deleteApp, initializeApp, type App } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { agreger, lireReponse } from '../../functions/src/agregation';
+import { agreger, estAdministrateur, lireReponse } from '../../functions/src/agregation';
 
 /**
  * Ce que ces tests protègent : l'anonymat de `questionStats` et l'exactitude
@@ -155,5 +155,37 @@ describe('agreger', () => {
     const marqueur = await base.doc('questionStats/q1/evenements/e1').get();
     expect(marqueur.exists).toBe(true);
     expect(marqueur.data()?.expireLe.toDate().getTime()).toBeGreaterThan(Date.now());
+  });
+});
+
+/**
+ * Ce que ces tests protègent : les essais de l'équipe pédagogique restent
+ * hors des statistiques qu'elle consulte ensuite.
+ *
+ * Le biais n'est pas aléatoire. Noémie relit les questions qu'elle vient
+ * d'écrire, donc elle y répond juste, donc elle fait baisser le taux d'échec
+ * exactement des questions qu'elle inspecte — sur l'écran qui sert à décider
+ * lesquelles réécrire.
+ */
+describe('estAdministrateur', () => {
+  it('reconnaît le claim posé par le serveur', () => {
+    expect(estAdministrateur({ admin: true })).toBe(true);
+  });
+
+  it('REFUSE tout ce qui ressemble à un claim sans en être un', () => {
+    // Un claim est un booléen strict. Une chaîne « true » ou un 1 viendraient
+    // d'ailleurs que de `setCustomUserClaims`, et n'ont pas à être crus.
+    expect(estAdministrateur({ admin: 'true' })).toBe(false);
+    expect(estAdministrateur({ admin: 1 })).toBe(false);
+    expect(estAdministrateur({ admin: false })).toBe(false);
+    expect(estAdministrateur({ role: 'admin' })).toBe(false);
+    expect(estAdministrateur({ isAdmin: true })).toBe(false);
+  });
+
+  it('traite un compte sans claim comme un commercial', () => {
+    // C'est le cas de tout le monde : les commerciaux n'ont aucun claim.
+    expect(estAdministrateur({})).toBe(false);
+    expect(estAdministrateur(undefined)).toBe(false);
+    expect(estAdministrateur(null)).toBe(false);
   });
 });

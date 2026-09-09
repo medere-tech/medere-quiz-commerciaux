@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import type { ReactNode } from 'react';
 
 import { Connexion } from '@/composants/parcours/Connexion';
-import { Coquille, type Entree } from '@/composants/ds/Coquille';
+import { Coquille, type Bascule, type Entree } from '@/composants/ds/Coquille';
 import { GardeNavigateur } from '@/composants/admin/acces';
 import { lireSession } from '@/lib/auth/session-serveur';
 
@@ -13,19 +13,36 @@ import { lireSession } from '@/lib/auth/session-serveur';
  * questions, la navigation latérale n'a rien à faire à l'écran. C'est le mode
  * focus décrit par les maquettes.
  *
- * **Les entrées non livrées restent visibles et inertes.** « Séries » et
- * « Catalogue » attendent des écrans non tranchés au tri des maquettes,
- * « Session du jeudi » attend le lot 7. Les masquer ferait changer la
- * navigation de forme à chaque livraison ; les afficher inertes dit ce qui
- * viendra.
+ * **Une seule entrée inerte, et elle est datée.** « Session du jeudi » attend
+ * le lot 7, dont les écrans 10a et 10b sont dessinés et tranchés : l'afficher
+ * grisée annonce ce qui vient, et la navigation ne changera pas de forme à la
+ * livraison.
+ *
+ * Deux autres y figuraient et ont été retirées. « Catalogue » ne correspondait
+ * à aucune maquette — elle avait été inventée. « Séries » renvoie à l'écran
+ * 01b, en attente d'un arbitrage produit qui n'est pas pris : la sélection
+ * manuelle permet d'éviter les formations mal maîtrisées, ce que le tirage
+ * pondéré cherche justement à empêcher. Une entrée morte dans une navigation
+ * est un défaut : soit elle mène quelque part, soit elle n'existe pas. Voir
+ * `docs/design-imports.md`, écran 01b.
  */
 export const dynamic = 'force-dynamic';
 
+/**
+ * Le retour vers le back-office, réservé à l'équipe pédagogique.
+ *
+ * Il vise `/admin/questions` et non `/admin`, qui n'est qu'une redirection :
+ * une route préchargée doit être celle qui rend, pas celle qui renvoie.
+ */
+const VERS_LE_BACK_OFFICE: Bascule = {
+  route: '/admin/questions',
+  libelle: 'Revenir au back-office',
+  icone: 'pencil',
+};
+
 const NAVIGATION_COMMERCIAL: Entree[] = [
   { libelle: 'Accueil', icone: 'home', chemin: '/', route: '/' },
-  { libelle: 'Séries', icone: 'layers', chemin: '/series' },
   { libelle: 'À revoir', icone: 'refresh', chemin: '/a-revoir', route: '/a-revoir' },
-  { libelle: 'Catalogue', icone: 'book', chemin: '/catalogue' },
   { libelle: 'Session du jeudi', icone: 'users', chemin: '/session' },
 ];
 
@@ -41,8 +58,12 @@ export default async function DispositionParcours({ children }: { children: Reac
   return (
     <Coquille
       nom={session.nom || session.email}
-      role="Commercial"
+      // Noémie parcourt les mêmes écrans que les commerciaux, mais elle n'en
+      // est pas une : la pastille dit qui l'on est, pas où l'on se trouve.
+      role={session.admin ? 'Responsable pédagogique' : 'Commercial'}
+      contexte="Entraînement"
       entrees={NAVIGATION_COMMERCIAL}
+      bascule={session.admin ? VERS_LE_BACK_OFFICE : undefined}
       barreReduite={barreReduite}
     >
       <GardeNavigateur>{children}</GardeNavigateur>

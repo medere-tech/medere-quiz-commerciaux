@@ -165,6 +165,27 @@ que d'un pas à la fois ; la portée d'un mensonge est bornée à l'affichage du
 menteur, puisque `questionStats` est alimentée par les réponses, elles-mêmes
 validées verdict compris.
 
+**Les essais de l'équipe pédagogique ne s'agrègent pas.** Noémie doit pouvoir
+parcourir le quiz comme un commercial — c'est elle qui écrit les explications
+affichées après chaque réponse, et sans les voir en situation elle travaille à
+l'aveugle. Mais elle relit alors des questions qu'elle vient d'écrire, donc
+elle y répond juste, donc elle ferait baisser le taux d'échec précisément des
+questions qu'elle inspecte. Le biais est orienté, pas aléatoire, et il touche
+l'écran qui sert à décider quoi réécrire. La Cloud Function écarte donc les
+comptes portant le custom claim `admin` : l'identifiant sert à décider, jamais
+à écrire, et `questionStats` continue de ne porter aucun `uid`. Ses réponses
+restent enregistrées sous son compte — sa progression, ses questions à revoir —,
+c'est ce qui rend l'aperçu fidèle.
+
+**`questionStats` contient aujourd'hui des données de recette.** Quatorze
+questions, 173 réponses, toutes venues du seul compte qui ait jamais ouvert
+l'application, et qui est administrateur. Elles sont conservées volontairement :
+ce sont les seules qui permettent de voir l'écran de statistiques rempli avant
+la mise en service. **Elles partiront au nettoyage général, avec le reste des
+données de test**, et `questionStats` avec elles. Le recomptage historique
+(`npm run stats:reprise`) sait les écarter — il vide donc la collection tant
+que personne d'autre n'a répondu : ne pas le lancer avant le nettoyage.
+
 **Pourquoi l'agrégat porte des marqueurs d'événements.** Cloud Functions
 garantit une livraison *au moins une fois* : le même événement peut être remis
 deux fois, et un compteur incrémenté deux fois pour une seule réponse
@@ -646,6 +667,19 @@ Chaque exécution écrit `synchronisations/formations` : date, durée, nombre lu
 Le design vient du projet Claude Design `6ed08356-56e4-4a06-ab31-037cb1ea59a1` ; `docs/design-imports.md` donne la correspondance page → lot et le tri écran par écran. **Un écran de maquette n'est pas une décision de produit** : on implémente ce qui est tranché dans le code, le reste attend.
 
 Les jetons sont copiés à l'identique dans `src/styles/systeme.css` — couleurs, typographie, échelles, rayons, élévation, mouvement. On ne les ajuste pas ici : une valeur qui ne convient pas se corrige dans Claude Design puis se réimporte, sans quoi la maquette et le code divergent sans qu'on s'en aperçoive.
+
+### Passer du back-office au parcours, et retour
+
+Noémie écrit les explications qui s'affichent après chaque réponse. Sans les voir en situation, elle travaille à l'aveugle : l'application permet donc de traverser dans les deux sens. Le retour vers le back-office n'apparaît que pour un administrateur.
+
+**Écart assumé avec les maquettes.** Aucune ne couvre ce passage. La forme retenue suit ce que font les outils qui séparent un mode auteur d'un mode lecteur — le passage se pose à côté de l'identité du produit, jamais dans la liste des sections, parce qu'une section est un endroit du même espace quand celle-ci change d'espace. Deux gestes, dans `src/composants/ds/Coquille.tsx` :
+
+- **La marque nomme le contexte** — « Back-office » ou « Entraînement ». Elle affichait « Entraînement » partout, back-office compris. On ne sait pas qu'on peut passer ailleurs si l'on ne sait pas où l'on est.
+- **Le passage est un contrôle bordé**, sous la marque, au-dessus des sections. Icône `eye` et « Voir le parcours » dans un sens, `pencil` et « Revenir au back-office » dans l'autre.
+
+La première version lui donnait le fond `--surface-chip` : à l'écran, c'est exactement le traitement d'une entrée **active**, et le passage se lisait comme la section en cours. D'où la bordure complète sur fond transparent — jamais un filet d'un seul côté. Tout est bâti sur les jetons et la géométrie des entrées existantes ; **à faire tomber dans le système si le design repasse.**
+
+Une conséquence à connaître : la bascule est un `<Link>`, donc chaque écran du back-office précharge le parcours et réciproquement — une requête de 1,4 ko par écran, pour un administrateur seulement. C'est ce qui rend la traversée instantanée.
 
 **Une seule divergence assumée, et elle est de plomberie.** Les deux jetons de famille typographique ne portent plus le nom des polices mais les variables produites par `next/font` :
 

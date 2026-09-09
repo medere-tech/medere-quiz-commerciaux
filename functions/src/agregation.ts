@@ -57,6 +57,38 @@ export function lireReponse(donnees: unknown): { questionId: string; correcte: b
   return { questionId, correcte };
 }
 
+/**
+ * Vrai quand le compte appartient à l'équipe pédagogique.
+ *
+ * **Pourquoi les réponses des administrateurs restent hors de l'agrégat.**
+ * Noémie doit pouvoir parcourir le quiz comme un commercial : c'est elle qui
+ * écrit les explications affichées après chaque réponse, et sans les voir en
+ * situation elle travaille à l'aveugle. Mais elle relit alors des questions
+ * qu'elle vient d'écrire, donc elle y répond juste — et ferait baisser le taux
+ * d'échec précisément des questions qu'elle inspecte. Le biais n'est pas
+ * aléatoire, il est orienté, et il touche l'écran qui sert à décider quoi
+ * réécrire. Avec dix commerciaux et un seuil d'affichage à trois réponses,
+ * deux essais suffisent à faire apparaître une question sous un taux qu'elle a
+ * elle-même fabriqué.
+ *
+ * **La décision vient du custom claim, jamais du client.** Un marqueur posé
+ * par le navigateur laisserait n'importe quel commercial se retirer de
+ * l'agrégat anonyme. Le claim est posé côté serveur, à partir de la liste
+ * d'adresses en variable d'environnement : c'est la seule source qui fasse
+ * autorité.
+ *
+ * **L'identifiant sert à décider, jamais à écrire.** `questionStats` continue
+ * de ne porter aucun `uid` — voir l'en-tête de ce fichier, la règle est
+ * inchangée.
+ *
+ * Ses réponses restent enregistrées sous son propre compte : sa progression,
+ * ses questions à revoir, son historique. C'est ce qui rend l'aperçu fidèle.
+ */
+export function estAdministrateur(claims: unknown): boolean {
+  if (typeof claims !== 'object' || claims === null) return false;
+  return (claims as Record<string, unknown>).admin === true;
+}
+
 export type Resultat = 'agrege' | 'doublon';
 
 /**
