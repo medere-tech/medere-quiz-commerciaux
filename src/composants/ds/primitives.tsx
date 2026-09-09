@@ -1,7 +1,10 @@
 'use client';
 
+import type { Route } from 'next';
+import Link from 'next/link';
 import {
   useState,
+  type AnchorHTMLAttributes,
   type ButtonHTMLAttributes,
   type CSSProperties,
   type ReactNode,
@@ -58,13 +61,67 @@ const VARIANTES_BOUTON = {
   },
 } as const;
 
-type ProprietesBouton = ButtonHTMLAttributes<HTMLButtonElement> & {
+type ApparenceBouton = {
   variante?: keyof typeof VARIANTES_BOUTON;
   taille?: keyof typeof TAILLES_BOUTON;
   pleineLargeur?: boolean;
   iconeGauche?: ReactNode;
   iconeDroite?: ReactNode;
 };
+
+type ProprietesBouton = ButtonHTMLAttributes<HTMLButtonElement> &
+  ApparenceBouton & {
+    /**
+     * Destination interne. Quand elle est fournie, le bouton s'affiche comme
+     * un lien : même dessin, mais un `<a>` que Next précharge.
+     *
+     * **Pourquoi.** Un bouton qui ne fait que naviguer est un lien déguisé. Il
+     * coûte le clic droit, l'ouverture dans un nouvel onglet, l'annonce du
+     * lecteur d'écran — et, ici, le préchargement : `router.push` ne précharge
+     * rien, `<Link>` précharge dès que l'élément entre dans le champ. Sur une
+     * route dynamique, cela ne vaut qu'accompagné d'un `loading.tsx`, qui
+     * existe pour les trois sections.
+     */
+    href?: Route;
+  };
+
+/** Styles communs aux deux rendus : le dessin ne dépend pas de la balise. */
+function styleBouton({
+  variante,
+  taille,
+  pleineLargeur,
+  inactif,
+  survol,
+  appui,
+  style,
+}: Required<Pick<ApparenceBouton, 'variante' | 'taille' | 'pleineLargeur'>> & {
+  inactif: boolean;
+  survol: boolean;
+  appui: boolean;
+  style?: CSSProperties;
+}): CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 'var(--space-2)',
+    fontFamily: 'var(--font-sans)',
+    fontWeight: 'var(--weight-semibold)',
+    lineHeight: 1,
+    borderRadius: 'var(--radius-full)',
+    cursor: inactif ? 'not-allowed' : 'pointer',
+    transition: 'var(--transition-base)',
+    width: pleineLargeur ? '100%' : undefined,
+    opacity: inactif ? 0.4 : 1,
+    transform: appui && !inactif ? 'scale(0.98)' : 'scale(1)',
+    filter: survol && !inactif ? 'brightness(0.94)' : 'none',
+    textDecoration: 'none',
+    boxSizing: 'border-box',
+    ...TAILLES_BOUTON[taille],
+    ...VARIANTES_BOUTON[variante],
+    ...style,
+  };
+}
 
 export function Bouton({
   children,
@@ -74,47 +131,61 @@ export function Bouton({
   iconeGauche,
   iconeDroite,
   disabled = false,
+  href,
   style,
   ...reste
 }: ProprietesBouton) {
   const [survol, setSurvol] = useState(false);
   const [appui, setAppui] = useState(false);
 
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onMouseEnter={() => setSurvol(true)}
-      onMouseLeave={() => {
-        setSurvol(false);
-        setAppui(false);
-      }}
-      onMouseDown={() => setAppui(true)}
-      onMouseUp={() => setAppui(false)}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 'var(--space-2)',
-        fontFamily: 'var(--font-sans)',
-        fontWeight: 'var(--weight-semibold)',
-        lineHeight: 1,
-        borderRadius: 'var(--radius-full)',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        transition: 'var(--transition-base)',
-        width: pleineLargeur ? '100%' : undefined,
-        opacity: disabled ? 0.4 : 1,
-        transform: appui && !disabled ? 'scale(0.98)' : 'scale(1)',
-        filter: survol && !disabled ? 'brightness(0.94)' : 'none',
-        ...TAILLES_BOUTON[taille],
-        ...VARIANTES_BOUTON[variante],
-        ...style,
-      }}
-      {...reste}
-    >
+  const apparence = styleBouton({
+    variante,
+    taille,
+    pleineLargeur,
+    inactif: disabled,
+    survol,
+    appui,
+    style,
+  });
+
+  const contenu = (
+    <>
       {iconeGauche}
       <span>{children}</span>
       {iconeDroite}
+    </>
+  );
+
+  const gestes = {
+    onMouseEnter: () => setSurvol(true),
+    onMouseLeave: () => {
+      setSurvol(false);
+      setAppui(false);
+    },
+    onMouseDown: () => setAppui(true),
+    onMouseUp: () => setAppui(false),
+  };
+
+  // Un lien ne se désactive pas : quand l'action est indisponible, on rend un
+  // bouton inerte, qui l'annonce correctement au lecteur d'écran.
+  if (href && !disabled) {
+    // `type` n'a pas de sens sur une ancre : il ne suit pas.
+    const proprietesLien = { ...reste, type: undefined };
+    return (
+      <Link
+        {...(proprietesLien as Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'>)}
+        {...gestes}
+        style={apparence}
+        href={href}
+      >
+        {contenu}
+      </Link>
+    );
+  }
+
+  return (
+    <button type="button" disabled={disabled} {...gestes} style={apparence} {...reste}>
+      {contenu}
     </button>
   );
 }

@@ -2,7 +2,7 @@
 
 import { collection, getDocs } from 'firebase/firestore';
 
-import { baseDeDonnees } from '@/lib/firebase/client';
+import { baseDeDonnees } from '@/lib/firebase/firestore';
 import { enStats, type StatsQuestion } from '@/lib/statistiques/modele';
 
 /**

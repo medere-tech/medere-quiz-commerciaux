@@ -16,7 +16,7 @@ import {
   type Timestamp,
 } from 'firebase/firestore';
 
-import { baseDeDonnees } from '@/lib/firebase/client';
+import { baseDeDonnees } from '@/lib/firebase/firestore';
 import { enFormation, type Formation } from '@/lib/formations/lecture';
 import { SYNCHRONISATION_FORMATIONS } from '@/lib/formations/chemins';
 

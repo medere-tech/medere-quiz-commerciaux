@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 import {
   Bouton,
@@ -76,7 +75,6 @@ type Rapport = { ecrites: number; echouees: { numero: number; message: string }[
 const ECRITURES_SIMULTANEES = 8;
 
 export default function PageImport() {
-  const router = useRouter();
 
   const [formations, setFormations] = useState<Formation[]>([]);
   /** Énoncés déjà en banque, pour repérer les doublons sans les bloquer. */
@@ -432,7 +430,7 @@ export default function PageImport() {
           </div>
 
           {rapport && rapport.ecrites > 0 && (
-            <Bouton variante="fantome" onClick={() => router.push('/admin/questions')}>
+            <Bouton variante="fantome" href="/admin/questions">
               Voir les brouillons dans la banque
             </Bouton>
           )}

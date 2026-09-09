@@ -13,7 +13,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 
-import { baseDeDonnees } from '@/lib/firebase/client';
+import { baseDeDonnees } from '@/lib/firebase/firestore';
 import { enQuestion, type Question } from '@/lib/questions/lecture';
 import type { EtatQuestion } from '@/lib/serie/tirage';
 

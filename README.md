@@ -39,6 +39,30 @@ Cloud Function : onCreate sur les réponses → incrémente questionStats
 
 Le client parle directement à Firestore pour tout ce qui est couvert par les règles de sécurité. Les routes serveur ne servent qu'à ce qui exige un secret ou une vérification de rôle.
 
+### Navigation interne : pourquoi un clic doit être instantané
+
+Les douze routes sont dynamiques : chacune lit le cookie de session, donc chacune est rendue à la demande. Sans précaution, cela veut dire qu'**un clic paie un aller-retour serveur complet** — mesuré à 500 ms de médiane sur la production, pour 1,4 ko de charge utile. Ce n'est pas du transfert, c'est de la latence pure, et elle est là à chaque changement d'écran.
+
+Trois mécanismes s'ajoutent pour l'effacer. Ils ne se remplacent pas.
+
+**1. Une frontière `loading.tsx` par section** — `(parcours)`, `serie`, `admin`. C'est elle qui donne au clic une réponse immédiate : la coquille et les squelettes s'affichent pendant que le contenu arrive en flux. Mesuré sur une route dynamique équivalente, aller-retour serveur de 400 ms :
+
+| | sans `loading.tsx` | avec |
+|---|---|---|
+| Première chose affichée après le clic | rien pendant **425 ms** | squelette à **23 ms** |
+| Contenu complet | 425 ms | 439 ms |
+
+**2. `<Link>` plutôt que `router.push`.** Un bouton qui ne fait que naviguer est un lien déguisé : `router.push` ne précharge rien, `<Link>` précharge dès que l'élément entre dans le champ. La primitive `Bouton` accepte donc un `href` et rend un `<a>` — même dessin, mêmes états. Là où la navigation ne peut pas être un lien (une ligne de tableau qu'on ouvre, une redirection après enregistrement), `useIntentionDeNavigation` précharge au survol, au premier contact tactile ou à l'arrivée au clavier ; `usePrechargementCertain` précharge dès l'affichage les sorties qu'on sait d'avance — de la série on revient à l'accueil, de l'éditeur à la banque.
+
+**3. `experimental.staleTimes.dynamic`.** Depuis Next 15, la valeur par défaut est zéro : revenir sur un écran déjà vu le recalculait intégralement. À trente secondes, mesuré sur la même route :
+
+| Retour sur un écran déjà vu | avant | après |
+|---|---|---|
+| Requêtes réseau | 1 aller-retour | **aucune** |
+| Contenu affiché | ~430 ms | **12 ms** |
+
+Ce cache ne porte que la coquille et la structure. Les données de progression sont relues côté navigateur à chaque affichage : on ne montre jamais un avancement périmé.
+
 ---
 
 ## 3. Modèle de données
@@ -623,9 +647,38 @@ Le design vient du projet Claude Design `6ed08356-56e4-4a06-ab31-037cb1ea59a1` ;
 
 Les jetons sont copiés à l'identique dans `src/styles/systeme.css` — couleurs, typographie, échelles, rayons, élévation, mouvement. On ne les ajuste pas ici : une valeur qui ne convient pas se corrige dans Claude Design puis se réimporte, sans quoi la maquette et le code divergent sans qu'on s'en aperçoive.
 
+**Une seule divergence assumée, et elle est de plomberie.** Les deux jetons de famille typographique ne portent plus le nom des polices mais les variables produites par `next/font` :
+
+```css
+--font-display: var(--police-display, Georgia, serif);
+--font-sans: var(--police-sans, -apple-system, 'Segoe UI', sans-serif);
+```
+
+Ce sont les mêmes deux polices, Aileron et DM Serif Text, avec les mêmes graisses. Ce qui change est la façon de les charger — nom de fichier haché, préchargement, métriques de repli ajustées —, pas le dessin. La seconde valeur du `var()` est la pile de repli si les classes du layout racine manquaient. Aucune couleur, aucune échelle, aucun rayon ne s'écarte de l'import.
+
 Les primitives sont dans `src/composants/ds/` : bouton, carte, champ, zone de texte, sélecteur, onglets, étiquettes, jeu d'icônes, états vides / chargement / erreur. Rembourrages, rayons et états sont ceux du bundle du système, pas des approximations. Les sept formes de la marque sont dans `public/formes/`, déjà teintées : le repère d'une formation est sa forme, jamais une puce colorée.
 
-**Deux polices à déposer.** Aileron et DM Serif Text sont fournies avec le système sous forme de fichiers. Copiez-les dans `public/polices/` sous les noms attendus par `src/styles/systeme.css` : `Aileron-Light.ttf`, `Aileron-Regular.ttf`, `Aileron-SemiBold.ttf`, `Aileron-Bold.ttf`, `DMSerifText-Regular.ttf`, `DMSerifText-Italic.ttf`. Tant qu'elles manquent, les piles de repli s'appliquent — la mise en page reste juste, la personnalité typographique manque. Elles ne sont pas dans le dépôt : ce sont des binaires, ils viennent du système, pas du code.
+### Les deux polices : d'où elles viennent, comment on les prépare
+
+Aileron et DM Serif Text sont fournies par le système de design **en `.ttf`**, qui est un format d'installation système, pas un format de livraison web. Le dépôt garde les deux états, et ils ne se confondent pas :
+
+| Dossier | Contenu | Servi ? |
+|---|---|---|
+| `polices-source/` | les six `.ttf` livrés par le design | non, jamais |
+| `src/polices/` | les six `.woff2` sous-ensemblés, produits par le script | oui, via `next/font` |
+
+**Refaire la conversion** — le jour où le design livre une face de plus, ou corrige un dessin :
+
+```bash
+py -m pip install fonttools brotli     # une seule fois
+py scripts/convertir-polices.py
+```
+
+Le script sous-ensemble chaque face au latin de base, au latin-1 et à ce que la typographie française ajoute en propre (`œ`, `Œ`, `Ÿ`, guillemets courbes, tirets, points de suspension, euro), puis empaquette en woff2. Mesuré sur les six faces : **675 ko de `.ttf` deviennent 117 ko de `.woff2`, soit 83 % de moins.** Aileron seule passe de 149 ko à 18 ko — la police embarquait des alphabets grec et cyrillique dont l'application n'affiche pas un caractère.
+
+Trois étapes, pas une : déposer le `.ttf` dans `polices-source/`, l'ajouter à `FACES` dans le script, le déclarer dans `src/styles/polices.ts`. Les `.woff2` produits sont versionnés — Vercel ne fait pas tourner Python, il sert ce que le dépôt contient.
+
+**Le chargement passe par `next/font/local`** (`src/styles/polices.ts`), pas par des `@font-face` écrits à la main. Ce n'est pas un détail de style : `public/` est servi par Vercel avec `Cache-Control: public, max-age=0, must-revalidate`, quand `/_next/static` reçoit `immutable` pour un an. Tant que les polices étaient dans `public/`, un commercial qui revenait trois fois par semaine repayait 177 ko à chaque visite. `next/font` émet les fichiers sous un nom haché — donc cachables définitivement —, injecte le préchargement dans le `<head>`, pose `font-display: swap` et aligne les métriques de la police de repli sur la police finale, ce qui supprime le saut au moment du swap.
 
 ### Côté commercial
 

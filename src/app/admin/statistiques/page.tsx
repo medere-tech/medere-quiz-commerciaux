@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Route } from 'next';
 import { useRouter } from 'next/navigation';
+import { useIntentionDeNavigation } from '@/lib/navigation/intention';
 
 import { Bouton, Carte, Meta, Onglets, TitrePage, TitreSection } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
@@ -61,6 +62,7 @@ type Chargement =
 
 export default function PageStatistiques() {
   const routeur = useRouter();
+  const intention = useIntentionDeNavigation();
   const [chargement, setChargement] = useState<Chargement>({ etat: 'chargement' });
   const { valeurs, definir } = useParametresUrl(DEFAUTS);
 
@@ -175,9 +177,7 @@ export default function PageStatistiques() {
           titre="Aucune question publiée"
           texte="Les statistiques se remplissent à mesure que les commerciaux répondent. Publiez des questions pour ouvrir l’entraînement."
           actions={
-            <Bouton onClick={() => routeur.push('/admin/questions' as Route)}>
-              Ouvrir la banque
-            </Bouton>
+            <Bouton href={'/admin/questions' as Route}>Ouvrir la banque</Bouton>
           }
         />
       ) : (
@@ -245,6 +245,7 @@ export default function PageStatistiques() {
                           ) ?? null
                         }
                         onOuvrir={() => routeur.push(`/admin/questions/${question.id}` as Route)}
+                        intention={intention(`/admin/questions/${question.id}` as Route)}
                       />
                     ))
                 : visibles.map((ligne) => (
@@ -257,6 +258,7 @@ export default function PageStatistiques() {
                       onOuvrir={() =>
                         routeur.push(`/admin/questions/${ligne.question.id}` as Route)
                       }
+                      intention={intention(`/admin/questions/${ligne.question.id}` as Route)}
                     />
                   ))}
             </div>
@@ -465,12 +467,19 @@ function LigneQuestion({
   ligne,
   avecTaux = false,
   onOuvrir,
+  intention,
 }: {
   question: Question;
   formation: Formation | null;
   ligne?: LigneStat;
   avecTaux?: boolean;
   onOuvrir: () => void;
+  /** Gestes de survol et de contact qui préchargent l'éditeur avant le clic. */
+  intention?: {
+    onMouseEnter: () => void;
+    onTouchStart: () => void;
+    onFocus: () => void;
+  };
 }) {
   return (
     <Carte
@@ -490,6 +499,7 @@ function LigneQuestion({
         <button
           type="button"
           onClick={onOuvrir}
+          {...intention}
           style={{
             display: 'block',
             width: '100%',

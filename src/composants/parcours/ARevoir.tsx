@@ -2,7 +2,6 @@
 
 import { useMemo } from 'react';
 import type { Route } from 'next';
-import { useRouter } from 'next/navigation';
 
 import { Bouton, Carte, Meta, Onglets, TitrePage } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
@@ -33,7 +32,6 @@ const PAR_PAGE = 20;
 const DEFAUTS = { format: 'tous', vus: String(PAR_PAGE) };
 
 export function ARevoir({ referentiel }: { referentiel: Referentiel }) {
-  const routeur = useRouter();
   const chargement = useDonneesParcours(referentiel);
   const { valeurs, definir } = useParametresUrl(DEFAUTS);
 
@@ -98,7 +96,7 @@ export function ARevoir({ referentiel }: { referentiel: Referentiel }) {
             <Bouton
               taille="lg"
               iconeGauche={<Icone nom="refresh" taille={16} />}
-              onClick={() => routeur.push('/serie?mode=rattrapage' as Route)}
+              href={'/serie?mode=rattrapage' as Route}
             >
               Série de rattrapage
             </Bouton>
@@ -112,7 +110,7 @@ export function ARevoir({ referentiel }: { referentiel: Referentiel }) {
           titre="Tout est acquis pour l’instant"
           texte="Lancez une série ordinaire : les questions jamais vues sont celles qui vous feront progresser."
           actions={
-            <Bouton iconeGauche={<Icone nom="play" taille={16} />} onClick={() => routeur.push('/serie' as Route)}>
+            <Bouton iconeGauche={<Icone nom="play" taille={16} />} href={'/serie' as Route}>
               Lancer une série
             </Bouton>
           }
