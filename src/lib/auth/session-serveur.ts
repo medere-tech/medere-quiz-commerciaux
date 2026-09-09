@@ -4,6 +4,10 @@ import { cache } from 'react';
 import { cookies } from 'next/headers';
 
 import { authAdmin } from '@/lib/firebase/admin';
+import {
+  estIdentifiantSansValeur,
+  ErreurVerificationIdentite,
+} from '@/lib/auth/identifiant-invalide';
 import { envServeur } from '@/lib/env/serveur';
 import { estDuDomaine } from '@/lib/auth/domaine';
 
@@ -23,6 +27,11 @@ export type Session = {
  * Lit et vérifie le cookie de session. Renvoie `null` si l'utilisateur n'est
  * pas connecté, si son jeton a été révoqué, ou s'il n'appartient plus au
  * domaine autorisé.
+ *
+ * **Lève en cas de panne.** Une défaillance du serveur — module introuvable,
+ * clé de service refusée, réseau coupé — n'est pas une absence de session et
+ * ne doit pas se déguiser en écran de connexion. Elle remonte, elle apparaît
+ * dans les journaux, elle se répare. Voir `identifiant-invalide.ts`.
  *
  * **Mémoïsée par requête.** `verifySessionCookie(cookie, true)` demande à
  * Firebase si la session a été révoquée, ce qui coûte un aller-retour réseau
@@ -49,9 +58,16 @@ export const lireSession = cache(async function lireSession(): Promise<Session |
       nom: typeof jeton.name === 'string' ? jeton.name : '',
       admin: jeton.admin === true,
     };
-  } catch {
-    // Cookie expiré, révoqué ou falsifié : traité comme une absence de session.
-    return null;
+  } catch (probleme) {
+    // Cookie expiré, révoqué ou falsifié : c'est une absence de session, un
+    // état normal, et l'écran de connexion est la bonne réponse.
+    if (estIdentifiantSansValeur(probleme)) return null;
+
+    // Tout le reste est une panne. La renvoyer comme « pas connecté »
+    // afficherait un écran de connexion parfaitement trompeur, sans rien dans
+    // les journaux : c'est exactement ce qui a masqué le module manquant.
+    console.error('Vérification du cookie de session impossible', probleme);
+    throw new ErreurVerificationIdentite(probleme);
   }
 });
 

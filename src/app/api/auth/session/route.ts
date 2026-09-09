@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { authAdmin, firestoreAdmin } from '@/lib/firebase/admin';
 import { envServeur } from '@/lib/env/serveur';
 import { estDuDomaine } from '@/lib/auth/domaine';
+import { estIdentifiantSansValeur } from '@/lib/auth/identifiant-invalide';
 import { DUREE_SESSION_MS, NOM_COOKIE_SESSION } from '@/lib/auth/session-serveur';
 
 // Le SDK Admin exige l'exécution Node.
@@ -42,10 +43,26 @@ export async function POST(requete: Request): Promise<NextResponse> {
   let jeton;
   try {
     jeton = await auth.verifyIdToken(idToken, true);
-  } catch {
+  } catch (probleme) {
+    // Même distinction qu'à la lecture de session : un jeton sans valeur est
+    // un 401 dont l'utilisateur peut faire quelque chose, une panne est un 503
+    // dont il ne peut rien faire. Les confondre l'enverrait se reconnecter
+    // indéfiniment devant un serveur cassé.
+    if (estIdentifiantSansValeur(probleme)) {
+      return NextResponse.json(
+        { erreur: 'Votre connexion Google n\'a pas pu être vérifiée. Réessayez.' },
+        { status: 401 },
+      );
+    }
+
+    console.error("Vérification du jeton d'identité impossible", probleme);
     return NextResponse.json(
-      { erreur: 'Votre connexion Google n\'a pas pu être vérifiée. Réessayez.' },
-      { status: 401 },
+      {
+        erreur:
+          "La vérification de votre identité n'a pas abouti. Ce n'est pas votre " +
+          'compte qui est en cause : signalez-le à l’équipe technique.',
+      },
+      { status: 503 },
     );
   }
 

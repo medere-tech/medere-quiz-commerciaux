@@ -160,17 +160,47 @@ versions exactes où Node accepte de charger un module ES par `require()`.
 condition `require` dans ses `exports`.
 
 Vercel lit `engines.node` pour choisir l'exécutant, et ce champ l'emporte sur
-le réglage du projet. Tant qu'il annonçait `>=20.9.0`, l'application partait
-sur un Node antérieur à 20.19 et toutes les pages répondaient 500 sur
-`ERR_REQUIRE_ESM`. `.npmrc` porte `engine-strict=true` : une installation sur
-un Node trop ancien échoue désormais tout de suite, au lieu de casser au
-démarrage.
+le réglage du projet. Il annonçait `>=20.9.0`, ce qui était faux : `.npmrc`
+porte désormais `engine-strict=true` pour qu'un écart de ce genre tombe à
+l'installation. **Cette correction répare une déclaration, elle n'a pas réparé
+le 500 décrit ci-dessous.**
 
-Pour reproduire la panne en local, sur une machine à jour :
+### Le 500 en production, et ce qu'on en sait
+
+Toutes les pages ont répondu 500 sur `ERR_REQUIRE_ESM`, au fond de la chaîne
+`firebase-admin` → `jwks-rsa` → `jose`, alors que le build passait, que la
+version déployée était bien Node 22, et que le serveur local fonctionnait.
+
+**Le mécanisme, établi.** Depuis Next 16.2, `next build` crée un lien
+symbolique par paquet externalisé :
+
+```
+.next/node_modules/firebase-admin-a14c8a5423a75469  →  node_modules/firebase-admin
+```
+
+C'est ce nom haché qui apparaît dans l'erreur. Le runtime Turbopack le charge
+par `await import(...)`, Node le résout jusqu'au vrai paquet, et le `require()`
+qui échoue est celui de `jwks-rsa/src/utils.js` ligne 1, qui charge `jose` —
+en modules ES purs depuis la version 6, sans condition `require` dans ses
+`exports`. Voir [vercel/next.js#91654](https://github.com/vercel/next.js/issues/91654).
+
+**Ce qui reste inconnu :** pourquoi le processus Vercel n'accepte pas ce
+`require`, alors que Node l'autorise depuis 20.19, 22.12 et 23.0.
+`process.features.require_module`, journalisé depuis la disposition racine,
+doit trancher.
+
+**Reproduire la panne en local**, sur une machine à jour — c'est le seul moyen
+de ne pas corriger à l'aveugle :
 
 ```bash
-node --no-experimental-require-module -e "require('firebase-admin/auth')"
+npm run build                       # avec output: 'standalone' temporairement
+cd .next/standalone
+node --no-experimental-require-module   -e "import('firebase-admin-a14c8a5423a75469/auth')"
 ```
+
+Le drapeau retire la fonctionnalité dont la machine de développement profite
+sans le savoir. Sans lui, la commande réussit ; avec lui, elle reproduit
+l'erreur de production mot pour mot.
 
 **`functions/` est un paquet à part, et le reste.** Il a ses propres
 dépendances, son propre `tsconfig.json`, et se déploie sur Firebase — jamais
