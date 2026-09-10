@@ -583,6 +583,20 @@ a:hover {
   box-sizing: border-box;
 }
 
+/*
+ * Le corps défile, la barre de commandes ne bouge pas.
+ *
+ * Une mise en situation porte plusieurs lignes de contexte avant quatre options
+ * longues : sans cette contrainte, le contenu pousserait « Révéler la bonne
+ * réponse » hors de l'écran, et l'animatrice n'aurait plus de quoi avancer.
+ */
+.session-corps {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: clamp(16px, 2.4vw, 38px);
+}
+
 .session-options {
   margin-top: clamp(18px, 2.4vw, 34px);
   display: flex;

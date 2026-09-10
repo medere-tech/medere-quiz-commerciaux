@@ -8,6 +8,7 @@ import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { FormeFormation, Jauge } from '@/composants/ds/parcours';
 import { useDonneesParcours, type Referentiel } from '@/composants/parcours/donnees';
+import { MesPrix } from '@/composants/session/MesPrix';
 import { identiteVisuelle } from '@/lib/formations/depot';
 import { avancementParFormation, maitrise } from '@/lib/serie/maitrise';
 import { libelleSeuilsEtoiles } from '@/lib/serie/verdict';
@@ -196,6 +197,15 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
           </Bouton>
         </div>
       </div>
+
+      {/*
+       * Les prix des séances collectives, à côté des étoiles.
+       *
+       * Les étoiles disent l'assiduité, les prix disent les jeudis. Le bloc
+       * n'apparaît qu'à partir de la première séance jouée : un cadre vide
+       * intitulé « Vos prix » ne promet rien à personne.
+       */}
+      <MesPrix uid={chargement.donnees.uid} />
 
       {disponibles === 0 ? (
         <EtatVide

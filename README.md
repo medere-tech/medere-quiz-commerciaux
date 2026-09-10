@@ -776,11 +776,34 @@ Les routes `/admin` sont protégées côté serveur par le custom claim, pas par
 
 ### Session du jeudi
 
-Vue animateur : question en cours, nombre de réponses reçues qui monte en direct sans révéler la répartition, bouton pour révéler la bonne réponse et la distribution, passage à la question suivante.
+`/animer` — vue animatrice, projetée. `/session` — vue participant, sur son propre appareil.
 
-Vue participant : question et options, puis attente après validation jusqu'à la révélation.
+**Contrainte hybride.** Une partie des participants est en visioconférence et voit l'écran partagé avec plusieurs secondes de retard. La question est poussée sur l'appareil de chacun par un écouteur Firestore temps réel. Ne jamais dépendre de la projection. **Le chronomètre suit la même règle** : la session porte `questionOuverteLe`, un instant, et non une durée démarrée à l'arrivée — sinon un retardataire aurait plus de temps que les autres. Il cadence, il ne ferme pas : ce qui ferme le vote est la révélation, vérifiée côté serveur.
 
-**Contrainte hybride.** Une partie des participants est en visioconférence et voit l'écran partagé avec plusieurs secondes de retard. La question est poussée sur l'appareil de chacun par un écouteur Firestore temps réel. Ne jamais dépendre de la projection.
+**L'écran d'animation vit hors de la coquille du back-office.** Il est projeté sur un mur : une barre latérale y prendrait 232 pixels pour afficher des liens que personne ne cliquera. Les tailles y viennent de la distance de lecture — question jusqu'à 56 px, options jusqu'à 26 px — et non de l'échelle typographique. La scène est un composant qui ne reçoit que ses données (`SceneProjetee`) : un écran qu'on ne peut vérifier qu'en séance réelle est un écran qu'on ne vérifie jamais.
+
+**Trois situations traitées explicitement, parce qu'elles arrivent.**
+
+| | Ce qui se passe |
+|---|---|
+| Un participant arrive au milieu | L'écouteur lui donne l'état courant, sans rattrapage. Si la réponse est déjà révélée, il voit la correction et **ne peut pas voter** — les règles le refusent. |
+| L'animatrice ferme son onglet | Rien. Tout l'état vit dans Firestore ; elle retrouve sa séance en rouvrant, à la question près. C'est ce qui interdit de garder le compteur de réponses dans son navigateur. |
+| Un participant perd la connexion | `onSnapshot` reconnecte seul. `fromCache` sert à l'annoncer plutôt qu'à afficher une question périmée en silence. Une réponse partie hors ligne est rejouée — et refusée si la révélation a eu lieu entretemps, ce que l'écran dit. |
+
+**Le compteur de réponses est tenu par une Cloud Function.** Un participant ne peut pas compter lui-même — il ne lit pas les réponses des autres, et c'est voulu. Le faire écrire par l'animatrice l'aurait lié à son onglet. Le déclencheur `compterReponseSession` incrémente `repondants` sur la séance, et **n'agrège rien** : agréger là compterait chaque réponse deux fois, puisque le participant écrit aussi sous `users/{uid}/reponses`.
+
+### Classement de séance et prix
+
+**Le tableau meurt avec la séance, le trophée reste.**
+
+- **Le classement** est nominatif, il vit sous `sessions/{id}/classement/final`, et **seuls ceux qui étaient là le lisent** : les règles exigent un marqueur de présence, créable uniquement pendant la séance. On ne s'inscrit pas après coup pour lire le tableau.
+- **Le prix** vit sous `users/{uid}/prix/{sessionId}`, privé à son porteur, et s'affiche sur l'accueil à côté des étoiles. Les étoiles disent l'assiduité, les prix disent les jeudis.
+
+**Aux points, et rien d'autre.** Premier, Diamant ; deuxième, Or ; troisième, Argent ; sans condition de score — dans une finale de cent mètres, le premier prend l'or même s'il court en seize secondes. À égalité, la vitesse départage : on somme les instants de réponse. Le quatrième et les suivants n'ont pas de distinction, et **personne ne le sait** — mais chacun retrouve son rang dans son historique.
+
+**Aucun client n'écrit ces documents**, pas même leur propriétaire : `allow write: if false`. Seule la Cloud Function `classerSessionTerminee` écrit, à partir des réponses. Un prix qu'on peut s'attribuer ne vaut rien. Rien n'entre dans `questionStats` : les statistiques disent quelles questions font trébucher l'équipe, jamais qui a gagné.
+
+**Le nom d'affichage** se choisit au moment de rejoindre, pas dans un écran de réglages — personne n'ouvrirait un réglage avant le jeudi. Il est prérempli avec le choix de la fois précédente, borné à 32 caractères parce qu'il s'affiche sur un mur, et c'est **le participant lui-même qui le publie** : sans cela l'animatrice ne pourrait pas nommer les votes, `users/{uid}` lui étant fermé sans exception.
 
 ---
 

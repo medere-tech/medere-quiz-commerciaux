@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { Bouton, Meta } from '@/composants/ds/primitives';
+import { Bouton } from '@/composants/ds/primitives';
 import { EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
-import { Chronometre } from '@/composants/session/Chronometre';
+import { PanneauAnimatrice } from '@/composants/session/PanneauAnimatrice';
 import { RevelationClassement } from '@/composants/session/RevelationClassement';
+import { SceneProjetee } from '@/composants/session/SceneProjetee';
 import type { Referentiel } from '@/composants/parcours/donnees';
 import { authentification } from '@/lib/firebase/client';
-import { LIBELLES_TYPE } from '@/lib/questions/modele';
 import type { Question } from '@/lib/questions/depot';
 import {
   creerSession,
@@ -46,8 +46,6 @@ import {
  * **Fermer cet onglet ne casse rien.** Tout l'état vit dans Firestore ; à la
  * réouverture, la séance en cours est retrouvée telle qu'elle était.
  */
-
-const SUR_ENCRE = 'rgba(255,255,255,0.72)';
 
 export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) {
   const [uid, setUid] = useState<string | null>(null);
@@ -218,334 +216,41 @@ export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) 
 
   const total = session.questionIds.length;
   const dernier = session.indexCourant + 1 >= total;
+  const comptes = (question?.ordreOptions ?? []).map(
+    (identifiant) =>
+      reponsesCourantes.filter((reponse) => reponse.optionsChoisies.includes(identifiant)).length,
+  );
 
   return (
     <div className="session-animateur">
-      {/* ---------------------------------------------- écran projeté */}
-      <div className="session-scene">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
-          <span
-            style={{
-              padding: '8px 16px',
-              borderRadius: 999,
-              background: 'rgba(255,255,255,0.12)',
-              color: '#fff',
-              fontSize: 'clamp(16px, 1.6vw, 20px)',
-              fontWeight: 700,
-              letterSpacing: '0.14em',
-            }}
-          >
-            {session.code}
-          </span>
-          <span style={{ fontSize: 'clamp(15px, 1.4vw, 19px)', color: SUR_ENCRE }}>
-            Question {session.indexCourant + 1} sur {total}
-          </span>
-          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-5)' }}>
-            <Chronometre
-              ouverteLeMs={session.questionOuverteLeMs}
-              dureeSecondes={session.revelee ? 0 : session.dureeQuestionSecondes}
-              clair
-            />
-            <span
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 16px',
-                borderRadius: 999,
-                background: 'rgba(255,255,255,0.10)',
-                fontSize: 'clamp(15px, 1.4vw, 19px)',
-                color: '#fff',
-              }}
-            >
-              <Icone nom="users" taille={17} />
-              {reponsesCourantes.length} sur {participants.length || '—'}
-            </span>
-          </span>
-        </div>
+      <SceneProjetee
+        vue={{
+          code: session.code,
+          numero: session.indexCourant + 1,
+          total,
+          question,
+          revelee: session.revelee,
+          comptes,
+          reponsesRecues: reponsesCourantes.length,
+          participants: participants.length,
+          questionOuverteLeMs: session.questionOuverteLeMs,
+          dureeQuestionSecondes: session.dureeQuestionSecondes,
+        }}
+        dernier={dernier}
+        onReveler={() => void reveler()}
+        onSuivante={() => {
+          if (dernier) void terminerSession(session.id);
+          else void questionSuivante(session.id, session.indexCourant + 1);
+        }}
+        onRejouer={() => void rejouerLeVote(session.id)}
+      />
 
-        {question ? (
-          <>
-            <div style={{ marginTop: 'clamp(20px, 3vw, 42px)' }}>
-              <span
-                style={{
-                  display: 'inline-block',
-                  padding: '5px 12px',
-                  borderRadius: 'var(--radius-sm)',
-                  background: 'rgba(255,255,255,0.12)',
-                  fontSize: 'clamp(11px, 1.1vw, 14px)',
-                  fontWeight: 700,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
-                  color: 'rgba(255,255,255,0.9)',
-                }}
-              >
-                {LIBELLES_TYPE[question.type]}
-              </span>
-              <h1
-                style={{
-                  margin: 'clamp(14px, 1.6vw, 20px) 0 0',
-                  fontFamily: 'var(--font-display)',
-                  fontWeight: 400,
-                  /* Lisible du fond de la salle : c'est la contrainte qui
-                     décide de la taille, pas l'échelle typographique. */
-                  fontSize: 'clamp(26px, 3.6vw, 56px)',
-                  lineHeight: 1.1,
-                  color: '#fff',
-                  textWrap: 'pretty',
-                }}
-              >
-                {question.enonce}
-              </h1>
-            </div>
-
-            <div className="session-options">
-              {question.ordreOptions.map((identifiant, index) => {
-                const compte = reponsesCourantes.filter((reponse) =>
-                  reponse.optionsChoisies.includes(identifiant),
-                ).length;
-                const part =
-                  reponsesCourantes.length === 0
-                    ? 0
-                    : Math.round((compte / reponsesCourantes.length) * 100);
-                const juste = question.bonnesReponses.includes(identifiant);
-
-                return (
-                  <div
-                    key={identifiant}
-                    style={{
-                      position: 'relative',
-                      borderRadius: 'var(--radius-lg)',
-                      background: 'rgba(255,255,255,0.07)',
-                      border:
-                        '1px solid ' +
-                        (session.revelee && juste ? 'var(--status-success)' : 'rgba(255,255,255,0.16)'),
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {/* La barre ne paraît qu'à la révélation : voir la
-                        répartition monter pendant le vote dirait aux derniers
-                        ce que les premiers ont voté. */}
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        position: 'absolute',
-                        inset: 0,
-                        width: session.revelee ? `${part}%` : 0,
-                        background: juste ? 'rgba(45,161,49,0.34)' : 'rgba(255,255,255,0.10)',
-                        transition: 'width var(--duration-slow) var(--ease-out)',
-                      }}
-                    />
-                    <span
-                      style={{
-                        position: 'relative',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 'var(--space-4)',
-                        padding: 'clamp(12px, 1.4vw, 20px) clamp(14px, 1.6vw, 24px)',
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 34,
-                          height: 34,
-                          flex: 'none',
-                          borderRadius: 999,
-                          background:
-                            session.revelee && juste ? 'var(--status-success)' : 'rgba(255,255,255,0.16)',
-                          color: '#fff',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: 'clamp(14px, 1.3vw, 17px)',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {session.revelee && juste ? (
-                          <Icone nom="check" taille={18} />
-                        ) : (
-                          String.fromCharCode(65 + index)
-                        )}
-                      </span>
-                      <span
-                        style={{
-                          flex: 1,
-                          minWidth: 0,
-                          fontSize: 'clamp(16px, 1.7vw, 26px)',
-                          lineHeight: 1.3,
-                          color: '#fff',
-                        }}
-                      >
-                        {question.options[identifiant]}
-                      </span>
-                      {session.revelee && (
-                        <span
-                          style={{
-                            flex: 'none',
-                            fontSize: 'clamp(15px, 1.5vw, 22px)',
-                            fontWeight: 600,
-                            color: juste ? '#fff' : 'rgba(255,255,255,0.7)',
-                            fontVariantNumeric: 'tabular-nums',
-                          }}
-                        >
-                          {part} %
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        ) : (
-          <p style={{ marginTop: 40, color: SUR_ENCRE }}>
-            Cette question n’est plus publiée. Passez à la suivante.
-          </p>
-        )}
-
-        <div className="session-commandes">
-          {session.revelee ? (
-            <>
-              <Bouton
-                taille="lg"
-                variante="soulignee"
-                onClick={() => {
-                  if (dernier) void terminerSession(session.id);
-                  else void questionSuivante(session.id, session.indexCourant + 1);
-                }}
-              >
-                {dernier ? 'Terminer et classer' : 'Question suivante'}
-              </Bouton>
-              <Bouton taille="lg" variante="inverse" onClick={() => void rejouerLeVote(session.id)}>
-                Rejouer le vote
-              </Bouton>
-              <span style={{ marginLeft: 'auto', fontSize: 'var(--body-md-size)', color: SUR_ENCRE }}>
-                Bonne réponse révélée
-              </span>
-            </>
-          ) : (
-            <>
-              <Bouton taille="lg" variante="soulignee" onClick={() => void reveler()}>
-                Révéler la bonne réponse
-              </Bouton>
-              <span style={{ marginLeft: 'auto', fontSize: 'var(--body-md-size)', color: SUR_ENCRE }}>
-                {reponsesCourantes.length} réponse{reponsesCourantes.length > 1 ? 's' : ''} reçue
-                {reponsesCourantes.length > 1 ? 's' : ''}
-              </span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ------------------------------------------- panneau de l'animatrice */}
-      <aside className="session-panneau">
-        <span style={{ fontSize: 'var(--body-sm-size)', fontWeight: 600, color: 'var(--text-heading)' }}>
-          Participants
-        </span>
-        <Meta style={{ fontSize: 12 }}>
-          {reponsesCourantes.length} sur {participants.length} ont répondu
-        </Meta>
-
-        <div style={{ marginTop: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {participants.length === 0 && (
-            <Meta style={{ fontSize: 12 }}>Personne n’a encore rejoint la séance.</Meta>
-          )}
-          {participants.map((participant) => {
-            const sienne = reponsesCourantes.find((reponse) => reponse.uid === participant.uid);
-            const lettre = sienne
-              ? (question?.ordreOptions
-                  .map((identifiant, index) =>
-                    sienne.optionsChoisies.includes(identifiant)
-                      ? String.fromCharCode(65 + index)
-                      : null,
-                  )
-                  .filter(Boolean)
-                  .join('') ?? '')
-              : null;
-
-            return (
-              <span
-                key={participant.uid}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  background:
-                    sienne == null
-                      ? 'var(--surface-page)'
-                      : sienne.correcte
-                        ? 'rgba(45,161,49,0.09)'
-                        : 'rgba(194,66,66,0.07)',
-                }}
-              >
-                <span
-                  style={{
-                    width: 22,
-                    height: 22,
-                    flex: 'none',
-                    borderRadius: 999,
-                    background:
-                      sienne == null
-                        ? 'var(--neutral-30)'
-                        : sienne.correcte
-                          ? 'var(--status-success)'
-                          : 'var(--status-danger)',
-                    color: '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {sienne && <Icone nom={sienne.correcte ? 'check' : 'close'} taille={12} />}
-                </span>
-                <span
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    fontSize: 'var(--body-sm-size)',
-                    color: sienne == null ? 'var(--text-secondary)' : 'var(--text-body)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {participant.nom}
-                </span>
-                <Meta style={{ fontSize: 12 }}>{sienne == null ? 'en attente' : lettre}</Meta>
-              </span>
-            );
-          })}
-        </div>
-
-        {session.revelee && question && (
-          <div style={{ marginTop: 'auto', paddingTop: 'var(--space-5)' }}>
-            <span
-              style={{
-                display: 'block',
-                fontSize: 'var(--body-sm-size)',
-                fontWeight: 600,
-                color: 'var(--text-heading)',
-                marginBottom: 8,
-              }}
-            >
-              Explication
-            </span>
-            <p
-              style={{
-                margin: 0,
-                fontSize: 'var(--body-sm-size)',
-                lineHeight: 1.55,
-                color: 'var(--neutral-70)',
-                textWrap: 'pretty',
-              }}
-            >
-              {question.explication}
-            </p>
-          </div>
-        )}
-      </aside>
+      <PanneauAnimatrice
+        participants={participants}
+        reponses={reponsesCourantes}
+        question={question}
+        revelee={session.revelee}
+      />
     </div>
   );
 }
