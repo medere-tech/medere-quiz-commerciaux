@@ -554,3 +554,67 @@ a:hover {
     display: flex;
   }
 }
+
+/* ------------------------------------------------- session collective */
+
+/*
+ * L'écran de l'animatrice est projeté sur un mur, devant une salle. Deux
+ * zones : la scène, sur le fond encre de la marque, lisible de loin ; le
+ * panneau, que l'animatrice lit sur son propre écran et qui porte la liste
+ * nominative des votes.
+ *
+ * Sous 900 px — un téléphone, ou l'animatrice qui prépare depuis son mobile —
+ * le panneau passe sous la scène plutôt que de la comprimer : une question
+ * illisible sur un mur ne sert à rien.
+ */
+.session-animateur {
+  min-height: 100vh;
+  display: flex;
+  align-items: stretch;
+}
+
+.session-scene {
+  flex: 1;
+  min-width: 0;
+  background: var(--brand-ink);
+  padding: clamp(20px, 3vw, 40px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.session-options {
+  margin-top: clamp(18px, 2.4vw, 34px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 0.9vw, 12px);
+}
+
+.session-commandes {
+  margin-top: auto;
+  padding-top: clamp(18px, 2.4vw, 32px);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.session-panneau {
+  width: 372px;
+  flex: none;
+  background: var(--surface-card);
+  padding: clamp(20px, 2vw, 32px) clamp(16px, 1.6vw, 28px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .session-animateur {
+    flex-direction: column;
+  }
+
+  .session-panneau {
+    width: 100%;
+  }
+}

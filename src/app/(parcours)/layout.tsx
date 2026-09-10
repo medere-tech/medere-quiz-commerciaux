@@ -13,12 +13,10 @@ import { lireSession } from '@/lib/auth/session-serveur';
  * questions, la navigation latérale n'a rien à faire à l'écran. C'est le mode
  * focus décrit par les maquettes.
  *
- * **Une seule entrée inerte, et elle est datée.** « Session du jeudi » attend
- * le lot 7, dont les écrans 10a et 10b sont dessinés et tranchés : l'afficher
- * grisée annonce ce qui vient, et la navigation ne changera pas de forme à la
- * livraison.
+ * **Plus aucune entrée inerte.** « Session du jeudi » s'est activée au lot 7 ;
+ * la navigation ne mène plus qu'à des écrans qui existent.
  *
- * Deux autres y figuraient et ont été retirées. « Catalogue » ne correspondait
+ * Deux entrées y figuraient et ont été retirées. « Catalogue » ne correspondait
  * à aucune maquette — elle avait été inventée. « Séries » renvoie à l'écran
  * 01b, en attente d'un arbitrage produit qui n'est pas pris : la sélection
  * manuelle permet d'éviter les formations mal maîtrisées, ce que le tirage
@@ -43,7 +41,7 @@ const VERS_LE_BACK_OFFICE: Bascule = {
 const NAVIGATION_COMMERCIAL: Entree[] = [
   { libelle: 'Accueil', icone: 'home', chemin: '/', route: '/' },
   { libelle: 'À revoir', icone: 'refresh', chemin: '/a-revoir', route: '/a-revoir' },
-  { libelle: 'Session du jeudi', icone: 'users', chemin: '/session' },
+  { libelle: 'Session du jeudi', icone: 'users', chemin: '/session', route: '/session' },
 ];
 
 export default async function DispositionParcours({ children }: { children: ReactNode }) {

@@ -84,7 +84,14 @@ export const NAVIGATION_ADMIN: Entree[] = [
     chemin: '/admin/statistiques',
     route: '/admin/statistiques',
   },
-  { libelle: 'Session collective', icone: 'presentation', chemin: '/admin/session' },
+  {
+    libelle: 'Session collective',
+    icone: 'presentation',
+    // L'écran d'animation vit hors de la coquille : il est projeté sur un mur,
+    // et une barre latérale y prendrait la place de la question.
+    chemin: '/animer',
+    route: '/animer',
+  },
   {
     libelle: 'Formations',
     icone: 'book',

@@ -158,3 +158,43 @@ describe('Réponses individuelles — isolation des scores', () => {
     await assertFails(getDocs(collectionGroup(connecte(env, JORDAN), 'reponses')));
   });
 });
+
+/**
+ * Ce que ces tests protègent : le nom d'affichage au classement.
+ *
+ * Il s'affiche sur un écran projeté devant une salle. Trente-deux caractères
+ * n'est pas une précaution technique — au-delà, le nom déborde ou réduit tous
+ * les autres. Et il reste la propriété de son porteur : personne ne renomme
+ * personne.
+ */
+describe('Nom d’affichage au classement', () => {
+  it('chacun change le nom sous lequel il apparaît', async () => {
+    await semer();
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), { nomSession: 'Jojo' }),
+    );
+  });
+
+  it('REFUS — un nom au-delà de la borne d’écran projeté', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), {
+        nomSession: 'x'.repeat(33),
+      }),
+    );
+  });
+
+  it('REFUS — un nom vide', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), { nomSession: '  ' }),
+    );
+  });
+
+  it('REFUS — renommer quelqu’un d’autre', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, JORDAN), `users/${SOPHIE.uid}`), { nomSession: 'Jojo' }),
+    );
+  });
+});

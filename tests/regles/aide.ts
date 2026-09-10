@@ -122,8 +122,21 @@ export function session(remplacements: Document = {}): Document {
     statut: 'encours',
     animateurUid: NOEMIE.uid,
     creeeLe: HIER,
+    // Répartition de la question en cours, écrite à la révélation. Vide tant
+    // que la bonne réponse n'est pas montrée.
+    repartition: [],
+    repondants: 0,
+    // Chronomètre : une échéance commune à tous les appareils, posée quand la
+    // question est poussée. Zéro seconde veut dire « pas de chronomètre ».
+    dureeQuestionSecondes: 45,
+    questionOuverteLe: HIER,
     ...remplacements,
   };
+}
+
+/** Marqueur de présence à une séance, conforme au modèle. */
+export function participant(remplacements: Document = {}): Document {
+  return { nom: 'Jordan', rejointLe: HIER, ...remplacements };
 }
 
 /** Formation du référentiel, conforme au modèle. */
@@ -165,6 +178,9 @@ export function utilisateur(remplacements: Document = {}): Document {
     seriesTerminees: 2,
     creeLe: HIER,
     vuLe: HIER,
+    // Nom d'affichage au classement des séances collectives, et nulle part
+    // ailleurs. Le nom réel par défaut.
+    nomSession: 'Jordan',
     ...remplacements,
   };
 }

@@ -238,14 +238,26 @@ service cloud.firestore {
 
     function champsUtilisateur() {
       return ['email', 'nom', 'photoURL', 'role',
-              'etoiles', 'seriesTerminees', 'creeLe', 'vuLe'];
+              'etoiles', 'seriesTerminees', 'creeLe', 'vuLe', 'nomSession'];
     }
 
     function majUtilisateurAutorisee() {
       let avant = resource.data;
       let apres = request.resource.data;
       return apres.keys().hasOnly(champsUtilisateur())
-        && apres.diff(avant).affectedKeys().hasOnly(['etoiles', 'seriesTerminees', 'vuLe'])
+        && apres.diff(avant).affectedKeys().hasOnly(
+             ['etoiles', 'seriesTerminees', 'vuLe', 'nomSession'])
+        /*
+         * Le nom sous lequel on apparaît au classement d'une séance, et
+         * nulle part ailleurs. Il vaut le nom réel par défaut ; chacun peut
+         * le changer.
+         *
+         * **Trente-deux caractères.** Ce nom s'affiche sur un écran projeté
+         * devant une salle : au-delà, il déborde ou il réduit tous les autres.
+         * La borne n'est pas une précaution technique, c'est une contrainte de
+         * lisibilité.
+         */
+        && texteBorne(apres.nomSession, 32)
         // Une série complète rapporte de zéro à trois étoiles, jamais plus,
         // et le compteur ne redescend pas.
         && apres.etoiles is int
@@ -338,6 +350,24 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      /*
+       * Les prix gagnés en séance collective.
+       *
+       * **Le tableau meurt avec la séance, le trophée reste.** Le classement
+       * est nominatif et public entre ceux qui étaient là ; le prix, lui, est
+       * privé et durable. Chacun voit les siens, personne ne voit ceux des
+       * autres, et rien n'agrège les prix d'une séance à l'autre.
+       *
+       * **Aucun client n'écrit ici, pas même le propriétaire.** Un prix qu'on
+       * pourrait s'attribuer ne vaudrait rien. Seule la Cloud Function écrit,
+       * hors règles, à partir des réponses de la séance. C'est le même
+       * dispositif que `questionStats`.
+       */
+      match /prix/{prixId} {
+        allow read: if estProprietaire(uid);
+        allow write: if false;
+      }
+
       // --- État par question ---------------------------------------------
       // Résumé de l'historique d'une question pour son propriétaire : ce que
       // le tirage et la maîtrise ont besoin de savoir, sans relire toutes les
@@ -386,12 +416,65 @@ service cloud.firestore {
 
     function champsSession() {
       return ['code', 'questionIds', 'indexCourant', 'revelee', 'statut',
-              'animateurUid', 'creeeLe'];
+              'animateurUid', 'creeeLe', 'repartition', 'repondants',
+              'dureeQuestionSecondes', 'questionOuverteLe'];
+    }
+
+    /*
+     * Le chronomètre de la question en cours.
+     *
+     * **Une échéance, pas une durée.** `questionOuverteLe` est posé par
+     * l'animatrice au moment où elle pousse la question ; chaque appareil
+     * calcule ce qu'il reste à partir de cet instant-là. Un participant qui
+     * arrive en retard, ou dont l'écran partagé a dix secondes de retard, voit
+     * la même échéance que les autres — c'est la contrainte du format hybride,
+     * appliquée au temps comme elle l'est à la question.
+     *
+     * Zéro seconde veut dire « pas de chronomètre » : une séance peut se mener
+     * au rythme de la parole. Le plafond de dix minutes borne une saisie
+     * accidentelle, il n'a pas d'autre sens.
+     *
+     * **Le chronomètre cadence, il ne ferme pas.** Ce qui ferme le vote est la
+     * révélation, contrôlée plus bas sur la session elle-même. Une horloge de
+     * navigateur peut dériver de quelques secondes ; une règle de sécurité ne
+     * se fonde pas dessus.
+     */
+    function chronometreValide(donnees) {
+      return donnees.dureeQuestionSecondes is int
+        && donnees.dureeQuestionSecondes >= 0
+        && donnees.dureeQuestionSecondes <= 600
+        && horodatagePasse(donnees.questionOuverteLe);
+    }
+
+    /*
+     * La répartition des réponses, écrite sur la session par l'animatrice au
+     * moment de la révélation.
+     *
+     * **Pourquoi elle vit ici et non dans le navigateur du participant.** Les
+     * réponses de session ne sont lisibles que par l'animatrice et par leur
+     * propriétaire — un participant ne voit pas qui a répondu quoi, décision du
+     * lot 1. Il ne peut donc pas calculer la répartition lui-même : il faut
+     * qu'elle lui soit donnée, déjà agrégée et sans identifiant.
+     *
+     * La liste est alignée sur `ordreOptions` de la question en cours : un
+     * entier par option, dans le même ordre. Elle est remplacée à chaque
+     * révélation et vidée au passage à la question suivante. Aucun nom, aucun
+     * uid : ce qui n'entre pas ici ne peut pas en sortir.
+     */
+    function repartitionValide(donnees) {
+      return donnees.repartition is list
+        // Une question a au moins deux options ; le plafond couvre large sans
+        // permettre d'utiliser ce champ comme d'un sac.
+        && donnees.repartition.size() <= 40
+        && donnees.repondants is int
+        && donnees.repondants >= 0;
     }
 
     function sessionValide(donnees) {
       return donnees.keys().hasOnly(champsSession())
         && donnees.keys().hasAll(champsSession())
+        && repartitionValide(donnees)
+        && chronometreValide(donnees)
         // Le code est lu à voix haute puis saisi à la main.
         && texteBorne(donnees.code, 12)
         && donnees.questionIds is list
@@ -421,6 +504,41 @@ service cloud.firestore {
         && horodatagePasse(donnees.repondueLe);
     }
 
+    /*
+     * Qui était dans la salle.
+     *
+     * **Ce document est la clé de tout le classement.** Les règles ne savent
+     * pas restreindre la lecture d'une session « aux participants » : elles ne
+     * peuvent pas inspecter les clauses d'une requête, et l'identifiant d'une
+     * réponse porte le numéro de question, donc on ne peut pas tester son
+     * existence sans le connaître. Un marqueur par participant, à son propre
+     * uid, se teste en revanche d'un `exists()`.
+     *
+     * **On ne peut se déclarer présent que pendant la séance.** Le marqueur
+     * n'est créable que sur une session `encours` : quelqu'un qui a manqué le
+     * jeudi ne peut pas s'inscrire après coup pour lire le classement. C'est
+     * l'approximation la plus proche de « il était dans la pièce » qu'une règle
+     * sache exprimer, et elle est suffisante.
+     *
+     * **Il porte aussi le nom d'affichage**, et c'est le participant qui
+     * l'écrit. Sans cela, l'animatrice ne saurait pas nommer les votes : elle
+     * lit les réponses, qui ne portent qu'un uid, et `users/{uid}` lui est
+     * fermé — sans exception administrateur, décision du lot 1. Chacun publie
+     * donc son propre nom, pour cette séance, et personne ne va le chercher
+     * dans ses données privées.
+     */
+    function participantValide(donnees) {
+      return donnees.keys().hasOnly(['nom', 'rejointLe'])
+        && donnees.keys().hasAll(['nom', 'rejointLe'])
+        && texteBorne(donnees.nom, 32)
+        && horodatagePasse(donnees.rejointLe);
+    }
+
+    function estPresent(sessionId) {
+      return exists(
+        /databases/$(database)/documents/sessions/$(sessionId)/participants/$(request.auth.uid));
+    }
+
     match /sessions/{sessionId} {
       allow read: if domaineAutorise();
       allow create: if estAdmin()
@@ -441,12 +559,57 @@ service cloud.firestore {
         allow get: if estAnimateur(sessionId)
           || (domaineAutorise() && resource.data.uid == request.auth.uid);
         allow list: if estAnimateur(sessionId);
+        // **Pas de réponse après la révélation.** Une fois la bonne réponse
+        // affichée, répondre juste ne coûte plus rien : la réponse alimenterait
+        // la progression individuelle et `questionStats` d'un point gagné sans
+        // l'avoir cherché. Le retardataire voit donc la correction, il ne vote
+        // pas dessus. Le contrôle porte sur la session, pas sur le client : une
+        // fenêtre restée ouverte ne doit pas pouvoir voter en différé.
+        //
+        // La lecture supplémentaire coûte un document par réponse écrite. À
+        // dix participants et huit questions, c'est quatre-vingts lectures pour
+        // une séance entière.
         allow create: if domaineAutorise()
           && request.resource.data.uid == request.auth.uid
           && reponseId == request.auth.uid + '_' + request.resource.data.questionId
           && formeReponseSessionValide(request.resource.data)
-          && verdictConforme(request.resource.data);
+          && verdictConforme(request.resource.data)
+          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.revelee == false
+          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut == 'encours';
         allow update, delete: if false;
+      }
+
+      match /participants/{participantUid} {
+        // L'animatrice lit toute la salle : c'est ce qui lui permet de nommer
+        // les votes en direct. Un participant ne lit que son propre marqueur.
+        allow get: if estAnimateur(sessionId) || estProprietaire(participantUid);
+        allow list: if estAnimateur(sessionId);
+        allow create: if domaineAutorise()
+          && estProprietaire(participantUid)
+          && participantValide(request.resource.data)
+          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut == 'encours';
+        // Le nom peut changer en cours de séance, la présence non.
+        allow update: if estProprietaire(participantUid)
+          && participantValide(request.resource.data)
+          && request.resource.data.rejointLe == resource.data.rejointLe;
+        allow delete: if false;
+      }
+
+      /*
+       * Le classement de la séance.
+       *
+       * **Les absents ne le voient pas.** C'est une décision de produit, pas
+       * une contrainte technique : ils n'étaient pas là. La lecture exige donc
+       * un marqueur de présence, posé pendant la séance et pas après.
+       *
+       * **Aucun client ne l'écrit.** Il est calculé et posé par la Cloud
+       * Function quand la séance se termine, à partir des réponses. La seule
+       * façon d'être premier est de l'avoir été — comme pour `questionStats`,
+       * et pour la même raison.
+       */
+      match /classement/{document} {
+        allow read: if domaineAutorise() && (estPresent(sessionId) || estAnimateur(sessionId));
+        allow write: if false;
       }
     }
 

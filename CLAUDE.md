@@ -60,6 +60,22 @@ Trois interdits fermes, valables partout :
 
 États vides, erreurs et chargements sont des écrans à part entière. Une erreur dit ce qui s'est passé et quoi faire, elle ne s'excuse pas.
 
+**Une seule exception à `prefers-reduced-motion`, et elle est délibérée.** La
+révélation du classement d'une séance collective
+(`src/composants/session/RevelationClassement.tsx`) garde sa mise en scène même
+quand le système demande à réduire les animations. Ailleurs — partout ailleurs —
+la préférence est respectée sans discussion.
+
+La raison : sur cet écran, **la mise en scène est la fonctionnalité**. Le rang
+personnel seul, puis le podium qui se remplit par le bas, puis le prix qui
+apparaît comme un objet : c'est ce déroulé qui fait qu'on revient le jeudi
+suivant, pas le tableau qu'il produit. Le désarmer rendrait l'écran correct et
+sans intérêt. La durée totale reste courte et rien n'y clignote.
+
+**Ne « corrigez » pas cette exception.** Elle a été demandée explicitement, après
+qu'une consigne inverse a été jugée mauvaise ici. Si elle doit tomber, c'est une
+décision de produit, pas un alignement de règle.
+
 ## Ce qui est acquis en performance, et ne doit pas régresser
 
 Ces points ont été gagnés en rattrapant six lots d'accumulation, mesure à
