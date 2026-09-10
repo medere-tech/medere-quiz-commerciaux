@@ -340,8 +340,9 @@ un `npm install --prefix functions` suffit.
 **Déployer l'agrégation, et purger ses marqueurs.** Cinq gestes, et **l'ordre
 n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
 
-1. `firebase deploy --only functions` — la fonction se déploie depuis
-   `functions/`, en `europe-west1`.
+1. `npm run fonctions:deploy` — les fonctions se déploient depuis
+   `functions/`, en `europe-west1`. **Pas `firebase deploy --only functions`
+   directement** : le script desserre le délai de découverte, voir ci-dessous.
 2. **Nettoyage des données de recette**, avant d'ouvrir l'application aux
    commerciaux : les réponses de test et `questionStats` partent ensemble. Voir
    section 3, « `questionStats` contient aujourd'hui des données de recette ».
@@ -361,6 +362,35 @@ n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
    toujours au niveau du groupe. En ligne de commande, l'équivalent est
    `gcloud firestore fields ttls update expireLe --collection-group=evenements
    --enable-ttl --project=<id>`.
+
+**Le délai de découverte, et un message qui ment.** Avant de déployer, la CLI
+démarre un runtime local, charge le module compilé et lui demande la liste des
+déclencheurs. Passé **dix secondes** — le défaut — elle abandonne sur :
+
+```
+Error: User code failed to load. Cannot determine backend specification.
+Timeout after 10000.
+```
+
+**Ce message ne dit pas ce qu'il a l'air de dire.** Dans
+`firebase-tools/lib/deploy/functions/runtimes/discovery/index.js`, « User code
+failed to load » est un préfixe fixe, écrit aussi bien quand le module échoue
+que quand il répond trop tard. Les deux cas se distinguent à un détail :
+**quand le chargement échoue vraiment, la CLI ajoute la sortie d'erreur du
+runtime** ; quand elle expire, il n'y a que « Timeout after ».
+
+Ce piège a coûté deux diagnostics. La première fois, le message était juste —
+`firebase-admin` 14 tirait `jose` en module ES, le runtime levait
+`ERR_REQUIRE_ESM` et ne répondait jamais. La seconde, le même message
+apparaissait alors que **le module chargeait en 386 à 776 ms et que la
+découverte complète répondait en 877 à 1863 ms** : c'était la machine et le
+lien, pas le code. `FUNCTIONS_DISCOVERY_TIMEOUT=60` a suffi à faire passer le
+déploiement, ce qui l'a prouvé.
+
+`npm run fonctions:deploy` fixe ce délai à deux minutes. **Il ne masque rien** :
+une vraie panne de chargement produit une sortie d'erreur, pas une attente.
+Avant de conclure à un problème de code sur ce message, relancer la découverte
+seule et lire son journal — c'est la seule source qui distingue les deux causes.
 
 **Pourquoi le TTL ne peut pas être posé le jour du déploiement.** La console
 Firestore ne propose que les groupes de collections **qui existent déjà**, et
