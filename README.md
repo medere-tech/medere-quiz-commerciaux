@@ -337,14 +337,23 @@ contrôle avant commit est `npm run build && npm run typecheck`**, et le second
 échoue clairement si les dépendances de `functions/` ne sont pas installées —
 un `npm install --prefix functions` suffit.
 
-**Déployer l'agrégation, et purger ses marqueurs.** Trois gestes, dans cet
-ordre :
+**Déployer l'agrégation, et purger ses marqueurs.** Cinq gestes, et **l'ordre
+n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
 
 1. `firebase deploy --only functions` — la fonction se déploie depuis
    `functions/`, en `europe-west1`.
-2. `npm run stats:reprise -- --faire` — reconstruit les compteurs à partir des
-   réponses déjà en base.
-3. **Une stratégie TTL sur les marqueurs**, à créer une fois en console :
+2. **Nettoyage des données de recette**, avant d'ouvrir l'application aux
+   commerciaux : les réponses de test et `questionStats` partent ensemble. Voir
+   section 3, « `questionStats` contient aujourd'hui des données de recette ».
+3. **Le premier commercial répond.** C'est la condition des deux gestes
+   suivants, et elle n'a rien d'une formalité — voir plus bas.
+4. `npm run stats:reprise -- --faire` — reconstruit les compteurs à partir des
+   réponses en base. Il ne sert qu'à rattraper les réponses écrites pendant que
+   la fonction était absente ou en panne. **Lancé avant l'étape 3, il vide
+   `questionStats` au lieu de la reconstruire** : il écarte les comptes
+   administrateurs, et il n'y a alors rien d'autre à compter. L'essai à blanc,
+   sans `--faire`, montre l'écart avant d'écrire — le lire.
+5. **Une stratégie TTL sur les marqueurs**, à créer une fois en console :
    *Firestore → Time-to-live (TTL) → Créer une stratégie*. Groupe de
    collections `evenements`, champ d'horodatage `expireLe`. Le groupe de
    collections, pas un chemin : les marqueurs vivent sous
@@ -352,6 +361,19 @@ ordre :
    toujours au niveau du groupe. En ligne de commande, l'équivalent est
    `gcloud firestore fields ttls update expireLe --collection-group=evenements
    --enable-ttl --project=<id>`.
+
+**Pourquoi le TTL ne peut pas être posé le jour du déploiement.** La console
+Firestore ne propose que les groupes de collections **qui existent déjà**, et
+`evenements` n'existe qu'à partir du premier marqueur écrit. Or le marqueur
+est posé dans la transaction d'agrégation, et l'agrégation s'arrête avant
+pour un compte administrateur : tant que seule l'équipe pédagogique a répondu,
+le groupe reste vide et la stratégie est impossible à créer. **Le TTL se pose
+une fois qu'un vrai commercial a répondu au moins une fois, et pas avant.**
+
+C'est une conséquence directe de l'exclusion des administrateurs, et elle est
+sans gravité : aucun marqueur n'existe, donc rien ne s'accumule. Mais le geste
+est facile à croire fait et à oublier — d'où sa place dans cette liste plutôt
+que dans une note.
 
 Sans cette stratégie, les marqueurs s'accumulent indéfiniment : environ vingt-
 six mille documents par an à raison de dix commerciaux et cinquante réponses
