@@ -273,15 +273,36 @@ désactive ces fonctionnalités « to ensure runtime stability », et les foncti
 qui les réactivent « aren't eligible for the Lambda Service Level Agreement ».
 Dépendre d'un drapeau expérimental en production n'est pas une correction.
 
-**Deux versions de `firebase-admin` dans le dépôt.** La racine est en 13.10.0,
-`functions/` reste en 14.3.0 : les Cloud Functions tournent sur le runtime
-Firebase, qui n'a ni Turbopack ni cette désactivation, et rien ne justifie de
-les rétrograder. Les deux paquets sont indépendants — dépendances séparées,
-runtimes séparés, aucun objet `firebase-admin` ne circule de l'un à l'autre.
-**Le risque est humain :** on oublie la divergence, et un jour du code est
-recopié de `functions/` vers `src/` en supposant la même API. À remonter dès
-que la chaîne `jose` cessera d'exiger `require(esm)`, ou que Vercel cessera de
-la désactiver.
+**Une seule version de `firebase-admin` dans le dépôt : 13.10.0, racine et
+`functions/`.** Elles ont divergé un temps — `functions/` était restée en
+14.3.0, au motif que le runtime Firebase n'a ni Turbopack ni la désactivation
+de Vercel, et que rien ne justifiait de la rétrograder. **Ce raisonnement était
+faux, et le premier déploiement de la fonction l'a montré.**
+
+Le jour où `functions/src/index.ts` a eu besoin de lire un custom claim, il a
+importé `firebase-admin/auth` — le seul point d'entrée qui tire
+`jwks-rsa` → `jose`. En 14.3.0, `jwks-rsa@4.1.0` exige `jose@6`, qui est du
+module ES pur ; en 13.10.0, `jwks-rsa@3.2.2` exige `jose@4`, qui est en
+CommonJS. Le déploiement échouait alors sur :
+
+```
+Error: User code failed to load. Cannot determine backend specification.
+Timeout after 10000.
+```
+
+**Les deux moitiés du message viennent d'une seule cause**, reproduite en
+relançant la découverte des déclencheurs sous `--no-experimental-require-module` :
+le runtime annonce `Serving at port`, le chargement du module lève
+`ERR_REQUIRE_ESM` sur `jose` depuis `jwks-rsa/src/utils.js`, le serveur ne
+répond donc jamais à `/__/functions.yaml`, et la CLI conclut au bout de dix
+secondes. Après alignement sur 13.10.0, la même découverte répond en **716 ms
+avec le drapeau, 646 à 850 ms sans**.
+
+**Ce qu'il faut en retenir.** « Ce runtime-là n'a pas le problème » n'est pas
+une garantie : le déploiement et l'exécution sont deux exécutants distincts,
+et la découverte des déclencheurs tourne sur la machine du développeur. Tant
+que la chaîne `jose` exige `require(esm)`, aucun des deux paquets n'y touche.
+À remonter le jour où elle cessera de l'exiger — les deux ensemble.
 
 **Reproduire la panne en local**, sur une machine à jour — c'est le seul moyen
 de ne pas corriger à l'aveugle. Avec `firebase-admin` 14 la commande échouait,
