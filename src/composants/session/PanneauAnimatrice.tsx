@@ -2,6 +2,7 @@
 
 import { Meta } from '@/composants/ds/primitives';
 import { Icone } from '@/composants/ds/Icone';
+import { Pastille } from '@/composants/session/Pastille';
 import type { Question } from '@/lib/questions/depot';
 import type { Participant, ReponseSession } from '@/lib/session/depot';
 
@@ -85,11 +86,15 @@ export function PanneauAnimatrice({
                       : 'rgba(194,66,66,0.07)',
               }}
             >
+              {/* La pastille dit qui, la coche dit quoi : deux informations,
+                  deux repères, jamais l'un à la place de l'autre. */}
+              <Pastille nom={participant.nom} avatar={participant.avatar} taille={26} />
+
               <span
                 aria-hidden="true"
                 style={{
-                  width: 22,
-                  height: 22,
+                  width: 20,
+                  height: 20,
                   flex: 'none',
                   borderRadius: 999,
                   background:
@@ -104,7 +109,7 @@ export function PanneauAnimatrice({
                   justifyContent: 'center',
                 }}
               >
-                {sienne && <Icone nom={sienne.correcte ? 'check' : 'close'} taille={12} />}
+                {sienne && <Icone nom={sienne.correcte ? 'check' : 'close'} taille={11} />}
               </span>
 
               <span
@@ -142,14 +147,43 @@ export function PanneauAnimatrice({
         <div style={{ marginTop: 'auto', paddingTop: 'var(--space-5)', flex: 'none' }}>
           <span
             style={{
-              display: 'block',
-              fontSize: 'var(--body-sm-size)',
-              fontWeight: 600,
-              color: 'var(--text-heading)',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 'var(--space-3)',
               marginBottom: 8,
             }}
           >
-            Explication
+            <span
+              style={{
+                fontSize: 'var(--body-sm-size)',
+                fontWeight: 600,
+                color: 'var(--text-heading)',
+              }}
+            >
+              Explication
+            </span>
+            {/*
+             * Le moment où l'on découvre qu'une explication est mauvaise, c'est
+             * devant la salle. C'est aussi le seul moment où l'on sait quoi
+             * corriger — et il n'existait aucun chemin d'ici vers l'éditeur.
+             *
+             * Nouvel onglet : la séance ne s'interrompt pas pour une correction.
+             */}
+            <a
+              href={`/admin/questions/${question.id}`}
+              target="_blank"
+              rel="noopener"
+              style={{
+                marginLeft: 'auto',
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--text-link)',
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Modifier la question
+            </a>
           </span>
           <p
             style={{

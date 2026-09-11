@@ -868,6 +868,14 @@ avant le déploiement, pas après.
 Firestore n'en demande aucun, la vérification des index en demande —, et si la
 vérification des règles publiées y entre ou reste un geste de déploiement.
 
+### À faire au lot 8 : le nettoyage des données de recette
+
+Les réponses de test, `questionStats`, et **la séance `CPY68N` restée ouverte**
+partent ensemble. Cette dernière n'a pas été close : tant qu'elle est `encours`,
+`maSessionEnCours` la retrouve, et Noémie retombera dessus en ouvrant l'écran
+d'animation au lieu d'un écran d'ouverture. La reprise fonctionne — elle
+reprend simplement une séance de recette.
+
 ### Candidat pour le lot 8 : le préchargement après une déconnexion
 
 Le préchargement introduit avec la navigation instantanée continue de travailler

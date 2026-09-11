@@ -7,6 +7,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Icone, type NomIcone } from '@/composants/ds/Icone';
 import { seDeconnecter } from '@/lib/auth/connexion-client';
+import { Pastille } from '@/composants/session/Pastille';
+import { useMonAvatar } from '@/lib/session/avatar-client';
 import { usePanneauSuperpose } from '@/lib/navigation/panneau-superpose';
 
 /**
@@ -87,10 +89,11 @@ export const NAVIGATION_ADMIN: Entree[] = [
   {
     libelle: 'Session collective',
     icone: 'presentation',
-    // L'écran d'animation vit hors de la coquille : il est projeté sur un mur,
-    // et une barre latérale y prendrait la place de la question.
-    chemin: '/animer',
-    route: '/animer',
+    // La préparation est un travail de back-office, dans la coquille ;
+    // l'animation est un mode, projeté sur un mur, hors coquille. L'entrée mène
+    // donc à la composition, qui offre de lancer.
+    chemin: '/admin/session',
+    route: '/admin/session',
   },
   {
     libelle: 'Formations',
@@ -200,43 +203,13 @@ function BasculeContexte({
 
 /** Les initiales, seules, quand la barre est repliée. */
 function Initiales({ nom }: { nom: string }) {
-  const initiales = nom
-    .split(' ')
-    .map((mot) => mot[0] ?? '')
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        width: 28,
-        height: 28,
-        flex: 'none',
-        borderRadius: 999,
-        background: 'var(--brand-ink)',
-        color: '#fff',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 11,
-        fontWeight: 700,
-      }}
-    >
-      {initiales}
-    </span>
-  );
+  const avatar = useMonAvatar();
+  return <Pastille nom={nom} avatar={avatar} taille={28} titre={nom} />;
 }
 
 function PastilleUtilisateur({ nom, role }: { nom: string; role: string }) {
   const routeur = useRouter();
-  const initiales = nom
-    .split(' ')
-    .map((mot) => mot[0] ?? '')
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
+  const avatar = useMonAvatar();
 
   return (
     <span
@@ -249,23 +222,7 @@ function PastilleUtilisateur({ nom, role }: { nom: string; role: string }) {
         background: 'var(--surface-page)',
       }}
     >
-      <span
-        style={{
-          width: 28,
-          height: 28,
-          flex: 'none',
-          borderRadius: 999,
-          background: 'var(--brand-ink)',
-          color: '#fff',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 11,
-          fontWeight: 700,
-        }}
-      >
-        {initiales}
-      </span>
+      <Pastille nom={nom} avatar={avatar} taille={28} />
       <span style={{ minWidth: 0, flex: 1 }}>
         <span
           style={{

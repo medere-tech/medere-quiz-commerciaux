@@ -5,7 +5,7 @@ import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/fire
 import { logger, setGlobalOptions } from 'firebase-functions/v2';
 
 import { agreger, estAdministrateur, lireReponse } from './agregation.js';
-import { classer, type ReponseSeance } from './classement.js';
+import { bilanDesReponses, classer, type ReponseSeance } from './classement.js';
 import { compterReponse } from './session.js';
 
 /**
@@ -153,8 +153,21 @@ export const classerSessionTerminee = onDocumentUpdated(
     const avant = evenement.data?.before.data();
     const apres = evenement.data?.after.data();
 
-    // On ne classe qu'au passage, pas à chaque écriture sur une séance close.
-    if (!apres || apres.statut !== 'terminee' || avant?.statut === 'terminee') return;
+    const closes = ['terminee', 'abandonnee'];
+    const seFerme =
+      Boolean(apres) &&
+      closes.includes(String(apres?.statut)) &&
+      !closes.includes(String(avant?.statut));
+
+    // On n'agit qu'au passage, pas à chaque écriture sur une séance close.
+    if (!apres || !seFerme) return;
+
+    /*
+     * Une séance abandonnée n'est pas classée — le résultat ne voudrait rien
+     * dire — mais son bilan est écrit quand même : ce qui a été posé et ce qui
+     * a trébuché reste utile pour préparer la suivante, et c'est anonyme.
+     */
+    const classe = apres.statut === 'terminee';
 
     const base = getFirestore();
     const sessionId = evenement.params.sessionId;
@@ -165,10 +178,14 @@ export const classerSessionTerminee = onDocumentUpdated(
       session.collection('participants').get(),
     ]);
 
-    const noms = new Map<string, string>();
+    const identites = new Map<string, { nom: string; avatar: string }>();
     for (const document of participants.docs) {
-      const nom = document.data().nom;
-      if (typeof nom === 'string' && nom.trim() !== '') noms.set(document.id, nom);
+      const { nom, avatar } = document.data();
+      if (typeof nom !== 'string' || nom.trim() === '') continue;
+      identites.set(document.id, {
+        nom,
+        avatar: typeof avatar === 'string' ? avatar : 'encre',
+      });
     }
 
     const lues: ReponseSeance[] = reponses.docs.flatMap((document) => {
@@ -177,6 +194,7 @@ export const classerSessionTerminee = onDocumentUpdated(
       return [
         {
           uid: donnees.uid,
+          questionId: typeof donnees.questionId === 'string' ? donnees.questionId : '',
           correcte: donnees.correcte,
           // `repondueLe` sert à départager les égalités : sans lui, l'ordre
           // deviendrait celui des uid, ce qui n'a aucun sens pour un podium.
@@ -185,15 +203,26 @@ export const classerSessionTerminee = onDocumentUpdated(
       ];
     });
 
-    const rangs = classer(lues, noms);
-
-    if (rangs.length === 0) {
-      logger.info('Séance terminée sans aucune réponse : aucun classement');
-      return;
-    }
-
+    const questionIds = Array.isArray(apres.questionIds) ? (apres.questionIds as string[]) : [];
     const lot = base.batch();
     const code = typeof apres.code === 'string' ? apres.code : '';
+
+    // Le bilan existe dès qu'il y a des questions, même sans une seule réponse :
+    // « personne n'a répondu » est une information, et l'absence de document
+    // ressemblerait à une panne.
+    lot.set(session.collection('bilan').doc('final'), {
+      questions: bilanDesReponses(lues, questionIds),
+      participants: identites.size,
+      etabliLe: new Date(),
+    });
+
+    const rangs = classe ? classer(lues, identites) : [];
+
+    if (rangs.length === 0) {
+      await lot.commit();
+      logger.info('Séance close sans classement', { classe, reponses: lues.length });
+      return;
+    }
 
     lot.set(session.collection('classement').doc('final'), {
       rangs,
@@ -212,6 +241,6 @@ export const classerSessionTerminee = onDocumentUpdated(
     }
 
     await lot.commit();
-    logger.info('Classement établi', { participants: rangs.length });
+    logger.info('Séance close', { classement: rangs.length, questions: questionIds.length });
   },
 );

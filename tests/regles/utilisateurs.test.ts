@@ -198,3 +198,26 @@ describe('Nom d’affichage au classement', () => {
     );
   });
 });
+
+describe('Avatar', () => {
+  it('chacun choisit sa teinte', async () => {
+    await semer();
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), { avatar: 'orange' }),
+    );
+  });
+
+  it('REFUS — une teinte inventée', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), { avatar: 'or' }),
+    );
+  });
+
+  it('REFUS — changer la teinte de quelqu’un d’autre', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, JORDAN), `users/${SOPHIE.uid}`), { avatar: 'orange' }),
+    );
+  });
+});

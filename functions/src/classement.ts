@@ -14,9 +14,17 @@
 /** Ce qu'on retient d'une réponse de séance pour classer. */
 export type ReponseSeance = {
   uid: string;
+  questionId: string;
   correcte: boolean;
   /** Millisecondes depuis l'époque. Sert uniquement à départager. */
   repondueLe: number;
+};
+
+/** Une ligne du bilan : ce qu'une question a produit, sans dire chez qui. */
+export type LigneBilan = {
+  questionId: string;
+  reponses: number;
+  echecs: number;
 };
 
 export type Distinction = 'diamant' | 'or' | 'argent';
@@ -24,6 +32,8 @@ export type Distinction = 'diamant' | 'or' | 'argent';
 export type Rang = {
   uid: string;
   nom: string;
+  /** Teinte choisie par la personne, recopiée du marqueur de présence. */
+  avatar: string;
   justes: number;
   rang: number;
   /** Absente au-delà du podium. Le rang, lui, existe toujours. */
@@ -54,7 +64,11 @@ const PODIUM: Distinction[] = ['diamant', 'or', 'argent'];
  * Un participant présent mais qui n'a jamais répondu n'apparaît pas : il n'a
  * pas joué.
  */
-export function classer(reponses: ReponseSeance[], noms: Map<string, string>): Rang[] {
+export function classer(
+  reponses: ReponseSeance[],
+  /** Nom et teinte, par uid, tels que publiés par les participants. */
+  identites: Map<string, { nom: string; avatar: string }>,
+): Rang[] {
   const cumuls = new Map<string, { justes: number; instants: number }>();
 
   for (const reponse of reponses) {
@@ -76,9 +90,12 @@ export function classer(reponses: ReponseSeance[], noms: Map<string, string>): R
     const rang = index + 1;
     const distinction = rang <= PODIUM.length ? (PODIUM[rang - 1] as Distinction) : null;
 
+    const identite = identites.get(uid);
+
     return {
       uid,
-      nom: noms.get(uid) ?? 'Participant',
+      nom: identite?.nom ?? 'Participant',
+      avatar: identite?.avatar ?? 'encre',
       justes: cumul.justes,
       rang,
       distinction,
@@ -105,4 +122,35 @@ export function ecartAuPodium(rangs: Rang[], uid: string): number | null {
   // À égalité de points, c'est la vitesse qui a tranché : annoncer « zéro
   // bonne réponse d'écart » serait exact et incompréhensible.
   return manque > 0 ? manque : null;
+}
+
+/**
+ * Bilan anonyme d'une séance : ce qui a été posé, et ce qui a trébuché.
+ *
+ * **Aucun identifiant n'en sort.** Deux compteurs par question, et rien
+ * d'autre. C'est ce dont l'animatrice a besoin pour préparer la séance
+ * suivante — ce qui a trébuché la semaine dernière détermine ce qu'elle repose
+ * — et c'est tout ce qu'elle peut en savoir une fois la séance close : la
+ * lecture nominative des votes s'éteint avec la séance.
+ *
+ * L'ordre suit celui des questions de la séance, pas celui des réponses : un
+ * bilan se lit dans l'ordre où les questions ont été posées.
+ */
+export function bilanDesReponses(
+  reponses: ReponseSeance[],
+  questionIds: string[],
+): LigneBilan[] {
+  const comptes = new Map<string, { reponses: number; echecs: number }>();
+
+  for (const reponse of reponses) {
+    const compte = comptes.get(reponse.questionId) ?? { reponses: 0, echecs: 0 };
+    compte.reponses += 1;
+    if (!reponse.correcte) compte.echecs += 1;
+    comptes.set(reponse.questionId, compte);
+  }
+
+  return questionIds.map((questionId) => ({
+    questionId,
+    ...(comptes.get(questionId) ?? { reponses: 0, echecs: 0 }),
+  }));
 }

@@ -2,9 +2,11 @@
 
 import { Bouton } from '@/composants/ds/primitives';
 import { Icone } from '@/composants/ds/Icone';
+import { ArreterSeance } from '@/composants/session/ArreterSeance';
 import { Chronometre } from '@/composants/session/Chronometre';
 import { LIBELLES_TYPE } from '@/lib/questions/modele';
 import type { Question } from '@/lib/questions/depot';
+import { partDesRepondants } from '@/lib/session/repartition';
 
 /**
  * La scène : ce qui est projeté sur le mur.
@@ -31,6 +33,7 @@ export type VueScene = {
   total: number;
   question: Question | null;
   revelee: boolean;
+  enPause: boolean;
   /** Un compte par option, dans l'ordre d'affichage. */
   comptes: number[];
   reponsesRecues: number;
@@ -46,16 +49,23 @@ export function SceneProjetee({
   onReveler,
   onSuivante,
   onRejouer,
+  onPause,
+  onReprendre,
+  onTerminer,
+  onAbandonner,
   dernier,
 }: {
   vue: VueScene;
   onReveler: () => void;
   onSuivante: () => void;
   onRejouer: () => void;
+  onPause: () => void;
+  onReprendre: () => void;
+  onTerminer: () => void;
+  onAbandonner: () => void;
   dernier: boolean;
 }) {
   const { question } = vue;
-  const total = vue.comptes.reduce((somme, valeur) => somme + valeur, 0);
 
   return (
     <div className="session-scene">
@@ -95,9 +105,16 @@ export function SceneProjetee({
             flexWrap: 'wrap',
           }}
         >
+          {/*
+           * Le décompte s'arrête avec la séance.
+           *
+           * Le laisser courir pendant une pause afficherait « temps écoulé » au
+           * retour, alors que la reprise redonne son temps à la salle. Révélée
+           * ou suspendue, la question n'a plus d'échéance à montrer.
+           */}
           <Chronometre
             ouverteLeMs={vue.questionOuverteLeMs}
-            dureeSecondes={vue.revelee ? 0 : vue.dureeQuestionSecondes}
+            dureeSecondes={vue.revelee || vue.enPause ? 0 : vue.dureeQuestionSecondes}
             clair
           />
           <span
@@ -184,7 +201,9 @@ export function SceneProjetee({
             <div className="session-options">
               {question.ordreOptions.map((identifiant, index) => {
                 const compte = vue.comptes[index] ?? 0;
-                const part = total === 0 ? 0 : Math.round((compte / total) * 100);
+                // Part des répondants, pas part de la somme des choix : sur un
+                // QCM multiple, la somme dépasse le nombre de personnes.
+                const part = partDesRepondants(compte, vue.reponsesRecues);
                 const juste = question.bonnesReponses.includes(identifiant);
 
                 return (
@@ -289,7 +308,33 @@ export function SceneProjetee({
       </div>
 
       <div className="session-commandes">
-        {vue.revelee ? (
+        {vue.enPause ? (
+          /*
+           * En pause, une seule action met en avant : reprendre. Le reste
+           * disparaît — une animatrice qui revient d'une interruption ne doit
+           * pas avoir à choisir entre cinq boutons.
+           */
+          <>
+            <Bouton taille="lg" variante="soulignee" onClick={onReprendre}>
+              Reprendre la séance
+            </Bouton>
+            <ArreterSeance
+              onTerminer={onTerminer}
+              onAbandonner={onAbandonner}
+              questionsJouees={vue.numero}
+              questionsTotal={vue.total}
+            />
+            <span
+              style={{
+                marginLeft: 'auto',
+                fontSize: 'clamp(14px, 1.3vw, 19px)',
+                color: SUR_ENCRE,
+              }}
+            >
+              Séance suspendue · le vote est fermé
+            </span>
+          </>
+        ) : vue.revelee ? (
           <>
             <Bouton taille="lg" variante="soulignee" onClick={onSuivante}>
               {dernier ? 'Terminer et classer' : 'Question suivante'}
@@ -308,6 +353,15 @@ export function SceneProjetee({
             >
               Rejouer le vote
             </Bouton>
+            <Bouton taille="lg" variante="fantome" onClick={onPause} style={{ color: '#fff' }}>
+              Pause
+            </Bouton>
+            <ArreterSeance
+              onTerminer={onTerminer}
+              onAbandonner={onAbandonner}
+              questionsJouees={vue.numero}
+              questionsTotal={vue.total}
+            />
             <span
               style={{
                 marginLeft: 'auto',
@@ -323,6 +377,15 @@ export function SceneProjetee({
             <Bouton taille="lg" variante="soulignee" onClick={onReveler}>
               Révéler la bonne réponse
             </Bouton>
+            <Bouton taille="lg" variante="fantome" onClick={onPause} style={{ color: '#fff' }}>
+              Pause
+            </Bouton>
+            <ArreterSeance
+              onTerminer={onTerminer}
+              onAbandonner={onAbandonner}
+              questionsJouees={vue.numero}
+              questionsTotal={vue.total}
+            />
             <span
               style={{
                 marginLeft: 'auto',

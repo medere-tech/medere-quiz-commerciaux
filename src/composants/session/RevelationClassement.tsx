@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { Carte, Meta } from '@/composants/ds/primitives';
 import { Icone } from '@/composants/ds/Icone';
+import { Pastille } from '@/composants/session/Pastille';
 import type { Distinction, Rang } from '@/lib/session/depot';
 
 /**
@@ -144,22 +145,58 @@ function LigneRang({ rang, moi, visible }: { rang: Rang; moi: boolean; visible: 
         transition: 'opacity 420ms var(--ease-out), transform 420ms var(--ease-out)',
       }}
     >
-      {rang.distinction ? (
-        <Medaille distinction={rang.distinction} taille={34} />
-      ) : (
+      {/*
+        * La pastille d'abord, la médaille par-dessus.
+        *
+        * C'est la couleur qu'on reconnaît en premier sur un écran projeté ; la
+        * médaille se lit ensuite. L'inverse — une médaille seule — dirait le
+        * rang sans dire qui.
+        */}
+      <span style={{ position: 'relative', flex: 'none', lineHeight: 0 }}>
+        <Pastille nom={rang.nom} avatar={rang.avatar} taille={38} />
+        {rang.distinction && (
+          <span
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              right: -5,
+              bottom: -5,
+              width: 22,
+              height: 22,
+              borderRadius: 999,
+              background: MEDAILLES[rang.distinction].teinte,
+              color: MEDAILLES[rang.distinction].encre,
+              border: '2px solid var(--surface-card)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 12,
+              fontWeight: 700,
+              lineHeight: 1,
+            }}
+          >
+            {/*
+              * Le rang, pas le ruban.
+              *
+              * L'icône de médaille à onze pixels se lit comme une tache : trop
+              * de détail pour la taille. Un chiffre se reconnaît, et il ne
+              * risque pas de se confondre avec la teinte de la pastille quand
+              * les deux tombent sur la même couleur.
+              */}
+            {rang.rang}
+          </span>
+        )}
+      </span>
+
+      {!rang.distinction && (
         <span
+          aria-hidden="true"
           style={{
-            width: 34,
-            height: 34,
             flex: 'none',
-            borderRadius: 999,
-            background: 'var(--surface-sunken)',
-            color: 'var(--neutral-60)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
             fontSize: 'var(--body-sm-size)',
             fontWeight: 700,
+            color: 'var(--neutral-60)',
+            minWidth: 18,
           }}
         >
           {rang.rang}

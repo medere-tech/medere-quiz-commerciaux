@@ -7,11 +7,14 @@ import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { OptionReponse, Verdict } from '@/composants/ds/parcours';
 import { Chronometre } from '@/composants/session/Chronometre';
+import { ChoixAvatar, Pastille } from '@/composants/session/Pastille';
+import { RepartitionLue } from '@/composants/session/RepartitionLue';
 import { RevelationClassement } from '@/composants/session/RevelationClassement';
 import type { Referentiel } from '@/composants/parcours/donnees';
 import { authentification } from '@/lib/firebase/client';
 import { LIBELLES_TYPE } from '@/lib/questions/modele';
 import { corriger } from '@/lib/serie/verdict';
+import { AVATAR_PAR_DEFAUT, type CleAvatar } from '@/lib/session/avatar';
 import {
   chercherSessionParCode,
   ecouterClassement,
@@ -54,6 +57,7 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
 
   const [code, setCode] = useState('');
   const [nom, setNom] = useState('');
+  const [avatar, setAvatar] = useState<CleAvatar>(AVATAR_PAR_DEFAUT);
   const [recherche, setRecherche] = useState<'repos' | 'encours' | 'introuvable' | 'echec'>('repos');
 
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -116,13 +120,13 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
         setRecherche('introuvable');
         return;
       }
-      await rejoindre(trouvee.id, uid, nom);
+      await rejoindre(trouvee.id, uid, nom, avatar);
       setSessionId(trouvee.id);
       setRecherche('repos');
     } catch {
       setRecherche('echec');
     }
-  }, [uid, code, nom]);
+  }, [uid, code, nom, avatar]);
 
   const envoyer = useCallback(async () => {
     if (!uid || !session || !question || choisies.length === 0) return;
@@ -207,6 +211,34 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
               placeholder={nomPropose || 'Votre prénom'}
               autoComplete="off"
             />
+            {/*
+             * La couleur se choisit ici aussi, au même moment que le nom : sur
+             * l'écran projeté, c'est elle qu'on reconnaît en premier, avant de
+             * lire les initiales.
+             */}
+            <span>
+              <span
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-3)',
+                  marginBottom: 10,
+                }}
+              >
+                <Pastille nom={nom || nomPropose || '?'} avatar={avatar} taille={40} />
+                <span
+                  style={{
+                    fontSize: 'var(--body-sm-size)',
+                    fontWeight: 600,
+                    color: 'var(--text-heading)',
+                  }}
+                >
+                  Votre couleur
+                </span>
+              </span>
+              <ChoixAvatar nom={nom || nomPropose || '?'} valeur={avatar} onChoisir={setAvatar} />
+            </span>
+
             <Bouton
               taille="lg"
               pleineLargeur
@@ -244,6 +276,37 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
     return (
       <div className="page-admin">
         <Squelettes lignes={3} />
+      </div>
+    );
+  }
+
+  /*
+   * Une séance suspendue le dit.
+   *
+   * Laisser la question à l'écran pendant que le vote est fermé serait le pire
+   * des états : dix personnes qui appuient sur « Envoyer » et se font refuser
+   * sans comprendre. L'écran change, et il annonce que ça reprendra.
+   */
+  if (session.statut === 'pause') {
+    return (
+      <div className="page-admin">
+        <EtatVide
+          icone="clock"
+          titre="Séance en pause"
+          texte="L’animatrice a suspendu la séance. Gardez cet écran ouvert : la question suivante arrivera toute seule."
+        />
+      </div>
+    );
+  }
+
+  if (session.statut === 'abandonnee') {
+    return (
+      <div className="page-admin">
+        <EtatVide
+          icone="alert"
+          titre="Séance interrompue"
+          texte="La séance s’est arrêtée avant la fin : il n’y a pas de classement. Vos réponses comptent quand même dans votre progression et dans vos questions à revoir."
+        />
       </div>
     );
   }
@@ -380,7 +443,11 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
 
         {session.revelee ? (
           <div style={{ marginTop: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-            <RepartitionLue session={session} question={question} />
+            <RepartitionLue
+              repartition={session.repartition}
+              repondants={session.repondants}
+              question={question}
+            />
             <Verdict
               ton={correction?.correcte ? 'ok' : 'ko'}
               titre={choisies.length === 0 ? 'Vous n’avez pas répondu' : (correction?.titre ?? '')}
@@ -457,77 +524,6 @@ function PastillesReponses({ recus }: { recus: number }) {
         />
       ))}
     </span>
-  );
-}
-
-/**
- * La répartition, telle qu'elle a été publiée par l'animatrice.
- *
- * Elle n'est pas recalculée ici : un participant ne lit pas les réponses des
- * autres, et c'est exactement ce qu'on veut. Le tableau qu'il voit est celui
- * que la révélation a figé.
- */
-function RepartitionLue({
-  session,
-  question,
-}: {
-  session: Session;
-  question: { ordreOptions: string[]; options: Record<string, string>; bonnesReponses: string[] };
-}) {
-  const total = session.repartition.reduce((somme, valeur) => somme + valeur, 0);
-  if (total === 0) return null;
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {question.ordreOptions.map((identifiant, index) => {
-        const compte = session.repartition[index] ?? 0;
-        const part = Math.round((compte / total) * 100);
-        const juste = question.bonnesReponses.includes(identifiant);
-
-        return (
-          <span
-            key={identifiant}
-            style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}
-          >
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                height: 8,
-                borderRadius: 999,
-                background: 'var(--surface-sunken)',
-                overflow: 'hidden',
-              }}
-            >
-              <span
-                style={{
-                  display: 'block',
-                  width: `${part}%`,
-                  height: '100%',
-                  background: juste ? 'var(--status-success)' : 'var(--neutral-30)',
-                }}
-              />
-            </span>
-            <span
-              style={{
-                flex: 'none',
-                width: 44,
-                textAlign: 'right',
-                fontSize: 'var(--body-sm-size)',
-                fontWeight: 600,
-                color: 'var(--text-heading)',
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              {part} %
-            </span>
-          </span>
-        );
-      })}
-      <Meta style={{ fontSize: 12 }}>
-        {total} réponse{total > 1 ? 's' : ''} au total.
-      </Meta>
-    </div>
   );
 }
 

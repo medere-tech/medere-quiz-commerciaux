@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 
 import { Carte, Meta, TitreSection } from '@/composants/ds/primitives';
 import { Icone } from '@/composants/ds/Icone';
+import { Pastille } from '@/composants/session/Pastille';
+import { useMonAvatar } from '@/lib/session/avatar-client';
 import { chargerMesPrix, type Distinction, type Prix } from '@/lib/session/depot';
 
 /**
@@ -38,8 +40,9 @@ function dateCourte(millisecondes: number | null): string {
   );
 }
 
-export function MesPrix({ uid }: { uid: string }) {
+export function MesPrix({ uid, nom }: { uid: string; nom: string }) {
   const [prix, setPrix] = useState<Prix[] | null>(null);
+  const avatar = useMonAvatar();
 
   useEffect(() => {
     let vivant = true;
@@ -88,24 +91,28 @@ export function MesPrix({ uid }: { uid: string }) {
               elevation="petite"
               style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}
             >
-              <span
-                aria-hidden="true"
-                style={{
-                  width: 34,
-                  height: 34,
-                  flex: 'none',
-                  borderRadius: 999,
-                  background: medaille ? medaille.teinte : 'var(--surface-sunken)',
-                  color: medaille ? medaille.encre : 'var(--neutral-60)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 'var(--body-sm-size)',
-                  fontWeight: 700,
-                }}
-              >
-                {medaille ? <Icone nom="award" taille={17} /> : gagne.rang}
-              </span>
+              {/* La médaille gagne le cercle quand il y en a une ; sinon
+                  c'est la pastille qui l'occupe, et le rang passe à côté. */}
+              {medaille ? (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 34,
+                    height: 34,
+                    flex: 'none',
+                    borderRadius: 999,
+                    background: medaille.teinte,
+                    color: medaille.encre,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Icone nom="award" taille={17} />
+                </span>
+              ) : (
+                <Pastille nom={nom} avatar={avatar} taille={34} />
+              )}
 
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span

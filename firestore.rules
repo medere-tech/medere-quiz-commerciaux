@@ -238,7 +238,7 @@ service cloud.firestore {
 
     function champsUtilisateur() {
       return ['email', 'nom', 'photoURL', 'role',
-              'etoiles', 'seriesTerminees', 'creeLe', 'vuLe', 'nomSession'];
+              'etoiles', 'seriesTerminees', 'creeLe', 'vuLe', 'nomSession', 'avatar'];
     }
 
     function majUtilisateurAutorisee() {
@@ -246,7 +246,11 @@ service cloud.firestore {
       let apres = request.resource.data;
       return apres.keys().hasOnly(champsUtilisateur())
         && apres.diff(avant).affectedKeys().hasOnly(
-             ['etoiles', 'seriesTerminees', 'vuLe', 'nomSession'])
+             ['etoiles', 'seriesTerminees', 'vuLe', 'nomSession', 'avatar'])
+        // Une teinte de la palette, et rien d'autre. La liste est fermée ici
+        // pour qu'un avatar inconnu ne se glisse pas dans un écran projeté.
+        && apres.avatar in ['bleu', 'turquoise', 'vert', 'jaune',
+                            'orange', 'rose', 'violet', 'encre']
         /*
          * Le nom sous lequel on apparaît au classement d'une séance, et
          * nulle part ailleurs. Il vaut le nom réel par défaut ; chacun peut
@@ -257,7 +261,7 @@ service cloud.firestore {
          * La borne n'est pas une précaution technique, c'est une contrainte de
          * lisibilité.
          */
-        && texteBorne(apres.nomSession, 32)
+        && nomAffichageValide(apres.nomSession)
         // Une série complète rapporte de zéro à trois étoiles, jamais plus,
         // et le compteur ne redescend pas.
         && apres.etoiles is int
@@ -485,7 +489,27 @@ service cloud.firestore {
         && donnees.indexCourant >= 0
         && donnees.indexCourant < donnees.questionIds.size()
         && donnees.revelee is bool
-        && donnees.statut in ['attente', 'encours', 'terminee']
+        /*
+         * Les cinq états d'une séance.
+         *
+         * `attente`    — préparée, pas encore lancée. C'est le cas normal :
+         *                Noémie compose le mardi, elle lance le jeudi.
+         * `encours`    — la salle vote.
+         * `pause`      — suspendue. Le vote est fermé, l'écran des
+         *                participants le dit, et la séance reprend où elle en
+         *                était. Une réunion qui déborde, dix minutes de
+         *                battement : mieux vaut une pause qu'une question
+         *                figée sur dix téléphones.
+         * `terminee`   — close et classée, même écourtée. Cinq questions sur
+         *                huit font un classement légitime : c'est ce qui a été
+         *                joué.
+         * `abandonnee` — close et **non classée**. La visioconférence tombe,
+         *                une question se révèle inutilisable : le résultat ne
+         *                voudrait rien dire. Les réponses déjà données restent
+         *                dans la progression de chacun — elles étaient
+         *                réelles —, seul le classement collectif n'a pas lieu.
+         */
+        && donnees.statut in ['attente', 'encours', 'pause', 'terminee', 'abandonnee']
         && identifiantBorne(donnees.animateurUid)
         && horodatagePasse(donnees.creeeLe);
     }
@@ -527,10 +551,30 @@ service cloud.firestore {
      * donc son propre nom, pour cette séance, et personne ne va le chercher
      * dans ses données privées.
      */
+    /*
+     * Le nom projeté sur un mur.
+     *
+     * On borne ce qui est bornable : la longueur, et l'absence de caractères de
+     * contrôle — retour à la ligne, tabulation, caractères invisibles. Un nom
+     * sur deux lignes casse la mise en page de toute la liste ; un caractère de
+     * contrôle ne s'affiche pas mais compte dans la longueur.
+     *
+     * **Pas de filtre de contenu.** Dix collègues se connaissent, et une liste
+     * de mots interdits serait à la fois contournable et vexante.
+     */
+    function nomAffichageValide(nom) {
+      return texteBorne(nom, 32) && nom.matches('^[^[:cntrl:]]+$');
+    }
+
     function participantValide(donnees) {
-      return donnees.keys().hasOnly(['nom', 'rejointLe'])
-        && donnees.keys().hasAll(['nom', 'rejointLe'])
-        && texteBorne(donnees.nom, 32)
+      return donnees.keys().hasOnly(['nom', 'rejointLe', 'avatar'])
+        && donnees.keys().hasAll(['nom', 'rejointLe', 'avatar'])
+        && nomAffichageValide(donnees.nom)
+        // Recopié depuis le document utilisateur pour la même raison que le
+        // nom : l'animatrice doit pouvoir dessiner la salle sans lire les
+        // données privées de qui que ce soit.
+        && donnees.avatar in ['bleu', 'turquoise', 'vert', 'jaune',
+                              'orange', 'rose', 'violet', 'encre']
         && horodatagePasse(donnees.rejointLe);
     }
 
@@ -558,7 +602,21 @@ service cloud.firestore {
       match /reponses/{reponseId} {
         allow get: if estAnimateur(sessionId)
           || (domaineAutorise() && resource.data.uid == request.auth.uid);
-        allow list: if estAnimateur(sessionId);
+        /*
+         * **La liste nominative ne survit pas à la séance.**
+         *
+         * Pendant la séance, l'animatrice lit les votes de la salle : c'est
+         * l'exercice, et les participants sont dans la même pièce. Une fois la
+         * séance close, ce droit n'a plus d'objet — et le garder ferait de
+         * chaque séance passée une archive nominative de qui a raté quoi,
+         * exactement ce que l'isolation des scores interdit partout ailleurs.
+         *
+         * L'historique se lit donc sur `bilan`, agrégé et sans identifiant,
+         * écrit par la Cloud Function à la fin de la séance.
+         */
+        allow list: if estAnimateur(sessionId)
+          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut
+               in ['encours', 'pause'];
         // **Pas de réponse après la révélation.** Une fois la bonne réponse
         // affichée, répondre juste ne coûte plus rien : la réponse alimenterait
         // la progression individuelle et `questionStats` d'un point gagné sans
@@ -587,7 +645,11 @@ service cloud.firestore {
         allow create: if domaineAutorise()
           && estProprietaire(participantUid)
           && participantValide(request.resource.data)
-          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut == 'encours';
+          // Pendant une pause aussi : c'est le moment où un retardataire
+          // rattrape la salle. Après la fin, non — on ne s'inscrit pas à une
+          // séance close pour en lire le classement.
+          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut
+               in ['encours', 'pause'];
         // Le nom peut changer en cours de séance, la présence non.
         allow update: if estProprietaire(participantUid)
           && participantValide(request.resource.data)
@@ -607,6 +669,23 @@ service cloud.firestore {
        * façon d'être premier est de l'avoir été — comme pour `questionStats`,
        * et pour la même raison.
        */
+      /*
+       * Le bilan de la séance : ce qui a été posé, et ce qui a trébuché.
+       *
+       * **Aucun identifiant.** Un compte de réponses et un compte d'échecs par
+       * question, et rien d'autre. C'est ce dont Noémie a besoin pour préparer
+       * le jeudi suivant — ce qui a trébuché la semaine dernière détermine ce
+       * qu'elle repose —, et c'est tout ce qu'elle peut en savoir.
+       *
+       * Réservé à l'animatrice de la séance : les participants ont leur
+       * classement, ils n'ont pas à relire les taux d'échec de la salle.
+       * Écriture fermée à tout client, comme le classement.
+       */
+      match /bilan/{document} {
+        allow read: if estAnimateur(sessionId);
+        allow write: if false;
+      }
+
       match /classement/{document} {
         allow read: if domaineAutorise() && (estPresent(sessionId) || estAnimateur(sessionId));
         allow write: if false;

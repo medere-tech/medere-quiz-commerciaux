@@ -136,7 +136,7 @@ export function session(remplacements: Document = {}): Document {
 
 /** Marqueur de présence à une séance, conforme au modèle. */
 export function participant(remplacements: Document = {}): Document {
-  return { nom: 'Jordan', rejointLe: HIER, ...remplacements };
+  return { nom: 'Jordan', avatar: 'turquoise', rejointLe: HIER, ...remplacements };
 }
 
 /** Formation du référentiel, conforme au modèle. */
@@ -181,6 +181,7 @@ export function utilisateur(remplacements: Document = {}): Document {
     // Nom d'affichage au classement des séances collectives, et nulle part
     // ailleurs. Le nom réel par défaut.
     nomSession: 'Jordan',
+    avatar: 'turquoise',
     ...remplacements,
   };
 }

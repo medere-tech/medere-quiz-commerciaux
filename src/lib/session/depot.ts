@@ -3,7 +3,9 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
+  getDoc,
   getDocs,
   increment,
   limit,
@@ -31,7 +33,10 @@ import { baseDeDonnees } from '@/lib/firebase/firestore';
  * secondes de retard en visioconférence.
  */
 
-export type StatutSession = 'attente' | 'encours' | 'terminee';
+export type StatutSession = 'attente' | 'encours' | 'pause' | 'terminee' | 'abandonnee';
+
+/** Une séance qu'on peut encore rejoindre et où la question vit. */
+export const EN_COURS: StatutSession[] = ['encours', 'pause'];
 
 export type Session = {
   id: string;
@@ -47,6 +52,15 @@ export type Session = {
   dureeQuestionSecondes: number;
   /** Instant où la question en cours a été poussée. Millisecondes. */
   questionOuverteLeMs: number | null;
+  /** Date de création, pour dater une séance dans l'historique. */
+  creeeLeMs: number | null;
+};
+
+/** Une ligne du bilan : ce qu'une question a produit, sans dire chez qui. */
+export type LigneBilan = {
+  questionId: string;
+  reponses: number;
+  echecs: number;
 };
 
 export type ReponseSession = {
@@ -56,13 +70,14 @@ export type ReponseSession = {
   correcte: boolean;
 };
 
-export type Participant = { uid: string; nom: string };
+export type Participant = { uid: string; nom: string; avatar: string };
 
 export type Distinction = 'diamant' | 'or' | 'argent';
 
 export type Rang = {
   uid: string;
   nom: string;
+  avatar: string;
   justes: number;
   rang: number;
   distinction: Distinction | null;
@@ -80,6 +95,25 @@ export type Prix = {
 
 /** Longueur maximale du nom affiché au classement. Voir `firestore.rules`. */
 export const NOM_SESSION_MAX = 32;
+
+/**
+ * Nettoie un nom d'affichage avant de l'écrire.
+ *
+ * Les règles refusent déjà les caractères de contrôle et les noms trop longs.
+ * On les retire ici aussi, pour que le refus n'arrive jamais : un nom collé
+ * depuis un tableur porte souvent une tabulation ou un retour à la ligne, et
+ * l'utilisateur n'a aucune raison de savoir pourquoi son nom est rejeté.
+ */
+export function nomAffichable(nom: string): string {
+  return Array.from(nom)
+    .filter((caractere) => {
+      const code = caractere.codePointAt(0) ?? 0;
+      return code >= 0x20 && code !== 0x7f;
+    })
+    .join('')
+    .trim()
+    .slice(0, NOM_SESSION_MAX);
+}
 
 /**
  * Les horodatages Firestore arrivent parfois `null` : entre l'écriture locale
@@ -109,6 +143,7 @@ function lireSession(id: string, donnees: Record<string, unknown>): Session {
     dureeQuestionSecondes:
       typeof donnees.dureeQuestionSecondes === 'number' ? donnees.dureeQuestionSecondes : 0,
     questionOuverteLeMs: enMillisecondes(donnees.questionOuverteLe),
+    creeeLeMs: enMillisecondes(donnees.creeeLe),
   };
 }
 
@@ -127,7 +162,7 @@ export async function chercherSessionParCode(code: string): Promise<Session | nu
   );
 
   const seances = instantane.docs.map((document) => lireSession(document.id, document.data()));
-  return seances.find((seance) => seance.statut === 'encours') ?? null;
+  return seances.find((seance) => EN_COURS.includes(seance.statut)) ?? null;
 }
 
 /**
@@ -162,16 +197,22 @@ export function ecouterSession(
  * Le choix est aussi gardé sur le document utilisateur, pour être proposé
  * d'emblée la semaine suivante.
  */
-export async function rejoindre(sessionId: string, uid: string, nom: string): Promise<void> {
-  const propre = nom.trim().slice(0, NOM_SESSION_MAX);
+export async function rejoindre(
+  sessionId: string,
+  uid: string,
+  nom: string,
+  avatar: string,
+): Promise<void> {
+  const propre = nomAffichable(nom);
   const base = baseDeDonnees();
   const lot = writeBatch(base);
 
   lot.set(doc(base, 'sessions', sessionId, 'participants', uid), {
     nom: propre,
+    avatar,
     rejointLe: serverTimestamp(),
   });
-  lot.update(doc(base, 'users', uid), { nomSession: propre });
+  lot.update(doc(base, 'users', uid), { nomSession: propre, avatar });
 
   await lot.commit();
 }
@@ -291,13 +332,15 @@ export async function creerSession(
   animateurUid: string,
   questionIds: string[],
   dureeQuestionSecondes: number,
+  /** `attente` pour une séance préparée à l'avance, `encours` pour l'ouvrir. */
+  statut: StatutSession = 'encours',
 ): Promise<string> {
   const reference = await addDoc(collection(baseDeDonnees(), 'sessions'), {
     code: codeNeuf(),
     questionIds,
     indexCourant: 0,
     revelee: false,
-    statut: 'encours',
+    statut,
     animateurUid,
     creeeLe: serverTimestamp(),
     repartition: [],
@@ -328,7 +371,7 @@ export async function maSessionEnCours(animateurUid: string): Promise<Session | 
   return (
     instantane.docs
       .map((document) => lireSession(document.id, document.data()))
-      .find((seance) => seance.statut === 'encours') ?? null
+      .find((seance) => EN_COURS.includes(seance.statut)) ?? null
   );
 }
 
@@ -364,10 +407,14 @@ export function ecouterParticipants(
     collection(baseDeDonnees(), 'sessions', sessionId, 'participants'),
     (instantane) => {
       aChaqueEtat(
-        instantane.docs.map((document) => ({
-          uid: document.id,
-          nom: typeof document.data().nom === 'string' ? (document.data().nom as string) : '',
-        })),
+        instantane.docs.map((document) => {
+          const donnees = document.data();
+          return {
+            uid: document.id,
+            nom: typeof donnees.nom === 'string' ? donnees.nom : '',
+            avatar: typeof donnees.avatar === 'string' ? donnees.avatar : 'encre',
+          };
+        }),
       );
     },
   );
@@ -426,7 +473,116 @@ export async function rejouerLeVote(sessionId: string): Promise<void> {
 export async function memoriserNomSession(uid: string, nom: string): Promise<void> {
   await setDoc(
     doc(baseDeDonnees(), 'users', uid),
-    { nomSession: nom.trim().slice(0, NOM_SESSION_MAX) },
+    { nomSession: nomAffichable(nom) },
     { merge: true },
   );
+}
+
+/* --------------------------------------------------------- historique */
+
+/**
+ * Le bilan anonyme d'une séance close.
+ *
+ * Deux compteurs par question, aucun identifiant : c'est tout ce qui reste
+ * lisible une fois la séance terminée. La lecture nominative des votes s'éteint
+ * avec la séance — voir `firestore.rules`.
+ */
+export async function chargerBilan(sessionId: string): Promise<LigneBilan[] | null> {
+  const instantane = await getDoc(doc(baseDeDonnees(), 'sessions', sessionId, 'bilan', 'final'));
+  if (!instantane.exists()) return null;
+
+  const questions = instantane.data().questions;
+  return Array.isArray(questions) ? (questions as LigneBilan[]) : [];
+}
+
+/**
+ * Les séances ouvertes en ce moment, pour le bandeau de l'accueil.
+ *
+ * Une seule égalité dans la requête, donc aucun index composite. Une séance en
+ * pause n'est pas annoncée : inviter à rejoindre un écran qui dit « en pause »
+ * serait une promesse déçue.
+ */
+export async function seanceOuverte(): Promise<Session | null> {
+  const instantane = await getDocs(
+    query(collection(baseDeDonnees(), 'sessions'), where('statut', '==', 'encours'), limit(3)),
+  );
+
+  const seances = instantane.docs.map((document) => lireSession(document.id, document.data()));
+  return seances[0] ?? null;
+}
+
+/* ------------------------------------------------- arrêter, suspendre */
+
+/**
+ * Suspend la séance.
+ *
+ * Le vote se ferme côté serveur — les règles n'acceptent une réponse que sur
+ * une séance `encours`. L'écran des participants dit qu'on est en pause, plutôt
+ * que de rester figé sur une question à laquelle plus personne ne peut
+ * répondre : une question gelée sur dix téléphones est pire qu'un message.
+ */
+export async function mettreEnPause(sessionId: string): Promise<void> {
+  await updateDoc(doc(baseDeDonnees(), 'sessions', sessionId), { statut: 'pause' });
+}
+
+/**
+ * Reprend la séance là où elle en était.
+ *
+ * **Le chronomètre repart en entier.** Une pause de dix minutes laisserait sinon
+ * une échéance dépassée, et la question rouvrirait sur « temps écoulé ». On
+ * repose donc l'instant d'ouverture : la salle retrouve le temps qu'elle avait.
+ */
+export async function reprendre(sessionId: string): Promise<void> {
+  await updateDoc(doc(baseDeDonnees(), 'sessions', sessionId), {
+    statut: 'encours',
+    questionOuverteLe: serverTimestamp(),
+  });
+}
+
+/**
+ * Interrompt la séance sans la classer.
+ *
+ * **Pour quand le résultat ne voudrait rien dire** : la visioconférence tombe,
+ * une question se révèle inutilisable, la moitié de la salle est partie. Aucun
+ * classement, aucun prix.
+ *
+ * **Les réponses déjà données restent.** Elles étaient réelles : elles comptent
+ * dans la progression de chacun et dans les questions à revoir, comme n'importe
+ * quelle réponse d'entraînement. Seul le classement collectif n'a pas lieu.
+ *
+ * **C'est définitif.** Rouvrir une séance abandonnée ferait voter sur des
+ * questions auxquelles la moitié de la salle a déjà répondu, et produirait un
+ * classement mêlant deux moments. Pour recommencer, on prépare une nouvelle
+ * séance — les mêmes questions se resélectionnent en deux gestes.
+ */
+export async function abandonner(sessionId: string): Promise<void> {
+  await updateDoc(doc(baseDeDonnees(), 'sessions', sessionId), { statut: 'abandonnee' });
+}
+
+/* ------------------------------------------------- séances préparées */
+
+/** Les séances de cette animatrice, la plus récente d'abord. */
+export async function mesSeances(animateurUid: string): Promise<Session[]> {
+  const instantane = await getDocs(
+    query(
+      collection(baseDeDonnees(), 'sessions'),
+      where('animateurUid', '==', animateurUid),
+      limit(50),
+    ),
+  );
+
+  return instantane.docs.map((document) => lireSession(document.id, document.data()));
+}
+
+/** Ouvre une séance préparée. Le chronomètre part maintenant, pas à la création. */
+export async function lancerSeance(sessionId: string): Promise<void> {
+  await updateDoc(doc(baseDeDonnees(), 'sessions', sessionId), {
+    statut: 'encours',
+    questionOuverteLe: serverTimestamp(),
+  });
+}
+
+/** Supprime une séance préparée qui ne servira pas. */
+export async function supprimerSeance(sessionId: string): Promise<void> {
+  await deleteDoc(doc(baseDeDonnees(), 'sessions', sessionId));
 }

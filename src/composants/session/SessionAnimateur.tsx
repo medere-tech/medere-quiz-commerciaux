@@ -1,5 +1,7 @@
 'use client';
 
+import type { Route } from 'next';
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Bouton } from '@/composants/ds/primitives';
@@ -12,13 +14,15 @@ import type { Referentiel } from '@/composants/parcours/donnees';
 import { authentification } from '@/lib/firebase/client';
 import type { Question } from '@/lib/questions/depot';
 import {
-  creerSession,
   ecouterClassement,
   ecouterParticipants,
   ecouterReponses,
   ecouterSession,
+  abandonner,
   maSessionEnCours,
+  mettreEnPause,
   questionSuivante,
+  reprendre,
   rejouerLeVote,
   revelerReponse,
   terminerSession,
@@ -55,7 +59,6 @@ export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) 
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [classement, setClassement] = useState<Rang[] | null>(null);
   const [recherche, setRecherche] = useState(true);
-  const [duree, setDuree] = useState(45);
 
   useEffect(() => authentification().onAuthStateChanged((u) => setUid(u?.uid ?? null)), []);
 
@@ -117,85 +120,82 @@ export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) 
     );
   }
 
-  /* ------------------------------------------------------- ouvrir une séance */
+  /* ------------------------------------------------------- rien à animer */
 
   if (!sessionId || !session) {
-    const publiees = referentiel.questions.filter((candidate) => candidate.statut === 'publiee');
-
     return (
-      <div style={{ padding: 'clamp(20px, 3.2vw, 36px)', maxWidth: 620, margin: '0 auto' }}>
-        <h1
-          style={{
-            margin: 0,
-            fontFamily: 'var(--font-display)',
-            fontWeight: 400,
-            fontSize: 'clamp(26px, 5vw, 34px)',
-            lineHeight: 1.14,
-            color: 'var(--text-heading)',
-          }}
-        >
-          Ouvrir la session du jeudi
-        </h1>
-        <p
-          style={{
-            margin: '12px 0 24px',
-            fontSize: 'var(--body-md-size)',
-            lineHeight: 1.55,
-            color: 'var(--neutral-70)',
-          }}
-        >
-          Les huit questions les plus ratées composent la séance. Le code s’affiche en grand dès
-          l’ouverture : annoncez-le à voix haute.
-        </p>
-
-        {publiees.length === 0 ? (
-          <EtatVide
-            icone="layers"
-            titre="Aucune question publiée"
-            texte="Publiez des questions pour pouvoir animer une séance."
-          />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-              <span style={{ fontSize: 'var(--body-sm-size)', color: 'var(--text-heading)' }}>
-                Temps par question
-              </span>
-              {[0, 30, 45, 60].map((valeur) => (
-                <Bouton
-                  key={valeur}
-                  taille="sm"
-                  variante={duree === valeur ? 'primaire' : 'secondaire'}
-                  onClick={() => setDuree(valeur)}
-                >
-                  {valeur === 0 ? 'Sans' : `${valeur} s`}
-                </Bouton>
-              ))}
-            </span>
-            <Bouton
-              taille="lg"
-              pleineLargeur
-              iconeGauche={<Icone nom="presentation" taille={16} />}
-              onClick={() => {
-                void creerSession(
-                  uid,
-                  publiees.slice(0, 8).map((candidate) => candidate.id),
-                  duree,
-                ).then(setSessionId);
-              }}
-            >
-              Ouvrir la séance
+      <div
+        style={{
+          minHeight: '100vh',
+          background: 'var(--surface-page)',
+          padding: 'clamp(20px, 3.2vw, 36px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {/*
+         * L'écran d'animation n'invente plus de séance.
+         *
+         * Il prenait les huit premières questions publiées : un dépannage tant
+         * que la composition n'existait pas. La séance porte sur ce que Noémie
+         * vient de présenter, et elle la choisit — ici, on anime ce qui a été
+         * préparé, rien d'autre.
+         */}
+        <EtatVide
+          icone="presentation"
+          titre="Aucune séance ouverte"
+          texte="Préparez une séance depuis le back-office, puis lancez-la d’ici."
+          actions={
+            <Bouton href={'/admin/session' as Route} iconeGauche={<Icone nom="layers" taille={15} />}>
+              Composer une séance
             </Bouton>
-          </div>
-        )}
+          }
+        />
       </div>
     );
   }
 
-  /* --------------------------------------------------------- séance terminée */
+  if (session.statut === 'abandonnee') {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: 'var(--surface-page)',
+          padding: 'clamp(20px, 3.2vw, 36px)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-6)',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <EtatVide
+          icone="alert"
+          titre="Séance interrompue"
+          texte="Aucun classement n’a été établi. Les réponses déjà données restent dans la progression de chacun."
+          actions={
+            <Bouton variante="secondaire" href={'/admin/session' as Route}>
+              Préparer une nouvelle séance
+            </Bouton>
+          }
+        />
+      </div>
+    );
+  }
 
   if (session.statut === 'terminee') {
     return (
-      <div style={{ minHeight: '100vh', background: 'var(--surface-page)', padding: 'clamp(20px, 3.2vw, 36px)' }}>
+      <div
+        style={{
+          minHeight: '100vh',
+          background: 'var(--surface-page)',
+          padding: 'clamp(20px, 3.2vw, 36px)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-6)',
+        }}
+      >
         {classement ? (
           <RevelationClassement
             rangs={classement}
@@ -210,6 +210,20 @@ export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) 
             texte="Le classement est en cours d’établissement."
           />
         )}
+
+        {/*
+         * Une sortie.
+         *
+         * Cet écran vit hors de la coquille — il est projeté, une barre
+         * latérale y prendrait la place de la question. Mais une fois la séance
+         * close, il n'y avait plus aucun chemin depuis cette page : l'animatrice
+         * restait devant son classement sans rien pour en partir.
+         */}
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <Bouton variante="secondaire" href={'/admin/statistiques' as Route}>
+            Revenir au back-office
+          </Bouton>
+        </div>
       </div>
     );
   }
@@ -230,6 +244,7 @@ export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) 
           total,
           question,
           revelee: session.revelee,
+          enPause: session.statut === 'pause',
           comptes,
           reponsesRecues: reponsesCourantes.length,
           participants: participants.length,
@@ -243,6 +258,10 @@ export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) 
           else void questionSuivante(session.id, session.indexCourant + 1);
         }}
         onRejouer={() => void rejouerLeVote(session.id)}
+        onPause={() => void mettreEnPause(session.id)}
+        onReprendre={() => void reprendre(session.id)}
+        onTerminer={() => void terminerSession(session.id)}
+        onAbandonner={() => void abandonner(session.id)}
       />
 
       <PanneauAnimatrice
