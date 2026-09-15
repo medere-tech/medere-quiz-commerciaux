@@ -8,9 +8,12 @@ import {
   creerEnvironnement,
   demain,
   EXTERNE,
+  HIER,
   JORDAN,
+  MAINTENANT,
   NOEMIE,
   question,
+  participant,
   reponseSession,
   session,
   SOPHIE,
@@ -81,7 +84,17 @@ describe('Session collective — accès', () => {
   it("l'animatrice crée une session et révèle la bonne réponse", async () => {
     const admin = connecte(env, NOEMIE);
     await assertSucceeds(setDoc(doc(admin, 'sessions/s2'), session()));
-    await assertSucceeds(updateDoc(doc(admin, 'sessions/s2'), { revelee: true, indexCourant: 1 }));
+    await assertSucceeds(updateDoc(doc(admin, 'sessions/s2'), { revelee: true }));
+    // Révéler puis avancer sont deux gestes, et le second repose l'échéance :
+    // les réunir en une écriture, comme le faisait ce test, ne correspond à
+    // rien de ce que le dépôt exécute.
+    await assertSucceeds(
+      updateDoc(doc(admin, 'sessions/s2'), {
+        indexCourant: 1,
+        revelee: false,
+        questionOuverteLe: MAINTENANT,
+      }),
+    );
   });
 
   it('REFUS — un commercial crée une session', async () => {
@@ -123,8 +136,22 @@ describe('Session collective — forme du document', () => {
     await assertFails(creerSession(sans(session(), 'code'), 's6'));
   });
 
+  it('accepte les cinq états d’une séance', async () => {
+    // `pause` et `abandonnee` sont arrivées au lot 7 : une séance qu'on ne
+    // peut pas suspendre ni interrompre n'est pas un outil fini.
+    for (const [index, statut] of [
+      'attente',
+      'encours',
+      'pause',
+      'terminee',
+      'abandonnee',
+    ].entries()) {
+      await assertSucceeds(creerSession(session({ statut }), `s-etat-${index}`));
+    }
+  });
+
   it('REFUS — un statut inconnu', async () => {
-    await assertFails(creerSession(session({ statut: 'pause' }), 's7'));
+    await assertFails(creerSession(session({ statut: 'suspendue' }), 's7'));
   });
 
   it('REFUS — aucune question dans la session', async () => {
@@ -374,4 +401,623 @@ describe('Réponses en session — forme et verdict', () => {
       ecrire(reponseSession(JORDAN.uid, { questionId: 'q-vf', optionsChoisies: ['b', 'b'] })),
     );
   });
+});
+
+/**
+ * Ce que ces tests protègent : la répartition reste anonyme, et personne ne
+ * vote après la révélation.
+ *
+ * Les deux tiennent la même promesse. La répartition existe parce qu'un
+ * participant ne peut pas la calculer — il ne lit pas les réponses des autres,
+ * décision du lot 1 — et elle ne doit donc porter que des nombres. Le vote
+ * fermé après révélation empêche qu'une réponse gratuite alimente la
+ * progression et les statistiques : une fois la bonne réponse à l'écran,
+ * répondre juste ne prouve plus rien.
+ */
+describe('Session collective — répartition et fermeture du vote', () => {
+  it('l’animatrice écrit la répartition en révélant', async () => {
+    await semer();
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        revelee: true,
+        repartition: [3, 5, 1, 0],
+        repondants: 9,
+      }),
+    );
+  });
+
+  it('REFUS — une répartition qui n’est pas une liste de nombres', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        revelee: true,
+        repartition: { a: 3, b: 5 },
+        repondants: 9,
+      }),
+    );
+  });
+
+  it('REFUS — un compte de répondants négatif', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), { repondants: -1 }),
+    );
+  });
+
+  it('REFUS — une session sans répartition', async () => {
+    await semer();
+    await assertFails(
+      setDoc(doc(connecte(env, NOEMIE), 'sessions/s2'), sans(session(), 'repartition')),
+    );
+  });
+
+  it('un commercial vote tant que la réponse n’est pas révélée', async () => {
+    await semer();
+    await assertSucceeds(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-vf`),
+        reponseSession(JORDAN.uid, { questionId: 'q-vf' }),
+      ),
+    );
+  });
+
+  it('REFUS — voter après la révélation', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { revelee: true });
+    });
+
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-vf`),
+        reponseSession(JORDAN.uid, { questionId: 'q-vf' }),
+      ),
+    );
+  });
+
+  it('REFUS — voter dans une session terminée', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut: 'terminee' });
+    });
+
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-vf`),
+        reponseSession(JORDAN.uid, { questionId: 'q-vf' }),
+      ),
+    );
+  });
+
+  it('REFUS — voter dans une session en attente d’ouverture', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut: 'attente' });
+    });
+
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-vf`),
+        reponseSession(JORDAN.uid, { questionId: 'q-vf' }),
+      ),
+    );
+  });
+});
+
+/**
+ * Ce que ces tests protègent : le chronomètre est une échéance partagée, pas
+ * une durée que chaque appareil démarrerait pour lui-même.
+ *
+ * Un participant en visioconférence voit l'écran partagé avec du retard. Si le
+ * décompte partait de son arrivée, il aurait plus de temps que les autres — ou
+ * moins, s'il rejoint tard. `questionOuverteLe` fixe l'instant, tout le monde
+ * calcule le même reste.
+ */
+describe('Session collective — chronomètre', () => {
+  it('accepte une durée nulle : une séance peut se mener sans chronomètre', async () => {
+    await semer();
+    await assertSucceeds(
+      setDoc(
+        doc(connecte(env, NOEMIE), 'sessions/s3'),
+        session({ dureeQuestionSecondes: 0 }),
+      ),
+    );
+  });
+
+  it('REFUS — une durée négative', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, NOEMIE), 'sessions/s3'),
+        session({ dureeQuestionSecondes: -5 }),
+      ),
+    );
+  });
+
+  it('REFUS — une durée au-delà du plafond', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, NOEMIE), 'sessions/s3'),
+        session({ dureeQuestionSecondes: 601 }),
+      ),
+    );
+  });
+
+  it('REFUS — une durée qui n’est pas un entier', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, NOEMIE), 'sessions/s3'),
+        session({ dureeQuestionSecondes: 45.5 }),
+      ),
+    );
+  });
+
+  it('REFUS — une ouverture de question dans le futur', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, NOEMIE), 'sessions/s3'),
+        session({ questionOuverteLe: demain() }),
+      ),
+    );
+  });
+
+  it('REFUS — une session sans chronomètre déclaré', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, NOEMIE), 'sessions/s3'),
+        sans(session(), 'questionOuverteLe'),
+      ),
+    );
+  });
+});
+
+/**
+ * Ce que ces tests protègent : les absents ne voient pas le classement.
+ *
+ * C'est une décision de produit — ils n'étaient pas là — et elle est tenue par
+ * les règles, pas par l'affichage. Le marqueur de présence n'est posable que
+ * pendant la séance : on ne s'inscrit pas après coup pour lire le tableau.
+ */
+describe('Session collective — présence et classement', () => {
+  it('un commercial se déclare présent pendant la séance', async () => {
+    await semer();
+    await assertSucceeds(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        participant(),
+      ),
+    );
+  });
+
+  it('REFUS — se déclarer présent sous l’uid d’un autre', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${SOPHIE.uid}`),
+        participant(),
+      ),
+    );
+  });
+
+  it('REFUS — se déclarer présent après la fin de la séance', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut: 'terminee' });
+    });
+
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        participant(),
+      ),
+    );
+  });
+
+  it('REFUS — un nom d’affichage au-delà de la borne d’écran projeté', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        participant({ nom: 'x'.repeat(33) }),
+      ),
+    );
+  });
+
+  it('REFUS — un nom d’affichage vide', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        participant({ nom: '   ' }),
+      ),
+    );
+  });
+
+  it('un participant change son nom sans changer son heure d’arrivée', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await setDoc(
+        doc(contexte.firestore(), `sessions/s1/participants/${JORDAN.uid}`),
+        participant(),
+      );
+    });
+
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`), {
+        nom: 'Jojo',
+      }),
+    );
+  });
+
+  it('REFUS — antidater son arrivée', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await setDoc(
+        doc(contexte.firestore(), `sessions/s1/participants/${JORDAN.uid}`),
+        participant(),
+      );
+    });
+
+    await assertFails(
+      updateDoc(doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`), {
+        rejointLe: new Date('2026-01-01T09:00:00Z'),
+      }),
+    );
+  });
+
+  it('un présent lit le classement', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      const base = contexte.firestore();
+      await setDoc(doc(base, `sessions/s1/participants/${JORDAN.uid}`), participant());
+      await setDoc(doc(base, 'sessions/s1/classement/final'), { rangs: [] });
+    });
+
+    await assertSucceeds(getDoc(doc(connecte(env, JORDAN), 'sessions/s1/classement/final')));
+  });
+
+  it('l’animatrice lit le classement sans avoir voté', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await setDoc(doc(contexte.firestore(), 'sessions/s1/classement/final'), { rangs: [] });
+    });
+
+    await assertSucceeds(getDoc(doc(connecte(env, NOEMIE), 'sessions/s1/classement/final')));
+  });
+
+  it('REFUS — un absent ne lit pas le classement', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await setDoc(doc(contexte.firestore(), 'sessions/s1/classement/final'), { rangs: [] });
+    });
+
+    await assertFails(getDoc(doc(connecte(env, JORDAN), 'sessions/s1/classement/final')));
+  });
+
+  it('REFUS — personne n’écrit le classement, animatrice comprise', async () => {
+    await semer();
+    await assertFails(
+      setDoc(doc(connecte(env, NOEMIE), 'sessions/s1/classement/final'), { rangs: [] }),
+    );
+  });
+});
+
+/**
+ * Ce que ces tests protègent : l'avatar affiché sur un écran projeté.
+ *
+ * La liste des teintes est fermée dans les règles, pas seulement dans le
+ * navigateur. Une valeur inconnue passerait la validation du client et
+ * s'afficherait en gris devant la salle, ou pas du tout.
+ */
+describe('Session collective — avatar', () => {
+  it('accepte une teinte de la palette', async () => {
+    await semer();
+    await assertSucceeds(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        participant({ avatar: 'rose' }),
+      ),
+    );
+  });
+
+  it('REFUS — une teinte hors palette', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        participant({ avatar: 'fuchsia' }),
+      ),
+    );
+  });
+
+  it('REFUS — un marqueur sans avatar', async () => {
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        sans(participant(), 'avatar'),
+      ),
+    );
+  });
+});
+
+/**
+ * Ce que ces tests protègent : une séance qu'on peut arrêter.
+ *
+ * Le vote ne se ferme pas côté client. Une fenêtre restée ouverte, un
+ * téléphone en veille qui se réveille : rien de tout cela ne doit pouvoir
+ * voter dans une séance suspendue ou interrompue.
+ */
+describe('Session collective — pause et interruption', () => {
+  for (const statut of ['pause', 'terminee', 'abandonnee']) {
+    it(`REFUS — voter dans une séance « ${statut} »`, async () => {
+      await semer();
+      await env.withSecurityRulesDisabled(async (contexte) => {
+        await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut });
+      });
+
+      await assertFails(
+        setDoc(
+          doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-vf`),
+          reponseSession(JORDAN.uid, { questionId: 'q-vf' }),
+        ),
+      );
+    });
+  }
+
+  it('on rejoint encore pendant une pause : c’est le moment du retardataire', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut: 'pause' });
+    });
+
+    await assertSucceeds(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        participant(),
+      ),
+    );
+  });
+
+  it('REFUS — rejoindre une séance abandonnée', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut: 'abandonnee' });
+    });
+
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        participant(),
+      ),
+    );
+  });
+
+  it('l’animatrice suspend et reprend sa séance', async () => {
+    await semer();
+    const base = connecte(env, NOEMIE);
+    await assertSucceeds(updateDoc(doc(base, 'sessions/s1'), { statut: 'pause' }));
+    // La reprise repose l'échéance : sans cela la salle rouvrirait sur un
+    // chronomètre périmé, et les règles le refusent désormais.
+    await assertSucceeds(
+      updateDoc(doc(base, 'sessions/s1'), { statut: 'encours', questionOuverteLe: MAINTENANT }),
+    );
+  });
+
+  it('REFUS — un participant suspend la séance', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, JORDAN), 'sessions/s1'), { statut: 'pause' }),
+    );
+  });
+});
+
+/**
+ * Ce que ces tests protègent : le chronomètre reposé à chaque ouverture du vote.
+ *
+ * **Ils existent à cause d'un défaut que les règles autorisaient.** En séance
+ * réelle, le vote a été rouvert sans reposer `questionOuverteLe` : la salle a
+ * retrouvé sa question avec une échéance déjà dépassée, donc « temps écoulé »
+ * sur un vote qu'on venait de lui rendre. Les règles permettaient ce champ sans
+ * l'exiger — aucun des tests de règles ne pouvait voir son absence.
+ *
+ * La contrainte porte sur les trois gestes qui ouvrent le vote, et sur eux
+ * seuls. C'est le genre d'invariant qu'une règle sait exprimer, et il vaut
+ * mieux qu'il soit tenu en production que seulement dans un test.
+ */
+describe('le chronomètre d’une séance', () => {
+  it('REFUS — changer de question sans reposer l’échéance', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        indexCourant: 1,
+        revelee: false,
+        repartition: [],
+        repondants: 0,
+      }),
+    );
+  });
+
+  it('changer de question en reposant l’échéance', async () => {
+    await semer();
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        indexCourant: 1,
+        revelee: false,
+        repartition: [],
+        repondants: 0,
+        questionOuverteLe: MAINTENANT,
+      }),
+    );
+  });
+
+  it('REFUS — rouvrir le vote sans reposer l’échéance', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { revelee: true });
+    });
+
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), { revelee: false, repartition: [] }),
+    );
+  });
+
+  it('rouvrir le vote en reposant l’échéance', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { revelee: true });
+    });
+
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        revelee: false,
+        repartition: [],
+        questionOuverteLe: MAINTENANT,
+      }),
+    );
+  });
+
+  it('REFUS — lancer une séance préparée sans reposer l’échéance', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut: 'attente' });
+    });
+
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), { statut: 'encours' }),
+    );
+  });
+
+  it('lancer une séance préparée en reposant l’échéance', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut: 'attente' });
+    });
+
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        statut: 'encours',
+        questionOuverteLe: MAINTENANT,
+      }),
+    );
+  });
+
+  it('REFUS — réécrire le même instant ne compte pas pour une ouverture', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        indexCourant: 1,
+        revelee: false,
+        repartition: [],
+        repondants: 0,
+        // La valeur déjà en place : rien ne change, l'échéance reste périmée.
+        questionOuverteLe: HIER,
+      }),
+    );
+  });
+
+  it('révéler, mettre en pause, terminer et abandonner n’exigent rien', async () => {
+    await semer();
+    const base = connecte(env, NOEMIE);
+    await assertSucceeds(
+      updateDoc(doc(base, 'sessions/s1'), { revelee: true, repartition: [3, 1], repondants: 4 }),
+    );
+    await assertSucceeds(updateDoc(doc(base, 'sessions/s1'), { statut: 'pause' }));
+    await assertSucceeds(updateDoc(doc(base, 'sessions/s1'), { statut: 'terminee' }));
+    await assertSucceeds(updateDoc(doc(base, 'sessions/s1'), { statut: 'abandonnee' }));
+  });
+});
+
+/**
+ * Ce que ces tests protègent : l'archive nominative qui n'existe pas.
+ *
+ * Pendant la séance, l'animatrice lit les votes de la salle — c'est l'exercice.
+ * Une fois la séance close, ce droit disparaît : le garder ferait de chaque
+ * jeudi passé une archive de qui a raté quoi, exactement ce que l'isolation des
+ * scores interdit partout ailleurs dans l'outil.
+ */
+describe('Session collective — bilan et archive', () => {
+  it('l’animatrice lit les votes pendant la séance', async () => {
+    await semer();
+    await assertSucceeds(getDocs(collection(connecte(env, NOEMIE), 'sessions/s1/reponses')));
+  });
+
+  for (const statut of ['terminee', 'abandonnee']) {
+    it(`REFUS — relire les votes nominatifs d’une séance « ${statut} »`, async () => {
+      await semer();
+      await env.withSecurityRulesDisabled(async (contexte) => {
+        await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut });
+      });
+
+      await assertFails(getDocs(collection(connecte(env, NOEMIE), 'sessions/s1/reponses')));
+    });
+  }
+
+  it('l’animatrice lit le bilan anonyme d’une séance close', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      const base = contexte.firestore();
+      await updateDoc(doc(base, 'sessions/s1'), { statut: 'terminee' });
+      await setDoc(doc(base, 'sessions/s1/bilan/final'), { questions: [] });
+    });
+
+    await assertSucceeds(getDoc(doc(connecte(env, NOEMIE), 'sessions/s1/bilan/final')));
+  });
+
+  it('REFUS — un participant lit le bilan', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      const base = contexte.firestore();
+      await setDoc(doc(base, `sessions/s1/participants/${JORDAN.uid}`), participant());
+      await setDoc(doc(base, 'sessions/s1/bilan/final'), { questions: [] });
+    });
+
+    await assertFails(getDoc(doc(connecte(env, JORDAN), 'sessions/s1/bilan/final')));
+  });
+
+  it('REFUS — personne n’écrit le bilan, animatrice comprise', async () => {
+    await semer();
+    await assertFails(
+      setDoc(doc(connecte(env, NOEMIE), 'sessions/s1/bilan/final'), { questions: [] }),
+    );
+  });
+});
+
+/**
+ * Ce que ces tests protègent : la mise en page d'un écran projeté.
+ *
+ * Un nom sur deux lignes casse toute la liste ; un caractère invisible ne
+ * s'affiche pas mais compte dans les trente-deux.
+ */
+describe('Session collective — nom d’affichage', () => {
+  it('accepte les accents, les espaces et les traits d’union', async () => {
+    await semer();
+    await assertSucceeds(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+        participant({ nom: 'Marie-Charlotte de Villeneuve' }),
+      ),
+    );
+  });
+
+  for (const [libelle, nom] of [
+    ['un retour à la ligne', 'Jordan\nFaye'],
+    ['une tabulation', 'Jordan\tFaye'],
+    ['un retour chariot', 'Jordan\rFaye'],
+    ['un caractère de contrôle invisible', 'Jordan\u0007'],
+  ] as [string, string][]) {
+    it(`REFUS — ${libelle}`, async () => {
+      await semer();
+      await assertFails(
+        setDoc(
+          doc(connecte(env, JORDAN), `sessions/s1/participants/${JORDAN.uid}`),
+          participant({ nom }),
+        ),
+      );
+    });
+  }
 });

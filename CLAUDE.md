@@ -60,6 +60,22 @@ Trois interdits fermes, valables partout :
 
 États vides, erreurs et chargements sont des écrans à part entière. Une erreur dit ce qui s'est passé et quoi faire, elle ne s'excuse pas.
 
+**Une seule exception à `prefers-reduced-motion`, et elle est délibérée.** La
+révélation du classement d'une séance collective
+(`src/composants/session/RevelationClassement.tsx`) garde sa mise en scène même
+quand le système demande à réduire les animations. Ailleurs — partout ailleurs —
+la préférence est respectée sans discussion.
+
+La raison : sur cet écran, **la mise en scène est la fonctionnalité**. Le rang
+personnel seul, puis le podium qui se remplit par le bas, puis le prix qui
+apparaît comme un objet : c'est ce déroulé qui fait qu'on revient le jeudi
+suivant, pas le tableau qu'il produit. Le désarmer rendrait l'écran correct et
+sans intérêt. La durée totale reste courte et rien n'y clignote.
+
+**Ne « corrigez » pas cette exception.** Elle a été demandée explicitement, après
+qu'une consigne inverse a été jugée mauvaise ici. Si elle doit tomber, c'est une
+décision de produit, pas un alignement de règle.
+
 ## Ce qui est acquis en performance, et ne doit pas régresser
 
 Ces points ont été gagnés en rattrapant six lots d'accumulation, mesure à
@@ -126,6 +142,16 @@ journée à rattraper. C'est exactement ce qui vient d'arriver.
 **Un `catch` qui rend une valeur normale efface la panne.** `lireSession` attrapait toute erreur de vérification du cookie et rendait `null` — « personne n'est connecté ». Un module introuvable prenait donc l'apparence exacte d'une session expirée : écran de connexion, aucun journal, deux déploiements perdus à chercher ailleurs. Même défaut au lot 6 sur la banque, où une liste périmée restait affichée sous un filtre en échec. Règle : un `catch` ne doit absorber que les causes qu'il sait nommer. Tout le reste remonte.
 
 **Ce qui passe en local ne prouve pas ce qui passe au déploiement.** Deux fois déjà, un artefact vérifié d'un côté était utilisé de l'autre, sans que rien ne signale l'écart. Au lot 3, les règles publiées sur le projet Firebase étaient restées celles du mode production alors que le dépôt en portait trois cents lignes validées par l'émulateur : les tests portaient sur le fichier, pas sur le jeu déployé. Au lot 6, `functions/` compilait en local grâce à un `npm install` fait à la main dans ce dossier, et échouait sur Vercel qui n'installe que les dépendances de la racine. Toujours au lot 6, toutes les pages ont répondu 500 en production sur un `require()` de module ES refusé, au fond de la chaîne `firebase-admin` → `jwks-rsa` → `jose`, alors que le build passait et que le serveur local tournait. **Contre-exemple à garder en tête sur ce piège même : la première cause avancée — une version de Node trop ancienne — était fausse, et corriger `engines` n'a rien changé.** Le déploiement suivant a servi à le constater. La vraie cause, mesurée par une sonde dans `instrumentation.ts`, est que l'exécutant Vercel désactive `require(esm)` : `process.features.require_module` y vaut `false` sur Node 22.23. Reproduire vaut mieux que déduire, et un diagnostic qui n'a pas été reproduit reste une hypothèse — la mesure, elle, a tenu en un déploiement. À chaque fois, se demander : **ce que je viens de vérifier est-il bien ce qui sera exécuté ?** En cas de doute, reproduire les conditions du déploiement plutôt que les supposer — retirer les dépendances, relire le jeu de règles publié, mesurer sur le domaine réel, désactiver la fonctionnalité de Node dont on profite sans le savoir (`node --no-experimental-require-module`).
+
+**Un message d'erreur peut être un préfixe fixe.** « User code failed to load.
+Cannot determine backend specification. Timeout after 10000. » a désigné deux
+causes opposées à deux jours d'intervalle : la première fois un vrai échec de
+chargement — `jose` en module ES —, la seconde une simple lenteur, module
+chargé en moins d'une seconde. La CLI écrit la même phrase dans les deux cas ;
+**seule la présence de la sortie d'erreur du runtime les distingue**. Avant de
+chercher dans le code, relancer la découverte seule et lire son journal. Et se
+souvenir que `FUNCTIONS_DISCOVERY_TIMEOUT` existe : `npm run fonctions:deploy`
+le pose déjà.
 
 **Une sonde vaut mieux qu'une théorie, et elle se pose là où le code s'exécute encore.** La première sonde, placée dans un composant, n'a jamais imprimé : l'échec avait lieu au chargement du module. `register` de `instrumentation.ts` s'exécute une fois au démarrage, avant que le serveur accepte la moindre requête — c'est le point d'entrée à viser quand un import casse. Vérifier qu'une sonde est atteinte fait partie de la sonde.
 

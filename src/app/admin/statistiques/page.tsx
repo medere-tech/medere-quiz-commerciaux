@@ -171,6 +171,53 @@ export default function PageStatistiques() {
         />
       </div>
 
+      {/*
+       * La carte « Session du jeudi » de la maquette 09, en attente jusqu'ici.
+       *
+       * Le tri l'avait écartée au motif qu'« un bouton vers un écran absent
+       * vaut moins que pas de bouton » : l'écran d'animation n'existait pas. Il
+       * existe, et la carte trouve sa cible.
+       *
+       * Elle annonce ce que la séance contiendra, sans le promettre au-delà de
+       * ce que le code fait : les questions les plus ratées, dans l'ordre où
+       * l'écran d'animation les prendra.
+       */}
+      {classement.fiables.length > 0 && (
+        <Carte
+          rayon="var(--radius-lg)"
+          rembourrage="20px 22px"
+          elevation="carte"
+          style={{ background: 'var(--surface-inverse)' }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icone nom="presentation" taille={16} couleur="rgba(255,255,255,0.7)" />
+            <span style={{ fontSize: 'var(--body-sm-size)', color: 'rgba(255,255,255,0.7)' }}>
+              Session du jeudi
+            </span>
+          </span>
+          <p
+            style={{
+              margin: '10px 0 16px',
+              fontSize: 'var(--body-sm-size)',
+              lineHeight: 1.55,
+              color: 'rgba(255,255,255,0.86)',
+              textWrap: 'pretty',
+            }}
+          >
+            Les questions les plus ratées composent la séance collective. Le code s’affiche en
+            grand à l’ouverture : annoncez-le à voix haute.
+          </p>
+          <Bouton
+            variante="secondaire"
+            pleineLargeur
+            href={'/animer' as Route}
+            iconeGauche={<Icone nom="presentation" taille={15} />}
+          >
+            Préparer la session
+          </Bouton>
+        </Carte>
+      )}
+
       {resume.questionsPubliees === 0 ? (
         <EtatVide
           icone="layers"

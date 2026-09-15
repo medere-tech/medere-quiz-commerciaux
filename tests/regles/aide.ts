@@ -17,6 +17,13 @@ export const EXTERNE = { uid: 'uid-externe', email: 'visiteur@gmail.com' };
 /** Horodatage passé, accepté par les règles. */
 export const HIER = new Date('2026-09-01T09:00:00Z');
 
+/**
+ * Un instant passé, mais distinct de `HIER` : de quoi vérifier qu'un champ a
+ * bien changé. Une seconde en arrière plutôt qu'une date écrite en dur, qui
+ * finirait par tomber dans le futur.
+ */
+export const MAINTENANT = new Date(Date.now() - 1000);
+
 /** Horodatage futur, refusé par les règles. */
 export function demain(): Date {
   return new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -122,8 +129,21 @@ export function session(remplacements: Document = {}): Document {
     statut: 'encours',
     animateurUid: NOEMIE.uid,
     creeeLe: HIER,
+    // Répartition de la question en cours, écrite à la révélation. Vide tant
+    // que la bonne réponse n'est pas montrée.
+    repartition: [],
+    repondants: 0,
+    // Chronomètre : une échéance commune à tous les appareils, posée quand la
+    // question est poussée. Zéro seconde veut dire « pas de chronomètre ».
+    dureeQuestionSecondes: 45,
+    questionOuverteLe: HIER,
     ...remplacements,
   };
+}
+
+/** Marqueur de présence à une séance, conforme au modèle. */
+export function participant(remplacements: Document = {}): Document {
+  return { nom: 'Jordan', avatar: 'turquoise', rejointLe: HIER, ...remplacements };
 }
 
 /** Formation du référentiel, conforme au modèle. */
@@ -165,6 +185,10 @@ export function utilisateur(remplacements: Document = {}): Document {
     seriesTerminees: 2,
     creeLe: HIER,
     vuLe: HIER,
+    // Nom d'affichage au classement des séances collectives, et nulle part
+    // ailleurs. Le nom réel par défaut.
+    nomSession: 'Jordan',
+    avatar: 'turquoise',
     ...remplacements,
   };
 }

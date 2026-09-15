@@ -340,8 +340,9 @@ un `npm install --prefix functions` suffit.
 **Déployer l'agrégation, et purger ses marqueurs.** Cinq gestes, et **l'ordre
 n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
 
-1. `firebase deploy --only functions` — la fonction se déploie depuis
-   `functions/`, en `europe-west1`.
+1. `npm run fonctions:deploy` — les fonctions se déploient depuis
+   `functions/`, en `europe-west1`. **Pas `firebase deploy --only functions`
+   directement** : le script desserre le délai de découverte, voir ci-dessous.
 2. **Nettoyage des données de recette**, avant d'ouvrir l'application aux
    commerciaux : les réponses de test et `questionStats` partent ensemble. Voir
    section 3, « `questionStats` contient aujourd'hui des données de recette ».
@@ -361,6 +362,35 @@ n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
    toujours au niveau du groupe. En ligne de commande, l'équivalent est
    `gcloud firestore fields ttls update expireLe --collection-group=evenements
    --enable-ttl --project=<id>`.
+
+**Le délai de découverte, et un message qui ment.** Avant de déployer, la CLI
+démarre un runtime local, charge le module compilé et lui demande la liste des
+déclencheurs. Passé **dix secondes** — le défaut — elle abandonne sur :
+
+```
+Error: User code failed to load. Cannot determine backend specification.
+Timeout after 10000.
+```
+
+**Ce message ne dit pas ce qu'il a l'air de dire.** Dans
+`firebase-tools/lib/deploy/functions/runtimes/discovery/index.js`, « User code
+failed to load » est un préfixe fixe, écrit aussi bien quand le module échoue
+que quand il répond trop tard. Les deux cas se distinguent à un détail :
+**quand le chargement échoue vraiment, la CLI ajoute la sortie d'erreur du
+runtime** ; quand elle expire, il n'y a que « Timeout after ».
+
+Ce piège a coûté deux diagnostics. La première fois, le message était juste —
+`firebase-admin` 14 tirait `jose` en module ES, le runtime levait
+`ERR_REQUIRE_ESM` et ne répondait jamais. La seconde, le même message
+apparaissait alors que **le module chargeait en 386 à 776 ms et que la
+découverte complète répondait en 877 à 1863 ms** : c'était la machine et le
+lien, pas le code. `FUNCTIONS_DISCOVERY_TIMEOUT=60` a suffi à faire passer le
+déploiement, ce qui l'a prouvé.
+
+`npm run fonctions:deploy` fixe ce délai à deux minutes. **Il ne masque rien** :
+une vraie panne de chargement produit une sortie d'erreur, pas une attente.
+Avant de conclure à un problème de code sur ce message, relancer la découverte
+seule et lire son journal — c'est la seule source qui distingue les deux causes.
 
 **Pourquoi le TTL ne peut pas être posé le jour du déploiement.** La console
 Firestore ne propose que les groupes de collections **qui existent déjà**, et
@@ -776,11 +806,34 @@ Les routes `/admin` sont protégées côté serveur par le custom claim, pas par
 
 ### Session du jeudi
 
-Vue animateur : question en cours, nombre de réponses reçues qui monte en direct sans révéler la répartition, bouton pour révéler la bonne réponse et la distribution, passage à la question suivante.
+`/animer` — vue animatrice, projetée. `/session` — vue participant, sur son propre appareil.
 
-Vue participant : question et options, puis attente après validation jusqu'à la révélation.
+**Contrainte hybride.** Une partie des participants est en visioconférence et voit l'écran partagé avec plusieurs secondes de retard. La question est poussée sur l'appareil de chacun par un écouteur Firestore temps réel. Ne jamais dépendre de la projection. **Le chronomètre suit la même règle** : la session porte `questionOuverteLe`, un instant, et non une durée démarrée à l'arrivée — sinon un retardataire aurait plus de temps que les autres. Il cadence, il ne ferme pas : ce qui ferme le vote est la révélation, vérifiée côté serveur.
 
-**Contrainte hybride.** Une partie des participants est en visioconférence et voit l'écran partagé avec plusieurs secondes de retard. La question est poussée sur l'appareil de chacun par un écouteur Firestore temps réel. Ne jamais dépendre de la projection.
+**L'écran d'animation vit hors de la coquille du back-office.** Il est projeté sur un mur : une barre latérale y prendrait 232 pixels pour afficher des liens que personne ne cliquera. Les tailles y viennent de la distance de lecture — question jusqu'à 56 px, options jusqu'à 26 px — et non de l'échelle typographique. La scène est un composant qui ne reçoit que ses données (`SceneProjetee`) : un écran qu'on ne peut vérifier qu'en séance réelle est un écran qu'on ne vérifie jamais.
+
+**Trois situations traitées explicitement, parce qu'elles arrivent.**
+
+| | Ce qui se passe |
+|---|---|
+| Un participant arrive au milieu | L'écouteur lui donne l'état courant, sans rattrapage. Si la réponse est déjà révélée, il voit la correction et **ne peut pas voter** — les règles le refusent. |
+| L'animatrice ferme son onglet | Rien. Tout l'état vit dans Firestore ; elle retrouve sa séance en rouvrant, à la question près. C'est ce qui interdit de garder le compteur de réponses dans son navigateur. |
+| Un participant perd la connexion | `onSnapshot` reconnecte seul. `fromCache` sert à l'annoncer plutôt qu'à afficher une question périmée en silence. Une réponse partie hors ligne est rejouée — et refusée si la révélation a eu lieu entretemps, ce que l'écran dit. |
+
+**Le compteur de réponses est tenu par une Cloud Function.** Un participant ne peut pas compter lui-même — il ne lit pas les réponses des autres, et c'est voulu. Le faire écrire par l'animatrice l'aurait lié à son onglet. Le déclencheur `compterReponseSession` incrémente `repondants` sur la séance, et **n'agrège rien** : agréger là compterait chaque réponse deux fois, puisque le participant écrit aussi sous `users/{uid}/reponses`.
+
+### Classement de séance et prix
+
+**Le tableau meurt avec la séance, le trophée reste.**
+
+- **Le classement** est nominatif, il vit sous `sessions/{id}/classement/final`, et **seuls ceux qui étaient là le lisent** : les règles exigent un marqueur de présence, créable uniquement pendant la séance. On ne s'inscrit pas après coup pour lire le tableau.
+- **Le prix** vit sous `users/{uid}/prix/{sessionId}`, privé à son porteur, et s'affiche sur l'accueil à côté des étoiles. Les étoiles disent l'assiduité, les prix disent les jeudis.
+
+**Aux points, et rien d'autre.** Premier, Diamant ; deuxième, Or ; troisième, Argent ; sans condition de score — dans une finale de cent mètres, le premier prend l'or même s'il court en seize secondes. À égalité, la vitesse départage : on somme les instants de réponse. Le quatrième et les suivants n'ont pas de distinction, et **personne ne le sait** — mais chacun retrouve son rang dans son historique.
+
+**Aucun client n'écrit ces documents**, pas même leur propriétaire : `allow write: if false`. Seule la Cloud Function `classerSessionTerminee` écrit, à partir des réponses. Un prix qu'on peut s'attribuer ne vaut rien. Rien n'entre dans `questionStats` : les statistiques disent quelles questions font trébucher l'équipe, jamais qui a gagné.
+
+**Le nom d'affichage** se choisit au moment de rejoindre, pas dans un écran de réglages — personne n'ouvrirait un réglage avant le jeudi. Il est prérempli avec le choix de la fois précédente, borné à 32 caractères parce qu'il s'affiche sur un mur, et c'est **le participant lui-même qui le publie** : sans cela l'animatrice ne pourrait pas nommer les votes, `users/{uid}` lui étant fermé sans exception.
 
 ---
 
@@ -815,6 +868,14 @@ avant le déploiement, pas après.
 Firestore n'en demande aucun, la vérification des index en demande —, et si la
 vérification des règles publiées y entre ou reste un geste de déploiement.
 
+### À faire au lot 8 : le nettoyage des données de recette
+
+Les réponses de test, `questionStats`, et **la séance `CPY68N` restée ouverte**
+partent ensemble. Cette dernière n'a pas été close : tant qu'elle est `encours`,
+`maSessionEnCours` la retrouve, et Noémie retombera dessus en ouvrant l'écran
+d'animation au lieu d'un écran d'ouverture. La reprise fonctionne — elle
+reprend simplement une séance de recette.
+
 ### Candidat pour le lot 8 : le préchargement après une déconnexion
 
 Le préchargement introduit avec la navigation instantanée continue de travailler
@@ -835,6 +896,47 @@ silence, ou annuler le préchargement côté navigateur au moment de la déconne
 La première est la plus sûre — elle couvre aussi le cookie expiré en cours de
 route —, mais elle touche à la frontière entre « session absente » et « panne »,
 qui a déjà coûté cher : à instruire avec soin, pas à improviser.
+
+### Candidat pour le lot 8 : les Cloud Functions ne sont testées par rien
+
+Le lot 7 a ajouté des tests du **dépôt** contre l'émulateur Firestore
+(`tests/depot/`). Ils couvrent ce que le navigateur écrit. Ils ne couvrent pas
+ce que le serveur écrit ensuite, et **cette moitié-là n'a aucun test**.
+
+Trois déclencheurs, trois écritures que personne ne vérifie :
+`agregerReponseEntrainement` alimente `questionStats` ; `compterReponseSession`
+tient le décompte des votes ; `classerSessionTerminee` écrit le `bilan`, le
+`classement` et les `prix`. Ils s'exécutent avec le SDK Admin, **hors règles** :
+aucun des tests de règles ne les voit, et aucun test de dépôt non plus, puisque
+`npm test` ne démarre que l'émulateur Firestore.
+
+**Le bilan n'a jamais tourné une seule fois.** Ni en local, ni en production. Le
+premier exercice réel de cette fonction aura lieu un jeudi matin, sur la séance
+de Noémie, et son échec se verra sur l'écran « Ce qui a trébuché » — après la
+séance, quand il n'y a plus rien à rattraper.
+
+Ce qu'il faudrait, et ce que ça coûte :
+
+- démarrer l'émulateur **functions** en plus de Firestore dans `npm test`. Les
+  deux sont déjà déclarés dans `firebase.json` ; `test:regles` n'en lance qu'un.
+  L'émulateur functions compile `functions/` avant de démarrer, ce qui allonge
+  la suite de plusieurs dizaines de secondes — à mesurer avant de l'imposer à
+  chaque exécution, quitte à en faire une commande séparée ;
+- écrire les scénarios de bout en bout : une séance jouée, terminée, puis la
+  vérification du bilan, du classement et des prix effectivement écrits. Le
+  calcul pur est déjà testé (`tests/statistiques/classement.test.ts`) — ce qui
+  manque est le **déclenchement** et l'**écriture**, c'est-à-dire exactement ce
+  qui a manqué côté dépôt ;
+- vérifier la déduplication par identifiant d'événement, qui repose sur des
+  marqueurs à durée de vie limitée. Le TTL n'est toujours pas créé (voir les
+  gestes de mise en service) : la fonction est écrite pour l'at-least-once, rien
+  ne le prouve.
+
+**À ne pas confondre avec les tests de dépôt.** Ceux-là sont écrits et verts.
+Celui-ci est un chantier distinct, plus lourd, et c'est le genre de chose qu'on
+découvre le jeudi matin.
+
+---
 
 ---
 
