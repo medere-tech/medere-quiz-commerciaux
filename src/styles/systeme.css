@@ -272,6 +272,32 @@ a:hover {
  * aux icônes. En deçà, barre en tiroir et barre haute avec son bouton.
  */
 
+/*
+ * L'ÉCHELLE DES LARGEURS — quatre seuils, et pas un de plus.
+ *
+ * **Pourquoi elle est écrite ici.** Une requête de média n'accepte pas
+ * `var()` : les nombres ci-dessous sont forcément répétés dans le fichier, et
+ * la seule façon qu'ils restent cohérents est qu'on sache ce que chacun veut
+ * dire. Il y en avait cinq, dont deux à soixante pixels l'un de l'autre pour
+ * la même intention — « un téléphone » —, et le seuil de la coquille était
+ * écrit dans trois blocs séparés. Les blocs sont fusionnés, les deux seuils
+ * voisins n'en font plus qu'un.
+ *
+ *   1200 px — bureau étroit. La barre latérale se réduit à ses icônes :
+ *             à cette largeur, 232 pixels de navigation permanente prennent
+ *             la place de la colonne de travail.
+ *   1040 px — tablette. Les grilles de chiffres passent de quatre à deux
+ *             colonnes, les deux colonnes de page passent à une.
+ *    900 px — le seuil structurant. La coquille bascule : barre latérale en
+ *             tiroir, barre haute avec son bouton. C'est aussi là que l'écran
+ *             de l'animatrice empile ses deux zones.
+ *    760 px — téléphone. Les lignes de tableau se replient en blocs, les
+ *             énoncés cessent de se tronquer et passent à la ligne.
+ *
+ * **Avant d'en ajouter un cinquième**, se demander lequel des quatre convient.
+ * Un seuil de plus, c'est une largeur de plus à vérifier sur chaque écran.
+ */
+
 .coquille {
   display: flex;
   min-height: 100vh;
@@ -412,6 +438,22 @@ a:hover {
     border: none;
     padding: 0;
   }
+
+  /* En tiroir, la place ne manque pas : la barre est toujours entière. */
+  .coquille-nav[data-reduite='reduite'] .coquille-initiales,
+  .coquille-nav[data-reduite='auto'] .coquille-initiales {
+    display: none;
+  }
+
+  /* Replier un tiroir n'a pas de sens ; le fermer, si. */
+  .coquille-repli {
+    display: none;
+  }
+
+  .coquille-fermer,
+  .coquille-menu {
+    display: flex;
+  }
 }
 
 /*
@@ -449,9 +491,7 @@ a:hover {
   .grille-chiffres {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
 
-@media (max-width: 1040px) {
   /*
    * `minmax(0, 1fr)` et non `1fr` : le minimum automatique d'une piste vaut
    * la largeur maximale de son contenu, si bien qu'une ligne en `nowrap`
@@ -475,7 +515,7 @@ a:hover {
   text-overflow: ellipsis;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 760px) {
   .titre-recap {
     white-space: normal;
     overflow: visible;
@@ -535,24 +575,6 @@ a:hover {
 .coquille-nav[data-reduite='reduite'] .coquille-initiales {
   display: flex;
   justify-content: center;
-}
-
-@media (max-width: 900px) {
-  /* En tiroir, la place ne manque pas : la barre est toujours entière. */
-  .coquille-nav[data-reduite='reduite'] .coquille-initiales,
-  .coquille-nav[data-reduite='auto'] .coquille-initiales {
-    display: none;
-  }
-
-  /* Replier un tiroir n'a pas de sens ; le fermer, si. */
-  .coquille-repli {
-    display: none;
-  }
-
-  .coquille-fermer,
-  .coquille-menu {
-    display: flex;
-  }
 }
 
 /* ------------------------------------------------- session collective */

@@ -21,6 +21,13 @@ export default defineConfig({
   },
   test: {
     include: ['tests/**/*.test.ts'],
+    /*
+     * Les tests de bout en bout des Cloud Functions vivent à part : ils
+     * exigent trois émulateurs et le module compilé de `functions/`, là où
+     * ceux-ci n'exigent que Firestore. `npm run test:fonctions` les lance,
+     * avec `vitest.fonctions.config.ts`.
+     */
+    exclude: ['tests/fonctions/**'],
     environment: 'node',
     // Les règles de sécurité s'exécutent dans un émulateur partagé : les
     // fichiers de test se succèdent, ils ne se marchent pas dessus.

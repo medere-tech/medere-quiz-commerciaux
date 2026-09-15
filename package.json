@@ -13,6 +13,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit && npm --prefix functions run typecheck",
     "test": "npm run test:regles",
+    "test:tout": "npm run test:regles && npm run test:fonctions",
+    "test:fonctions": "node scripts/tester-fonctions.mjs",
     "test:regles": "firebase emulators:exec --only firestore --project demo-medere-quiz \"vitest run\"",
     "emulateurs": "firebase emulators:start --only firestore --project demo-medere-quiz",
     "regles:deploy": "firebase deploy --only firestore:rules && npm run regles:verifier",
@@ -20,7 +22,8 @@
     "stats:reprise": "node --env-file=.env.local scripts/agreger-historique.ts",
     "etats:reprise": "node --env-file=.env.local scripts/reconstruire-etats.ts",
     "enonces:normaliser": "node --env-file=.env.local scripts/normaliser-enonces.ts",
-    "regles:verifier": "node --env-file=.env.local scripts/verifier-regles.ts",
+    "recette:nettoyer": "node --env-file=.env.local scripts/nettoyer-recette.ts",
+    "regles:verifier": "node --env-file-if-exists=.env.local scripts/verifier-regles.ts",
     "fonctions:deploy": "node scripts/deployer-fonctions.mjs"
   },
   "dependencies": {

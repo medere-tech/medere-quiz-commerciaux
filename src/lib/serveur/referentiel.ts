@@ -2,7 +2,7 @@ import 'server-only';
 
 import { enFormation, type Formation } from '@/lib/formations/lecture';
 import { enQuestion, type Question } from '@/lib/questions/lecture';
-import { exigerSession } from '@/lib/auth/session-serveur';
+import { exigerSession, lireSession } from '@/lib/auth/session-serveur';
 import { firestoreAdmin } from '@/lib/firebase/admin';
 import { FieldPath } from 'firebase-admin/firestore';
 
@@ -42,9 +42,39 @@ export type Referentiel = {
 /** Limite d'un filtre `in` chez Firestore : trente valeurs par requête. */
 const VALEURS_PAR_REQUETE_IN = 30;
 
+/**
+ * Le référentiel, ou `null` quand personne n'est connecté.
+ *
+ * **C'est ce que les pages doivent appeler**, et la raison tient à une
+ * croyance fausse qui a tenu sept lots. `chargerReferentiel` porte le
+ * commentaire « les dispositions rendent alors l'écran de connexion, et cette
+ * lecture n'a pas lieu ». **Elle a lieu.** Next évalue la disposition et la
+ * page du même segment en parallèle : la disposition décidait bien de rendre
+ * `<Connexion />` à la place des enfants, mais la page avait déjà démarré,
+ * appelé `chargerReferentiel`, et pris l'`ErreurAcces` en pleine figure.
+ *
+ * Conséquence mesurée sur le build de production, sans cookie : **chaque
+ * visite anonyme de l'accueil et de la série écrivait une erreur avec sa pile
+ * dans les journaux.** L'accueil est l'écran le plus visité de l'outil, et
+ * c'est le premier qu'un commercial voit. Ces lignes attendues sont
+ * exactement ce qui noie les vraies — le 500 de production a coûté deux
+ * déploiements pour cette raison.
+ *
+ * **Le garde de `chargerReferentiel` reste, et il lève toujours.** Il ne
+ * protège pas contre ce cas-ci, il protège contre l'autre : une page qui
+ * servirait le catalogue à un visiteur anonyme. S'il se déclenche désormais,
+ * c'est un vrai défaut, et il mérite sa ligne de journal.
+ */
+export async function chargerReferentielSiConnecte(): Promise<Referentiel | null> {
+  if (!(await lireSession())) return null;
+  return chargerReferentiel();
+}
+
 export async function chargerReferentiel(): Promise<Referentiel> {
-  // Lève si personne n'est connecté : les dispositions rendent alors l'écran
-  // de connexion, et cette lecture n'a pas lieu.
+  // Défense en profondeur : aucune page ne doit servir le catalogue sans
+  // session. Les pages passent par `chargerReferentielSiConnecte`, qui ne
+  // vient jusqu'ici que lorsqu'une session existe — ce garde ne se déclenche
+  // donc que sur un appel qui n'aurait pas dû avoir lieu.
   await exigerSession();
 
   const base = firestoreAdmin();
