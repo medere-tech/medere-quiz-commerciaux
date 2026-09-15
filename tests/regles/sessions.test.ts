@@ -8,7 +8,9 @@ import {
   creerEnvironnement,
   demain,
   EXTERNE,
+  HIER,
   JORDAN,
+  MAINTENANT,
   NOEMIE,
   question,
   participant,
@@ -82,7 +84,17 @@ describe('Session collective — accès', () => {
   it("l'animatrice crée une session et révèle la bonne réponse", async () => {
     const admin = connecte(env, NOEMIE);
     await assertSucceeds(setDoc(doc(admin, 'sessions/s2'), session()));
-    await assertSucceeds(updateDoc(doc(admin, 'sessions/s2'), { revelee: true, indexCourant: 1 }));
+    await assertSucceeds(updateDoc(doc(admin, 'sessions/s2'), { revelee: true }));
+    // Révéler puis avancer sont deux gestes, et le second repose l'échéance :
+    // les réunir en une écriture, comme le faisait ce test, ne correspond à
+    // rien de ce que le dépôt exécute.
+    await assertSucceeds(
+      updateDoc(doc(admin, 'sessions/s2'), {
+        indexCourant: 1,
+        revelee: false,
+        questionOuverteLe: MAINTENANT,
+      }),
+    );
   });
 
   it('REFUS — un commercial crée une session', async () => {
@@ -789,7 +801,11 @@ describe('Session collective — pause et interruption', () => {
     await semer();
     const base = connecte(env, NOEMIE);
     await assertSucceeds(updateDoc(doc(base, 'sessions/s1'), { statut: 'pause' }));
-    await assertSucceeds(updateDoc(doc(base, 'sessions/s1'), { statut: 'encours' }));
+    // La reprise repose l'échéance : sans cela la salle rouvrirait sur un
+    // chronomètre périmé, et les règles le refusent désormais.
+    await assertSucceeds(
+      updateDoc(doc(base, 'sessions/s1'), { statut: 'encours', questionOuverteLe: MAINTENANT }),
+    );
   });
 
   it('REFUS — un participant suspend la séance', async () => {
@@ -797,6 +813,122 @@ describe('Session collective — pause et interruption', () => {
     await assertFails(
       updateDoc(doc(connecte(env, JORDAN), 'sessions/s1'), { statut: 'pause' }),
     );
+  });
+});
+
+/**
+ * Ce que ces tests protègent : le chronomètre reposé à chaque ouverture du vote.
+ *
+ * **Ils existent à cause d'un défaut que les règles autorisaient.** En séance
+ * réelle, le vote a été rouvert sans reposer `questionOuverteLe` : la salle a
+ * retrouvé sa question avec une échéance déjà dépassée, donc « temps écoulé »
+ * sur un vote qu'on venait de lui rendre. Les règles permettaient ce champ sans
+ * l'exiger — aucun des tests de règles ne pouvait voir son absence.
+ *
+ * La contrainte porte sur les trois gestes qui ouvrent le vote, et sur eux
+ * seuls. C'est le genre d'invariant qu'une règle sait exprimer, et il vaut
+ * mieux qu'il soit tenu en production que seulement dans un test.
+ */
+describe('le chronomètre d’une séance', () => {
+  it('REFUS — changer de question sans reposer l’échéance', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        indexCourant: 1,
+        revelee: false,
+        repartition: [],
+        repondants: 0,
+      }),
+    );
+  });
+
+  it('changer de question en reposant l’échéance', async () => {
+    await semer();
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        indexCourant: 1,
+        revelee: false,
+        repartition: [],
+        repondants: 0,
+        questionOuverteLe: MAINTENANT,
+      }),
+    );
+  });
+
+  it('REFUS — rouvrir le vote sans reposer l’échéance', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { revelee: true });
+    });
+
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), { revelee: false, repartition: [] }),
+    );
+  });
+
+  it('rouvrir le vote en reposant l’échéance', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { revelee: true });
+    });
+
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        revelee: false,
+        repartition: [],
+        questionOuverteLe: MAINTENANT,
+      }),
+    );
+  });
+
+  it('REFUS — lancer une séance préparée sans reposer l’échéance', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut: 'attente' });
+    });
+
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), { statut: 'encours' }),
+    );
+  });
+
+  it('lancer une séance préparée en reposant l’échéance', async () => {
+    await semer();
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), { statut: 'attente' });
+    });
+
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        statut: 'encours',
+        questionOuverteLe: MAINTENANT,
+      }),
+    );
+  });
+
+  it('REFUS — réécrire le même instant ne compte pas pour une ouverture', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, NOEMIE), 'sessions/s1'), {
+        indexCourant: 1,
+        revelee: false,
+        repartition: [],
+        repondants: 0,
+        // La valeur déjà en place : rien ne change, l'échéance reste périmée.
+        questionOuverteLe: HIER,
+      }),
+    );
+  });
+
+  it('révéler, mettre en pause, terminer et abandonner n’exigent rien', async () => {
+    await semer();
+    const base = connecte(env, NOEMIE);
+    await assertSucceeds(
+      updateDoc(doc(base, 'sessions/s1'), { revelee: true, repartition: [3, 1], repondants: 4 }),
+    );
+    await assertSucceeds(updateDoc(doc(base, 'sessions/s1'), { statut: 'pause' }));
+    await assertSucceeds(updateDoc(doc(base, 'sessions/s1'), { statut: 'terminee' }));
+    await assertSucceeds(updateDoc(doc(base, 'sessions/s1'), { statut: 'abandonnee' }));
   });
 });
 

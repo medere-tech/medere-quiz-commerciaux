@@ -16,8 +16,10 @@ import { LIBELLES_TYPE } from '@/lib/questions/modele';
 import { corriger } from '@/lib/serie/verdict';
 import { AVATAR_PAR_DEFAUT, type CleAvatar } from '@/lib/session/avatar';
 import {
+  chargerMaReponse,
   chercherSessionParCode,
   ecouterClassement,
+  ecouterQuestion,
   ecouterSession,
   NOM_SESSION_MAX,
   rejoindre,
@@ -25,6 +27,7 @@ import {
   type Rang,
   type Session,
 } from '@/lib/session/depot';
+import type { Question } from '@/lib/questions/lecture';
 
 /**
  * 10a · Session collective, côté commercial.
@@ -90,11 +93,24 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
     return ecouterClassement(sessionId, setClassement);
   }, [sessionId, session?.statut]);
 
+  const questionId = session ? session.questionIds[session.indexCourant] : undefined;
+
+  // Même raison que sur l'écran d'animation : le référentiel est figé pour la
+  // durée de la séance, la question affichée ne doit pas l'être.
+  const [vive, setVive] = useState<{ id: string; question: Question | null } | null>(null);
+
+  useEffect(() => {
+    if (!questionId) return;
+    // L'identifiant voyage avec la valeur : un instantané en retard se
+    // reconnaît et s'ignore, sans avoir à remettre l'état à zéro dans l'effet.
+    return ecouterQuestion(questionId, (recue) => setVive({ id: questionId, question: recue }));
+  }, [questionId]);
+
   const question = useMemo(() => {
-    if (!session) return null;
-    const identifiant = session.questionIds[session.indexCourant];
-    return referentiel.questions.find((candidate) => candidate.id === identifiant) ?? null;
-  }, [session, referentiel.questions]);
+    if (!questionId) return null;
+    if (vive?.id === questionId) return vive.question;
+    return referentiel.questions.find((candidate) => candidate.id === questionId) ?? null;
+  }, [questionId, vive, referentiel.questions]);
 
   /*
    * Changer de question remet le vote à zéro : c'est une nouvelle manche.
@@ -110,6 +126,47 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
     setChoisies([]);
     setVote('ouvert');
   }
+
+  /*
+   * Retrouver sa propre réponse.
+   *
+   * Après un rechargement, une coupure, ou un vote rejoué par l'animatrice,
+   * l'écran repartait vierge avec un bouton « Envoyer » actif — alors que les
+   * règles refusent une seconde réponse à la même question. On lit donc la
+   * sienne, qu'on a le droit de lire, et l'écran dit la vérité.
+   */
+  useEffect(() => {
+    if (!uid || !sessionId || !questionId) return;
+    let vivant = true;
+
+    chargerMaReponse(sessionId, uid, questionId)
+      .then((sienne) => {
+        if (!vivant || sienne === null) return;
+        setChoisies(sienne);
+        setVote('envoye');
+      })
+      .catch((panne: unknown) => {
+        /*
+         * **Ne plus confondre « pas encore répondu » avec une panne.**
+         *
+         * Ce `catch` absorbait tout, et il absorbait surtout un refus de
+         * permission que les règles renvoyaient sur chaque question sans
+         * réponse : `resource` est nul sur un document absent. L'écran
+         * marchait par accident, et une vraie panne s'y serait cachée
+         * exactement pareil.
+         *
+         * Les règles se prononcent maintenant sur l'absence, qui remonte en
+         * `null` par le chemin normal. Ce qui arrive ici est donc un défaut —
+         * une lecture impossible, hors ligne le plus souvent. L'écran reste
+         * ouvert et les règles trancheront à l'envoi, mais on le dit.
+         */
+        console.error('Lecture de la réponse déjà donnée impossible', panne);
+      });
+
+    return () => {
+      vivant = false;
+    };
+  }, [uid, sessionId, questionId]);
 
   const rejoindreParCode = useCallback(async () => {
     if (!uid || code.trim() === '' || nom.trim() === '') return;
@@ -469,11 +526,20 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
             }}
           >
             <PastillesReponses recus={session.repondants} />
+            {/*
+             * Ce que voit quelqu'un qui a déjà répondu quand le vote rouvre.
+             *
+             * L'animatrice peut rouvrir une question : ceux qui n'avaient pas
+             * répondu retrouvent le vote, les autres non — une réponse par
+             * personne, garantie par les règles. Sans cette phrase, celui qui a
+             * déjà répondu voit un vote rouvert et un bouton éteint, et ne sait
+             * pas si c'est lui ou l'outil qui ne va pas.
+             */}
             <span style={{ flex: 1, minWidth: 200, fontSize: 'var(--body-sm-size)', color: 'var(--neutral-70)' }}>
               {session.repondants} réponse{session.repondants > 1 ? 's' : ''} reçue
               {session.repondants > 1 ? 's' : ''}.{' '}
               {vote === 'envoye'
-                ? 'La correction s’affiche dès que l’animatrice révèle la bonne réponse.'
+                ? 'Votre réponse est enregistrée : elle ne se change plus, même si le vote rouvre. La correction s’affiche dès que l’animatrice révèle la bonne réponse.'
                 : 'Choisissez, puis envoyez.'}
             </span>
             <Bouton

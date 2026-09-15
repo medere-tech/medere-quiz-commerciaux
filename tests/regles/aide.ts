@@ -17,6 +17,13 @@ export const EXTERNE = { uid: 'uid-externe', email: 'visiteur@gmail.com' };
 /** Horodatage passé, accepté par les règles. */
 export const HIER = new Date('2026-09-01T09:00:00Z');
 
+/**
+ * Un instant passé, mais distinct de `HIER` : de quoi vérifier qu'un champ a
+ * bien changé. Une seconde en arrière plutôt qu'une date écrite en dur, qui
+ * finirait par tomber dans le futur.
+ */
+export const MAINTENANT = new Date(Date.now() - 1000);
+
 /** Horodatage futur, refusé par les règles. */
 export function demain(): Date {
   return new Date(Date.now() + 24 * 60 * 60 * 1000);

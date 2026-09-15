@@ -897,6 +897,47 @@ La première est la plus sûre — elle couvre aussi le cookie expiré en cours 
 route —, mais elle touche à la frontière entre « session absente » et « panne »,
 qui a déjà coûté cher : à instruire avec soin, pas à improviser.
 
+### Candidat pour le lot 8 : les Cloud Functions ne sont testées par rien
+
+Le lot 7 a ajouté des tests du **dépôt** contre l'émulateur Firestore
+(`tests/depot/`). Ils couvrent ce que le navigateur écrit. Ils ne couvrent pas
+ce que le serveur écrit ensuite, et **cette moitié-là n'a aucun test**.
+
+Trois déclencheurs, trois écritures que personne ne vérifie :
+`agregerReponseEntrainement` alimente `questionStats` ; `compterReponseSession`
+tient le décompte des votes ; `classerSessionTerminee` écrit le `bilan`, le
+`classement` et les `prix`. Ils s'exécutent avec le SDK Admin, **hors règles** :
+aucun des tests de règles ne les voit, et aucun test de dépôt non plus, puisque
+`npm test` ne démarre que l'émulateur Firestore.
+
+**Le bilan n'a jamais tourné une seule fois.** Ni en local, ni en production. Le
+premier exercice réel de cette fonction aura lieu un jeudi matin, sur la séance
+de Noémie, et son échec se verra sur l'écran « Ce qui a trébuché » — après la
+séance, quand il n'y a plus rien à rattraper.
+
+Ce qu'il faudrait, et ce que ça coûte :
+
+- démarrer l'émulateur **functions** en plus de Firestore dans `npm test`. Les
+  deux sont déjà déclarés dans `firebase.json` ; `test:regles` n'en lance qu'un.
+  L'émulateur functions compile `functions/` avant de démarrer, ce qui allonge
+  la suite de plusieurs dizaines de secondes — à mesurer avant de l'imposer à
+  chaque exécution, quitte à en faire une commande séparée ;
+- écrire les scénarios de bout en bout : une séance jouée, terminée, puis la
+  vérification du bilan, du classement et des prix effectivement écrits. Le
+  calcul pur est déjà testé (`tests/statistiques/classement.test.ts`) — ce qui
+  manque est le **déclenchement** et l'**écriture**, c'est-à-dire exactement ce
+  qui a manqué côté dépôt ;
+- vérifier la déduplication par identifiant d'événement, qui repose sur des
+  marqueurs à durée de vie limitée. Le TTL n'est toujours pas créé (voir les
+  gestes de mise en service) : la fonction est écrite pour l'at-least-once, rien
+  ne le prouve.
+
+**À ne pas confondre avec les tests de dépôt.** Ceux-là sont écrits et verts.
+Celui-ci est un chantier distinct, plus lourd, et c'est le genre de chose qu'on
+découvre le jeudi matin.
+
+---
+
 ---
 
 ## 9. Qualité attendue

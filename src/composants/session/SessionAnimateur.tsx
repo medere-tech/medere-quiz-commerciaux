@@ -16,6 +16,7 @@ import type { Question } from '@/lib/questions/depot';
 import {
   ecouterClassement,
   ecouterParticipants,
+  ecouterQuestion,
   ecouterReponses,
   ecouterSession,
   abandonner,
@@ -23,7 +24,7 @@ import {
   mettreEnPause,
   questionSuivante,
   reprendre,
-  rejouerLeVote,
+  rouvrirLeVote,
   revelerReponse,
   terminerSession,
   type Participant,
@@ -91,11 +92,30 @@ export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) 
     return ecouterClassement(sessionId, setClassement);
   }, [sessionId, session?.statut]);
 
+  const questionId = session ? session.questionIds[session.indexCourant] : undefined;
+
+  /*
+   * Le référentiel arrive avec le HTML et ne bouge plus de la séance. La
+   * question affichée, elle, est écoutée : Noémie corrige une explication
+   * fautive pendant la séance, et la correction doit se voir tout de suite —
+   * sur son écran comme sur ceux de la salle.
+   */
+  const [vive, setVive] = useState<{ id: string; question: Question | null } | null>(null);
+
+  useEffect(() => {
+    if (!questionId) return;
+    // L'identifiant voyage avec la valeur : un instantané en retard se
+    // reconnaît et s'ignore, sans avoir à remettre l'état à zéro dans l'effet.
+    return ecouterQuestion(questionId, (recue) => setVive({ id: questionId, question: recue }));
+  }, [questionId]);
+
   const question: Question | null = useMemo(() => {
-    if (!session) return null;
-    const identifiant = session.questionIds[session.indexCourant];
-    return referentiel.questions.find((candidate) => candidate.id === identifiant) ?? null;
-  }, [session, referentiel.questions]);
+    if (!questionId) return null;
+    // Le direct fait foi dès qu'il a parlé, y compris pour dire que la
+    // question n'est plus publiée. Avant, le référentiel du serveur tient.
+    if (vive?.id === questionId) return vive.question;
+    return referentiel.questions.find((candidate) => candidate.id === questionId) ?? null;
+  }, [questionId, vive, referentiel.questions]);
 
   const reponsesCourantes = useMemo(
     () => reponses.filter((reponse) => reponse.questionId === question?.id),
@@ -257,7 +277,7 @@ export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) 
           if (dernier) void terminerSession(session.id);
           else void questionSuivante(session.id, session.indexCourant + 1);
         }}
-        onRejouer={() => void rejouerLeVote(session.id)}
+        onRejouer={() => void rouvrirLeVote(session.id)}
         onPause={() => void mettreEnPause(session.id)}
         onReprendre={() => void reprendre(session.id)}
         onTerminer={() => void terminerSession(session.id)}

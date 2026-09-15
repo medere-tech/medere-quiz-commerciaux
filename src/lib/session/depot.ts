@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore';
 
 import { baseDeDonnees } from '@/lib/firebase/firestore';
+import { enQuestion, type Question } from '@/lib/questions/lecture';
 
 /**
  * Accès à la séance collective.
@@ -461,11 +462,32 @@ export async function terminerSession(sessionId: string): Promise<void> {
   });
 }
 
-/** Rouvre le vote sur la question en cours, sans effacer les réponses déjà là. */
-export async function rejouerLeVote(sessionId: string): Promise<void> {
+/**
+ * Rouvre le vote sur la question en cours.
+ *
+ * **Le nom dit ce que la fonction fait.** Elle s'appelait « rejouer », et le
+ * bouton avec : or personne ne rejoue. Les règles refusent une seconde réponse
+ * à la même question — garantie du lot 1, sur laquelle repose le compte du
+ * classement. Rouvrir sert à ceux qui n'avaient pas répondu. Devant une salle,
+ * un libellé qui promet plus qu'il ne tient est pire qu'un libellé modeste.
+ *
+ * **Le chronomètre repart en entier.** Rejouer un vote, c'est rouvrir la
+ * question : la salle doit retrouver son temps. Sans reposer
+ * `questionOuverteLe`, l'échéance restait celle de la première ouverture, et
+ * l'on rejouait avec un décompte déjà écoulé. Comme tout le reste de l'état, la
+ * nouvelle échéance part sur l'écouteur temps réel : les participants la
+ * reçoivent en même temps que l'écran projeté.
+ *
+ * **Les réponses déjà données ne sont pas effacées**, et `repondants` n'est pas
+ * remis à zéro : les compteurs porteraient sinon sur une salle qui a déjà voté.
+ * Qui a répondu ne revote pas — les règles refusent une seconde écriture sur la
+ * même question. Rouvrir sert à ceux qui n'avaient pas répondu.
+ */
+export async function rouvrirLeVote(sessionId: string): Promise<void> {
   await updateDoc(doc(baseDeDonnees(), 'sessions', sessionId), {
     revelee: false,
     repartition: [],
+    questionOuverteLe: serverTimestamp(),
   });
 }
 
@@ -585,4 +607,66 @@ export async function lancerSeance(sessionId: string): Promise<void> {
 /** Supprime une séance préparée qui ne servira pas. */
 export async function supprimerSeance(sessionId: string): Promise<void> {
   await deleteDoc(doc(baseDeDonnees(), 'sessions', sessionId));
+}
+
+/* --------------------------------------------------- la question, en direct */
+
+/**
+ * Écoute la question en cours.
+ *
+ * **Pourquoi elle ne peut pas venir du référentiel seul.** Les deux écrans de
+ * séance reçoivent le référentiel des questions publiées avec le HTML, rendu
+ * par le serveur. C'est ce qui les fait apparaître pleins dès le premier
+ * affichage. Mais la page ne se recharge plus de toute la séance : le
+ * référentiel est donc figé pour une heure, et une explication corrigée en
+ * cours de route n'apparaissait qu'à la séance suivante.
+ *
+ * Or c'est exactement là que Noémie corrige — elle vient de voir l'explication
+ * échouer devant la salle. Un écouteur sur la seule question affichée suffit :
+ * un document, un abonnement, et la correction arrive par le même canal que la
+ * question elle-même.
+ *
+ * Rend `null` si la question n'existe plus ou n'est plus publiée : l'écran le
+ * dit, plutôt que d'afficher un énoncé retiré.
+ */
+export function ecouterQuestion(
+  questionId: string,
+  aChaqueEtat: (question: Question | null) => void,
+): Unsubscribe {
+  return onSnapshot(
+    doc(baseDeDonnees(), 'questions', questionId),
+    (instantane) => {
+      if (!instantane.exists()) {
+        aChaqueEtat(null);
+        return;
+      }
+      const question = enQuestion(instantane.id, instantane.data());
+      aChaqueEtat(question.statut === 'publiee' ? question : null);
+    },
+    // Une lecture refusée n'est pas une raison de vider l'écran : le
+    // référentiel rendu par le serveur reste affiché.
+    () => {},
+  );
+}
+
+/**
+ * Ma propre réponse à une question de séance, s'il y en a une.
+ *
+ * **Elle survit au rechargement.** Un participant qui recharge sa page, ou qui
+ * revient après une coupure, retrouvait un écran vierge et un bouton « Envoyer »
+ * actif — alors que les règles refusent une seconde réponse à la même question.
+ * Il se serait fait refuser sans comprendre.
+ */
+export async function chargerMaReponse(
+  sessionId: string,
+  uid: string,
+  questionId: string,
+): Promise<string[] | null> {
+  const instantane = await getDoc(
+    doc(baseDeDonnees(), 'sessions', sessionId, 'reponses', `${uid}_${questionId}`),
+  );
+  if (!instantane.exists()) return null;
+
+  const choisies = instantane.data().optionsChoisies;
+  return Array.isArray(choisies) ? (choisies as string[]) : [];
 }

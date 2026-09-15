@@ -351,7 +351,7 @@ export function SceneProjetee({
               onClick={onRejouer}
               style={{ border: '1px solid rgba(255,255,255,0.32)' }}
             >
-              Rejouer le vote
+              Rouvrir le vote
             </Bouton>
             <Bouton taille="lg" variante="fantome" onClick={onPause} style={{ color: '#fff' }}>
               Pause
