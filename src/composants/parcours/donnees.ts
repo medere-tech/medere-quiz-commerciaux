@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { authentification } from '@/lib/firebase/client';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import type { Formation } from '@/lib/formations/lecture';
-import type { Question } from '@/lib/questions/lecture';
+import type { QuestionListee } from '@/lib/questions/lecture';
 import {
   chargerMesEtats,
   chargerProgression,
@@ -36,28 +36,38 @@ import {
  * lit plus.
  */
 
-/** Ce que le serveur a déjà lu et transmis. */
-export type Referentiel = {
-  questions: Question[];
+/**
+ * Ce que le serveur a déjà lu et transmis.
+ *
+ * **Le paramètre de type porte le choix fait par l'écran.** La plupart
+ * reçoivent des questions de liste — assez pour compter, filtrer, afficher un
+ * titre. La série reçoit des questions complètes, parce qu'elle les pose. Le
+ * crochet est le même pour les deux : il ne touche ni au contenu ni à son
+ * absence, il ajoute la progression et les états.
+ */
+export type Referentiel<Q extends QuestionListee = QuestionListee> = {
+  questions: Q[];
   formations: Formation[];
 };
 
-export type DonneesParcours = {
+export type DonneesParcours<Q extends QuestionListee = QuestionListee> = {
   uid: string;
-  questions: Question[];
+  questions: Q[];
   formations: Formation[];
   progression: Progression;
   etats: EtatComplet[];
 };
 
-export type EtatChargement =
+export type EtatChargement<Q extends QuestionListee = QuestionListee> =
   | { etat: 'chargement' }
   | { etat: 'anonyme' }
   | { etat: 'erreur'; echec: EchecDeLecture }
-  | { etat: 'pret'; donnees: DonneesParcours };
+  | { etat: 'pret'; donnees: DonneesParcours<Q> };
 
-export function useDonneesParcours(referentiel: Referentiel): EtatChargement {
-  const [resultat, setResultat] = useState<EtatChargement>({ etat: 'chargement' });
+export function useDonneesParcours<Q extends QuestionListee>(
+  referentiel: Referentiel<Q>,
+): EtatChargement<Q> {
+  const [resultat, setResultat] = useState<EtatChargement<Q>>({ etat: 'chargement' });
 
   useEffect(() => {
     let vivant = true;

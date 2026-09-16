@@ -1,8 +1,14 @@
 import 'server-only';
 
 import { enFormation, type Formation } from '@/lib/formations/lecture';
-import { enQuestion, type Question } from '@/lib/questions/lecture';
-import { exigerSession } from '@/lib/auth/session-serveur';
+import {
+  CHAMPS_LISTE,
+  enQuestion,
+  enQuestionListee,
+  type Question,
+  type QuestionListee,
+} from '@/lib/questions/lecture';
+import { exigerSession, lireSession } from '@/lib/auth/session-serveur';
 import { firestoreAdmin } from '@/lib/firebase/admin';
 import { FieldPath } from 'firebase-admin/firestore';
 
@@ -34,7 +40,22 @@ import { FieldPath } from 'firebase-admin/firestore';
  * interdisent au navigateur.
  */
 
+/**
+ * Le référentiel, dans sa version de liste.
+ *
+ * **Deux versions, et le choix se fait par écran.** La plupart des écrans
+ * comptent, filtrent et affichent des titres : la liste leur suffit. Un seul
+ * a besoin du contenu — la série, qui pose les questions. Servir le contenu
+ * partout coûtait, à cent cinquante questions, plusieurs dizaines de
+ * kilo-octets par chargement à un commercial qui ne les lira pas.
+ */
 export type Referentiel = {
+  questions: QuestionListee[];
+  formations: Formation[];
+};
+
+/** Le référentiel avec le contenu des questions. Réservé à la série. */
+export type ReferentielComplet = {
   questions: Question[];
   formations: Formation[];
 };
@@ -42,15 +63,70 @@ export type Referentiel = {
 /** Limite d'un filtre `in` chez Firestore : trente valeurs par requête. */
 const VALEURS_PAR_REQUETE_IN = 30;
 
+/**
+ * Le référentiel, ou `null` quand personne n'est connecté.
+ *
+ * **C'est ce que les pages doivent appeler**, et la raison tient à une
+ * croyance fausse qui a tenu sept lots. `chargerReferentiel` porte le
+ * commentaire « les dispositions rendent alors l'écran de connexion, et cette
+ * lecture n'a pas lieu ». **Elle a lieu.** Next évalue la disposition et la
+ * page du même segment en parallèle : la disposition décidait bien de rendre
+ * `<Connexion />` à la place des enfants, mais la page avait déjà démarré,
+ * appelé `chargerReferentiel`, et pris l'`ErreurAcces` en pleine figure.
+ *
+ * Conséquence mesurée sur le build de production, sans cookie : **chaque
+ * visite anonyme de l'accueil et de la série écrivait une erreur avec sa pile
+ * dans les journaux.** L'accueil est l'écran le plus visité de l'outil, et
+ * c'est le premier qu'un commercial voit. Ces lignes attendues sont
+ * exactement ce qui noie les vraies — le 500 de production a coûté deux
+ * déploiements pour cette raison.
+ *
+ * **Le garde de `chargerReferentiel` reste, et il lève toujours.** Il ne
+ * protège pas contre ce cas-ci, il protège contre l'autre : une page qui
+ * servirait le catalogue à un visiteur anonyme. S'il se déclenche désormais,
+ * c'est un vrai défaut, et il mérite sa ligne de journal.
+ */
+export async function chargerReferentielSiConnecte(): Promise<Referentiel | null> {
+  if (!(await lireSession())) return null;
+  return chargerReferentiel();
+}
+
+/** Le contenu des questions en plus. Un seul écran en a besoin : la série. */
+export async function chargerReferentielCompletSiConnecte(): Promise<ReferentielComplet | null> {
+  if (!(await lireSession())) return null;
+  return chargerReferentielComplet();
+}
+
 export async function chargerReferentiel(): Promise<Referentiel> {
-  // Lève si personne n'est connecté : les dispositions rendent alors l'écran
-  // de connexion, et cette lecture n'a pas lieu.
+  return lire(false) as Promise<Referentiel>;
+}
+
+export async function chargerReferentielComplet(): Promise<ReferentielComplet> {
+  return lire(true) as Promise<ReferentielComplet>;
+}
+
+async function lire(avecLeContenu: boolean): Promise<Referentiel | ReferentielComplet> {
+  // Défense en profondeur : aucune page ne doit servir le catalogue sans
+  // session. Les pages passent par `chargerReferentielSiConnecte`, qui ne
+  // vient jusqu'ici que lorsqu'une session existe — ce garde ne se déclenche
+  // donc que sur un appel qui n'aurait pas dû avoir lieu.
   await exigerSession();
 
   const base = firestoreAdmin();
 
-  const instantane = await base.collection('questions').where('statut', '==', 'publiee').get();
-  const questions = instantane.docs.map((document) => enQuestion(document.id, document.data()));
+  /*
+   * `select()` borne ce que Firestore transporte jusqu'ici, pas seulement ce
+   * qu'on renvoie au navigateur. La facture ne bouge pas — Firestore compte
+   * les documents lus, pas les octets — mais le temps de lecture, si.
+   */
+  const requete = base.collection('questions').where('statut', '==', 'publiee');
+  const instantane = await (avecLeContenu ? requete : requete.select(...CHAMPS_LISTE)).get();
+
+  const questions = instantane.docs.map((document) =>
+    avecLeContenu
+      ? enQuestion(document.id, document.data())
+      : enQuestionListee(document.id, document.data()),
+  );
 
   /*
    * Seules les formations que les questions publiées citent. Le référentiel

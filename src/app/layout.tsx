@@ -4,6 +4,7 @@ import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
 import { aileron, dmSerifText } from '@/styles/polices';
+import { SondeErreurs } from '@/composants/journal/SondeErreurs';
 
 export const metadata: Metadata = {
   title: 'Entraînement commerciaux — Médéré',
@@ -39,6 +40,12 @@ export default function RacineLayout({ children }: { children: ReactNode }) {
          */}
         <link rel="preconnect" href="https://www.google.com" />
         <link rel="preconnect" href="https://www.gstatic.com" />
+        {/*
+         * Les pannes qu'aucune frontière React n'attrape — gestionnaires,
+         * effets, promesses rejetées. Montée ici pour valoir sur tous les
+         * écrans, connexion comprise. Elle ne rend rien.
+         */}
+        <SondeErreurs />
         {children}
       </body>
     </html>

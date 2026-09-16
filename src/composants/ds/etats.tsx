@@ -63,10 +63,25 @@ export function EtatVide({
         <Icone nom={icone} taille={22} couleur="var(--neutral-70)" />
       </span>
       <span style={{ flex: `1 1 ${BASE_TEXTE}px`, minWidth: 0 }}>
-        <span
+        {/*
+         * **Un titre, pas un texte qui ressemble à un titre.**
+         *
+         * C'était un `<span>` : visuellement juste — même graisse, même corps —
+         * mais invisible à qui navigue de titre en titre au lecteur d'écran. Or
+         * ce sont précisément les écrans où l'on cherche à comprendre ce qui se
+         * passe : un état vide, une panne. `margin: 0` annule la marge par
+         * défaut du `<h2>` ; rien d'autre ne change à l'affichage.
+         *
+         * `h2` et non `h1` : ces blocs vivent **dans** une page qui a déjà son
+         * titre. Quand ils occupent l'écran entier — écrans de limite — ce sont
+         * `ecrans-limites.tsx` qui prennent le relais, avec un `h1`.
+         */}
+        <h2
           style={{
+            margin: 0,
             display: 'block',
             fontFamily: 'var(--font-display)',
+            fontWeight: 400,
             fontSize: 22,
             lineHeight: 1.2,
             color: 'var(--text-heading)',
@@ -74,7 +89,7 @@ export function EtatVide({
           }}
         >
           {titre}
-        </span>
+        </h2>
         <p
           style={{
             margin: '8px 0 0',
@@ -200,8 +215,12 @@ export function EtatErreur({
         <Icone nom="alert" taille={16} couleur="#fff" epaisseur={2} />
       </span>
       <span style={{ flex: `1 1 ${BASE_TEXTE}px`, minWidth: 0 }}>
-        <span
+        {/* Même raison que pour l'état vide, et le besoin est plus fort ici :
+            une erreur qu'on ne trouve pas au clavier est une erreur qu'on ne
+            lit pas. */}
+        <h2
           style={{
+            margin: 0,
             display: 'block',
             fontSize: 'var(--body-md-size)',
             fontWeight: 600,
@@ -210,7 +229,7 @@ export function EtatErreur({
           }}
         >
           {titre}
-        </span>
+        </h2>
         <span
           style={{
             display: 'block',

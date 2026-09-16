@@ -13,14 +13,51 @@ import { estDuDomaine } from '@/lib/auth/domaine';
 
 export const NOM_COOKIE_SESSION = 'session_medere';
 
-/** Cinq jours : une semaine de travail, sans reconnexion quotidienne. */
-export const DUREE_SESSION_MS = 5 * 24 * 60 * 60 * 1000;
+/**
+ * Quatorze jours : le maximum qu'accepte Firebase pour un cookie de session.
+ *
+ * **Pourquoi pas cinq, comme avant.** Cinq jours couvrent une semaine de
+ * travail, mais pas le rythme réel de l'outil : on s'en sert le jeudi, en
+ * séance, et éventuellement entre deux appels. Un commercial qui ouvre
+ * l'application chaque jeudi et rien d'autre se reconnectait à chaque fois —
+ * un frottement hebdomadaire imposé à une population de dix personnes qu'on
+ * cherche précisément à faire revenir.
+ *
+ * **Et pourquoi ce n'est pas suffisant en soi.** Quatorze jours restent une
+ * échéance fixe : deux semaines sans ouvrir, et la session tombe. D'où le
+ * renouvellement glissant ci-dessous. La durée maximale et le renouvellement
+ * répondent à deux questions différentes.
+ */
+export const DUREE_SESSION_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Au-delà de la moitié de sa vie, le cookie mérite d'être refait.
+ *
+ * **Le renouvellement ne peut pas se faire au serveur seul.** Un cookie de
+ * session Firebase ne se prolonge pas : il se refabrique à partir d'un jeton
+ * d'identité frais, que seul le navigateur peut produire — c'est lui qui
+ * détient le jeton de rafraîchissement. Le serveur constate donc, et le
+ * navigateur agit.
+ *
+ * **La moitié, et pas un seuil plus serré.** À sept jours de marge, un
+ * commercial qui vient une fois par semaine renouvelle à peu près une visite
+ * sur deux, et celui qui vient tous les jours ne renouvelle qu'une fois par
+ * semaine. Un seuil plus court multiplierait les écritures pour rien : chaque
+ * renouvellement est un aller-retour serveur et une écriture sur le document
+ * utilisateur.
+ */
+const SEUIL_DE_RENOUVELLEMENT = 0.5;
 
 export type Session = {
   uid: string;
   email: string;
   nom: string;
   admin: boolean;
+  /**
+   * Vrai quand le cookie a passé la moitié de sa vie. Le navigateur s'en sert
+   * pour refaire la session en silence, sans que personne ne se reconnecte.
+   */
+  renouvellementConseille: boolean;
 };
 
 /**
@@ -52,11 +89,15 @@ export const lireSession = cache(async function lireSession(): Promise<Session |
 
     if (!estDuDomaine(email, envServeur.domaineAutorise)) return null;
 
+    // `exp` est en secondes, comme tout ce que porte un jeton JWT.
+    const restantMs = jeton.exp * 1000 - Date.now();
+
     return {
       uid: jeton.uid,
       email: email as string,
       nom: typeof jeton.name === 'string' ? jeton.name : '',
       admin: jeton.admin === true,
+      renouvellementConseille: restantMs < DUREE_SESSION_MS * SEUIL_DE_RENOUVELLEMENT,
     };
   } catch (probleme) {
     // Cookie expiré, révoqué ou falsifié : c'est une absence de session, un

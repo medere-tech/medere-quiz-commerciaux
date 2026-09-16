@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import { Bouton, Carte, EtiquetteStatut, Meta, TitreSection } from '@/composants/ds/primitives';
 import { Icone } from '@/composants/ds/Icone';
 import { Jauge } from '@/composants/ds/parcours';
-import type { Question } from '@/lib/questions/depot';
+import type { QuestionListee } from '@/lib/questions/lecture';
 import { chargerBilan, type LigneBilan, type Session } from '@/lib/session/depot';
 
 /**
@@ -43,7 +43,8 @@ export function HistoriqueSeances({
 }: {
   seances: Session[];
   /** Pour retrouver l'énoncé : le bilan ne porte que des identifiants. */
-  questions: Question[];
+  /** La liste suffit : le bilan ne cite que des énoncés. */
+  questions: QuestionListee[];
 }) {
   const [ouverte, setOuverte] = useState<string | null>(null);
   const [bilans, setBilans] = useState<Record<string, LigneBilan[] | 'echec'>>({});

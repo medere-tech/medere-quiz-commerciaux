@@ -122,6 +122,19 @@ touchés :
 1. le **poids transféré** au premier chargement ;
 2. le **délai entre le clic et le premier affichage**.
 
+**Sur un écran authentifié, avec une banque réaliste, et en disant lequel.**
+Deux lots de chiffres ont été annoncés sans cela : ils portaient sur l'écran de
+connexion, et l'outil de mesure oubliait les ressources tierces et le document.
+« 310,8 ko » en valait 903,9. Les écarts entre lots restaient justes, la valeur
+absolue était fausse d'un facteur trois. Un poids qu'on ne peut pas rattacher à
+un écran nommé et à un état de connexion nommé ne vaut rien.
+
+**Et la leçon générale, qui dépasse la mesure : un chiffre cohérent avec
+lui-même n'est pas un chiffre juste.** Les deux erreurs de ce harnais étaient
+invisibles précisément parce qu'il se trompait de la même façon à chaque lot.
+Une série de mesures qui évoluent proprement ne prouve rien sur ce qu'elles
+mesurent. Vérifier ce qu'on compte, pas seulement que les comptes se suivent.
+
 Comparer au lot précédent. **Si l'un des deux se dégrade, le dire avec le
 chiffre — même quand la dégradation est justifiée.** Une régression annoncée est
 un arbitrage ; une régression tue se découvre six lots plus tard, et coûte une

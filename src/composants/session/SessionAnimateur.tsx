@@ -10,7 +10,6 @@ import { Icone } from '@/composants/ds/Icone';
 import { PanneauAnimatrice } from '@/composants/session/PanneauAnimatrice';
 import { RevelationClassement } from '@/composants/session/RevelationClassement';
 import { SceneProjetee } from '@/composants/session/SceneProjetee';
-import type { Referentiel } from '@/composants/parcours/donnees';
 import { authentification } from '@/lib/firebase/client';
 import type { Question } from '@/lib/questions/depot';
 import {
@@ -52,7 +51,7 @@ import {
  * réouverture, la séance en cours est retrouvée telle qu'elle était.
  */
 
-export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) {
+export function SessionAnimateur() {
   const [uid, setUid] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -109,13 +108,9 @@ export function SessionAnimateur({ referentiel }: { referentiel: Referentiel }) 
     return ecouterQuestion(questionId, (recue) => setVive({ id: questionId, question: recue }));
   }, [questionId]);
 
-  const question: Question | null = useMemo(() => {
-    if (!questionId) return null;
-    // Le direct fait foi dès qu'il a parlé, y compris pour dire que la
-    // question n'est plus publiée. Avant, le référentiel du serveur tient.
-    if (vive?.id === questionId) return vive.question;
-    return referentiel.questions.find((candidate) => candidate.id === questionId) ?? null;
-  }, [questionId, vive, referentiel.questions]);
+  // Le direct fait foi dès qu'il a parlé, y compris pour dire que la question
+  // n'est plus publiée. Avant, on n'affirme rien.
+  const question: Question | null = vive?.id === questionId ? (vive?.question ?? null) : null;
 
   const reponsesCourantes = useMemo(
     () => reponses.filter((reponse) => reponse.questionId === question?.id),

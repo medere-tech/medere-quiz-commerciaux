@@ -1,0 +1,75 @@
+# Les règles publiées sur le projet Firebase sont-elles celles du dépôt ?
+#
+# POURQUOI CE WORKFLOW EST SÉPARÉ DE `verification.yml`
+#
+# C'est la panne du lot 3 : les règles déployées étaient restées celles du mode
+# production — tout refusé — alors que le dépôt en portait trois cents lignes
+# validées par l'émulateur. Les tests passaient, le build passait, et aucune
+# lecture depuis un navigateur n'aboutissait. Rien ne signalait l'écart.
+#
+# **Mais cette vérification n'a pas sa place dans la vérification de poussée**,
+# pour deux raisons qui se cumulent :
+#
+#   1. **Elle compare une branche à la production.** Une branche de lot qui
+#      modifie `firestore.rules` diffère légitimement de ce qui est publié —
+#      c'est même le cas normal, puisque le déploiement vient après la fusion.
+#      L'y mettre rendrait la vérification rouge pour une bonne raison, et une
+#      vérification rouge pour une bonne raison finit par ne plus être lue.
+#   2. **Elle exige un vrai secret.** `verification.yml` n'en porte aucun, et
+#      c'est ce qui permet de le laisser tourner sur chaque branche sans y
+#      penser, y compris depuis une contribution extérieure. Mélanger les deux
+#      ferait perdre cette propriété.
+#
+# Elle tourne donc seule, sur la branche par défaut, tous les jours. Le créneau
+# est choisi : la séance collective a lieu le jeudi, et un écart découvert le
+# matin même devant la salle ne se rattrape pas.
+#
+# Elle ne remplace pas `npm run regles:deploy`, qui enchaîne déjà déploiement et
+# vérification. Elle rattrape ce que ce geste ne peut pas voir : un déploiement
+# oublié, et une modification faite à la main dans la console Firebase.
+
+name: Règles publiées
+
+on:
+  schedule:
+    # 06:00 UTC, tous les jours. Le jeudi, c'est plusieurs heures avant la
+    # séance ; les autres jours, c'est avant que quiconque ouvre l'outil.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  comparaison:
+    name: comparer le jeu déployé à firestore.rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v5
+        with:
+          # La branche par défaut, quel que soit ce qui a déclenché le workflow :
+          # c'est elle qui fait foi sur ce qui devrait être publié.
+          ref: main
+
+      - name: Installer Node
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: package.json
+
+      # Le script n'a besoin d'aucune dépendance installée hors `firebase-admin`,
+      # qui sert uniquement à signer un jeton d'accès. Le reste est du `fetch`.
+      - name: Installer firebase-admin
+        run: npm ci --omit=dev --ignore-scripts
+
+      - name: Comparer
+        # Le compte de service n'a besoin que de lire : rôle « Lecteur des règles
+        # Firebase ». Lui donner l'écriture ferait de ce workflow un chemin de
+        # déploiement, ce qu'il n'est pas.
+        env:
+          FIREBASE_ADMIN_PROJECT_ID: ${{ secrets.FIREBASE_ADMIN_PROJECT_ID }}
+          FIREBASE_ADMIN_CLIENT_EMAIL: ${{ secrets.FIREBASE_ADMIN_CLIENT_EMAIL }}
+          FIREBASE_ADMIN_PRIVATE_KEY: ${{ secrets.FIREBASE_ADMIN_PRIVATE_KEY }}
+        run: npm run regles:verifier

@@ -25,6 +25,49 @@ export type Question = BrouillonQuestion & {
   creeeLe: Date | null;
 };
 
+/**
+ * Ce qu'une liste affiche, et rien de plus.
+ *
+ * **Le contenu d'une question pèse les quatre cinquièmes du document.** Mesuré
+ * sur une banque de taille réaliste : `options`, `explication` et `contexte`
+ * font environ 65 % des octets, `enonce` et les métadonnées le reste. Or
+ * presque aucun écran n'a besoin du contenu de **toutes** les questions — il
+ * lui faut la liste pour compter, filtrer, classer, et le contenu des dix
+ * qu'il montre.
+ *
+ * Servir la banque entière à chaque rendu tenait tant qu'elle comptait
+ * quatorze questions publiées. À cent cinquante, puis au-delà, le commercial
+ * en 4G paie à chaque chargement un catalogue qu'il ne lira pas.
+ *
+ * **`enonce` reste**, parce que les listes l'affichent : questions à revoir,
+ * composition d'une séance, bilan d'une séance passée. Sans lui il faudrait
+ * une seconde lecture pour afficher une liste, ce qui annulerait le gain.
+ */
+export type QuestionListee = Omit<
+  Question,
+  'options' | 'ordreOptions' | 'bonnesReponses' | 'explication' | 'contexte' | 'sourceFiche' | 'sourceVersion'
+>;
+
+/**
+ * Les champs à demander à Firestore pour une liste.
+ *
+ * Passés à `select()`, ils évitent de transporter le contenu depuis la base
+ * jusqu'au serveur — le gain ne s'arrête donc pas à la charge utile envoyée au
+ * navigateur. La facture, elle, ne bouge pas : Firestore compte les documents
+ * lus, pas les octets.
+ */
+export const CHAMPS_LISTE = [
+  'type',
+  'enonce',
+  'formationIds',
+  'theme',
+  'difficulte',
+  'statut',
+  'creeePar',
+  'creeeLe',
+  'modifieeLe',
+] as const;
+
 type Horodatage = { toDate?: () => Date };
 
 function enDate(valeur: unknown): Date | null {
@@ -60,6 +103,25 @@ export function enQuestion(identifiant: string, donnees: Record<string, unknown>
     statut: texte(donnees.statut) as StatutQuestion,
     sourceFiche: texte(donnees.sourceFiche),
     sourceVersion: texte(donnees.sourceVersion),
+    creeePar: texte(donnees.creeePar),
+    modifieeLe: enDate(donnees.modifieeLe),
+    creeeLe: enDate(donnees.creeeLe),
+  };
+}
+
+/** La même conversion, bornée aux champs d'une liste. */
+export function enQuestionListee(
+  identifiant: string,
+  donnees: Record<string, unknown>,
+): QuestionListee {
+  return {
+    id: identifiant,
+    type: texte(donnees.type) as TypeQuestion,
+    enonce: texte(donnees.enonce),
+    formationIds: listeDeTextes(donnees.formationIds),
+    theme: texte(donnees.theme),
+    difficulte: (typeof donnees.difficulte === 'number' ? donnees.difficulte : 1) as Difficulte,
+    statut: texte(donnees.statut) as StatutQuestion,
     creeePar: texte(donnees.creeePar),
     modifieeLe: enDate(donnees.modifieeLe),
     creeeLe: enDate(donnees.creeeLe),

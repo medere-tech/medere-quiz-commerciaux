@@ -60,6 +60,96 @@ const COULEUR_NOTE: Partial<Record<EtatAffichageOption, string>> = {
   fausse: '#9E3232',
 };
 
+/**
+ * La consigne de réponse : combien de réponses on attend, et ce qu'il en coûte.
+ *
+ * **Ajout hors maquette, assumé.** Voir `docs/design-imports.md`. La règle du
+ * QCM à réponses multiples est la plus contre-intuitive de l'outil — une
+ * sélection incomplète est comptée fausse — et elle coûte des points à qui
+ * l'ignore. Or la seule chose qui distinguait « une réponse » de « plusieurs »
+ * sur deux des trois écrans était **la forme du marqueur** : carré au lieu de
+ * rond. Aucun texte. Un commercial qui découvre l'application sur son téléphone
+ * un jeudi n'a aucune raison de connaître la convention, et pour un lecteur
+ * d'écran elle n'existe pas du tout.
+ *
+ * **Une seule formulation pour les trois écrans.** L'entraînement le disait
+ * déjà, à sa façon ; la séance et l'écran projeté ne le disaient pas. Trois
+ * phrases différentes pour une même règle auraient été pires que le silence.
+ *
+ * **La conséquence est dite, pas seulement la consigne.** « Plusieurs réponses
+ * attendues » se lit comme une invitation ; « une réponse incomplète est
+ * fausse » se lit comme une règle. C'est la seconde qui change ce qu'on clique.
+ *
+ * **Portée aux technologies d'assistance.** Le texte porte un `id` que le
+ * groupe d'options désigne en `aria-describedby` : la consigne est annoncée à
+ * l'entrée du groupe, une fois, et non répétée à chaque option.
+ */
+export function ConsigneReponses({
+  multiple,
+  id,
+  /** `projete` : lisible à cinq mètres, sur le fond encre de la scène. */
+  taille = 'md',
+  complement,
+}: {
+  multiple: boolean;
+  id?: string;
+  taille?: 'md' | 'projete';
+  /** Ce que l'écran ajoute pour lui seul — le décompte des cases cochées. */
+  complement?: string;
+}) {
+  const projete = taille === 'projete';
+
+  return (
+    <p
+      id={id}
+      style={{
+        margin: projete ? 'clamp(10px, 1.2vw, 18px) 0 0' : '14px 0 0',
+        fontSize: projete ? 'clamp(15px, 1.5vw, 22px)' : 'var(--body-sm-size)',
+        lineHeight: 1.45,
+        color: projete ? 'rgba(255,255,255,0.72)' : 'var(--text-secondary)',
+      }}
+    >
+      {multiple
+        ? 'Plusieurs réponses attendues — une réponse incomplète est comptée fausse.'
+        : 'Une seule réponse.'}
+      {complement ? ` ${complement}` : ''}
+    </p>
+  );
+}
+
+/**
+ * Le groupe des options, nommé et décrit pour les technologies d'assistance.
+ *
+ * Sans lui, un lecteur d'écran annonce une suite de boutons sans dire qu'ils
+ * forment un choix, ni combien de réponses sont attendues. `role="group"` avec
+ * son nom et sa description règle les deux d'un coup, et ne change rien à
+ * l'affichage — la mise en page reste celle que chaque écran lui passe.
+ */
+export function GroupeDeReponses({
+  decritPar,
+  className,
+  style,
+  children,
+}: {
+  /** `id` de la consigne, annoncée à l'entrée du groupe. */
+  decritPar?: string;
+  className?: string;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Réponses possibles"
+      aria-describedby={decritPar}
+      className={className}
+      style={style}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function OptionReponse({
   marqueur,
   multiple = false,

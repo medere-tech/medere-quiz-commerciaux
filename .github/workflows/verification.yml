@@ -1,0 +1,149 @@
+# Vérification complète, dans un environnement neuf, à chaque poussée.
+#
+# POURQUOI CE FICHIER EXISTE
+#
+# Les trois pannes de ce projet ont la même forme : un artefact vérifié d'un
+# côté, exécuté de l'autre, sans que rien ne signale l'écart.
+#
+#   - Lot 3 — les règles Firestore publiées étaient restées celles du mode
+#     production, alors que le dépôt en portait trois cents lignes validées par
+#     l'émulateur. Les tests portaient sur le fichier, pas sur le jeu déployé.
+#   - Lot 6 — `functions/` compilait en local grâce à un `npm install` fait à la
+#     main dans ce dossier, et échouait sur Vercel, qui n'installe que les
+#     dépendances de la racine.
+#   - Lot 6 — toutes les pages ont répondu 500 en production sur un `require()`
+#     de module ES refusé, alors que le build passait et que le serveur local
+#     tournait.
+#
+# Un environnement neuf ne rattrape pas les trois — le troisième tient à une
+# particularité de l'exécutant Vercel, et le premier se joue après le
+# déploiement (voir `regles-publiees.yml`). Il rattrape le deuxième, et surtout
+# il supprime la classe entière : **plus rien ne dépend de ce qui traîne sur une
+# machine.** Tout est installé depuis les fichiers de verrouillage, à chaque
+# fois, y compris `functions/`.
+
+name: Vérification
+
+on:
+  push:
+  pull_request:
+
+# Une poussée en remplace une autre : inutile de faire tourner deux fois la même
+# branche. La branche par défaut fait exception — on veut l'historique complet
+# de ce qui a été vert sur `main`.
+concurrency:
+  group: verification-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verification:
+    name: build, typecheck, lint et tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # AUCUN SECRET RÉEL ICI, ET C'EST DÉLIBÉRÉ.
+    #
+    # Le build valide la configuration au moment de collecter les données de
+    # page : sans ces variables, il échoue. Mais il ne s'en sert que pour la
+    # valider — aucune requête ne part vers Firebase, Airtable ou reCAPTCHA
+    # pendant `next build`. Des valeurs factices conformes suffisent donc, et
+    # elles valent mieux qu'un vrai jeton : un secret exposé au workflow est
+    # lisible par toute action tierce qu'on y ajouterait un jour, et une
+    # vérification qui ne peut rien exfiltrer est une vérification qu'on peut
+    # laisser tourner sur chaque branche sans y penser.
+    #
+    # **Effet de bord utile** : ce bloc fait du build un test du contrat
+    # d'environnement. Ajouter une variable exigée dans `src/lib/env/` sans
+    # l'ajouter ici, ni à `.env.example`, ni à Vercel, rend la vérification
+    # rouge tout de suite — au lieu du premier chargement en production.
+    env:
+      NEXT_PUBLIC_FIREBASE_API_KEY: factice-api-key
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: demo-medere-quiz.firebaseapp.com
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: demo-medere-quiz
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: demo-medere-quiz.appspot.com
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '000000000000'
+      NEXT_PUBLIC_FIREBASE_APP_ID: '1:000000000000:web:0000000000000000000000'
+      NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY: factice-recaptcha
+      FIREBASE_ADMIN_PROJECT_ID: demo-medere-quiz
+      FIREBASE_ADMIN_CLIENT_EMAIL: factice@demo-medere-quiz.iam.gserviceaccount.com
+      FIREBASE_ADMIN_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nFACTICE\n-----END PRIVATE KEY-----\n'
+      AIRTABLE_TOKEN: patFACTICE
+      AIRTABLE_BASE_ID: appFACTICE
+      AIRTABLE_TABLE_FORMATIONS: tblFACTICE
+      CRON_SECRET: '0123456789abcdef0123456789abcdef'
+      ALLOWED_EMAIL_DOMAIN: medere.fr
+      ADMIN_EMAILS: noemie@medere.fr
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v5
+
+      - name: Installer Node
+        uses: actions/setup-node@v5
+        with:
+          # La version que Vercel exécutera, lue au même endroit : `engines.node`
+          # du `package.json`. La déclarer ailleurs reviendrait à pouvoir les
+          # désaligner sans le voir.
+          node-version-file: package.json
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+
+      - name: Installer Java
+        # L'émulateur Firestore tourne sur la machine virtuelle Java. L'image du
+        # runner en fournit une, mais laquelle relève de son bon vouloir : on la
+        # fixe pour que la mise à jour d'une image ne casse pas la vérification
+        # un matin, sans rapport avec un changement du dépôt.
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Installer les dépendances de la racine
+        # `npm ci` et pas `npm install` : il exige que le verrou et le manifeste
+        # concordent, et il part d'un `node_modules` vide. C'est exactement ce
+        # qu'on veut vérifier.
+        run: npm ci
+
+      - name: Installer les dépendances des fonctions
+        # `functions/` est un paquet npm à part, avec son propre verrou. Le build
+        # de Next ne le compile pas, et Vercel ne l'installe pas : c'est ici et
+        # nulle part ailleurs qu'un écart se voit.
+        run: npm ci --prefix functions
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        # Couvre l'application et `functions/`. C'est la seule commande qui
+        # vérifie la seconde.
+        run: npm run typecheck
+
+      - name: Build de l'application
+        run: npm run build
+
+      - name: Build des fonctions
+        # Le typecheck ne produit rien ; le déploiement, lui, exécute ce build en
+        # `predeploy`. On le fait tourner pour que son échec se voie ici plutôt
+        # qu'au milieu d'un déploiement.
+        run: npm --prefix functions run build
+
+      - name: Tests
+        # `test:tout` enchaîne les deux jeux :
+        #
+        #   - `test:regles` — émulateur Firestore seul, règles de sécurité et
+        #     dépôts. Quarante-cinq secondes environ.
+        #   - `test:fonctions` — émulateurs Firestore, Auth et Functions, les
+        #     trois déclencheurs exercés de bout en bout. **Deux minutes
+        #     mesurées**, dont un démarrage à froid de treize secondes sur le
+        #     premier déclenchement.
+        #
+        # Les deux sont séparés en local, pour qu'on puisse relancer le premier
+        # vingt fois par heure. Ici, rien ne presse : c'est précisément l'endroit
+        # où l'on paie deux minutes pour ne pas découvrir un jeudi matin que le
+        # bilan ne s'écrit pas.
+        run: npm run test:tout

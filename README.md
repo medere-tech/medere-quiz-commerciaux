@@ -337,7 +337,7 @@ contrôle avant commit est `npm run build && npm run typecheck`**, et le second
 échoue clairement si les dépendances de `functions/` ne sont pas installées —
 un `npm install --prefix functions` suffit.
 
-**Déployer l'agrégation, et purger ses marqueurs.** Cinq gestes, et **l'ordre
+**Déployer l'agrégation, et purger ses marqueurs.** Six gestes, et **l'ordre
 n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
 
 1. `npm run fonctions:deploy` — les fonctions se déploient depuis
@@ -346,15 +346,42 @@ n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
 2. **Nettoyage des données de recette**, avant d'ouvrir l'application aux
    commerciaux : les réponses de test et `questionStats` partent ensemble. Voir
    section 3, « `questionStats` contient aujourd'hui des données de recette ».
-3. **Le premier commercial répond.** C'est la condition des deux gestes
+3. **Rotation de la clé du compte de service**, en même temps que le nettoyage
+   et avant l'ouverture aux commerciaux. Console Google Cloud → IAM et
+   administration → Comptes de service → le compte de l'application → Clés :
+   créer une clé JSON neuve, mettre à jour `FIREBASE_ADMIN_PRIVATE_KEY` dans
+   `.env.local` **et** dans les variables Vercel, vérifier que l'application
+   répond, puis supprimer l'ancienne clé. Dans cet ordre : supprimer d'abord
+   couperait la production.
+
+   **Pourquoi ce geste est dans cette liste.** Le 15 septembre 2026, la clé
+   privée du compte de service s'est retrouvée **en clair dans la transcription
+   locale d'une session Claude Code**, sous
+   `~/.claude/projects/<projet>/<session>.jsonl`. Elle n'a été ni committée, ni
+   publiée, ni envoyée à un tiers — mais elle a quitté le dossier des clés pour
+   un dossier que personne ne surveille, et qui n'a jamais été pensé comme un
+   coffre. Une clé de service se remplace en cinq minutes ; la question « qui a
+   lu ce fichier » n'a pas de réponse facile.
+
+   **La règle pratique qui va avec, et elle vaut pour tous les secrets.**
+   *Ne pas laisser une ligne sélectionnée dans un fichier de secrets pendant
+   qu'une session tourne.* L'intégration éditeur transmet **la sélection
+   courante** avec chaque message — sans qu'on copie quoi que ce soit, et sans
+   qu'on le demande. Un fichier simplement **ouvert** ne transmet que son
+   chemin ; un fichier dont une ligne est **sélectionnée** transmet le contenu
+   de cette ligne. La nuance ne se voit pas à l'écran, et c'est précisément ce
+   qui la rend dangereuse. Fermer l'onglet, ou au minimum déplacer le curseur
+   hors de la ligne, avant de lancer une session.
+
+4. **Le premier commercial répond.** C'est la condition des deux gestes
    suivants, et elle n'a rien d'une formalité — voir plus bas.
-4. `npm run stats:reprise -- --faire` — reconstruit les compteurs à partir des
+5. `npm run stats:reprise -- --faire` — reconstruit les compteurs à partir des
    réponses en base. Il ne sert qu'à rattraper les réponses écrites pendant que
-   la fonction était absente ou en panne. **Lancé avant l'étape 3, il vide
+   la fonction était absente ou en panne. **Lancé avant l'étape 4, il vide
    `questionStats` au lieu de la reconstruire** : il écarte les comptes
    administrateurs, et il n'y a alors rien d'autre à compter. L'essai à blanc,
    sans `--faire`, montre l'écart avant d'écrire — le lire.
-5. **Une stratégie TTL sur les marqueurs**, à créer une fois en console :
+6. **Une stratégie TTL sur les marqueurs**, à créer une fois en console :
    *Firestore → Time-to-live (TTL) → Créer une stratégie*. Groupe de
    collections `evenements`, champ d'horodatage `expireLe`. Le groupe de
    collections, pas un chemin : les marqueurs vivent sous
@@ -850,93 +877,473 @@ Un lot, une branche, une PR, une validation. On ne passe pas au suivant sans que
 7. **Session collective temps réel.**
 8. **Finition** — états vides, erreurs, chargements, navigation clavier, mobile.
 
-### Candidat pour le lot 8 : une vérification en intégration continue
+### La vérification en intégration continue
 
-Un workflow GitHub Actions qui rejoue `build`, `typecheck`, `lint` et les tests
-sur chaque poussée, dans un environnement propre — dépendances installées
-depuis les fichiers de verrouillage, racine et `functions/`, sans rien qui
-traîne d'une manipulation antérieure.
+`.github/workflows/verification.yml` rejoue `lint`, `typecheck`, `build`, le
+build de `functions/` et les deux jeux de tests sur chaque poussée, dans un
+environnement neuf : dépendances installées par `npm ci` depuis les fichiers de
+verrouillage, racine **et** `functions/`.
 
-**Ce que ça aurait attrapé.** Les deux pannes de déploiement de ce projet ont
-la même forme : un artefact vérifié d'un côté, utilisé de l'autre. Les règles
-Firestore publiées qui divergeaient du dépôt au lot 3, et `functions/` qui ne
-compilait en local que grâce à un `npm install` fait à la main dans ce dossier,
-au lot 6. Un environnement neuf à chaque poussée rend ces deux écarts visibles
-avant le déploiement, pas après.
+**Deux points étaient laissés à trancher. Les voici tranchés.**
 
-À cadrer au moment du lot : quels secrets exposer au workflow — l'émulateur
-Firestore n'en demande aucun, la vérification des index en demande —, et si la
-vérification des règles publiées y entre ou reste un geste de déploiement.
+**Quels secrets exposer : aucun.** Le build échoue sans les variables
+d'environnement — il valide la configuration en collectant les données de page
+— mais il ne s'en sert que pour la valider : aucune requête ne part vers
+Firebase, Airtable ou reCAPTCHA pendant `next build`. Vérifié en retirant
+`.env.local` et en ne fournissant que des valeurs factices : le build passe ; en
+en retirant une, il échoue en nommant la variable. Le workflow porte donc des
+valeurs visiblement fausses, écrites en clair. Un secret exposé à un workflow
+est lisible par toute action tierce qu'on y ajouterait un jour, et une
+vérification qui ne peut rien exfiltrer est une vérification qu'on laisse
+tourner sur chaque branche sans y penser.
 
-### À faire au lot 8 : le nettoyage des données de recette
+Effet de bord utile : **le build devient un test du contrat d'environnement.**
+Ajouter une variable exigée sans l'ajouter au workflow, à `.env.example` et à
+Vercel rend la vérification rouge tout de suite, au lieu du premier chargement
+en production.
 
-Les réponses de test, `questionStats`, et **la séance `CPY68N` restée ouverte**
-partent ensemble. Cette dernière n'a pas été close : tant qu'elle est `encours`,
-`maSessionEnCours` la retrouve, et Noémie retombera dessus en ouvrant l'écran
-d'animation au lieu d'un écran d'ouverture. La reprise fonctionne — elle
-reprend simplement une séance de recette.
+**La vérification des règles publiées : dehors, et dans son propre workflow.**
+Elle compare une branche à la production. Or une branche de lot qui modifie
+`firestore.rules` en diffère légitimement — le déploiement vient après la
+fusion. L'y mettre rendrait la vérification rouge pour une bonne raison, et une
+vérification rouge pour une bonne raison finit par ne plus être lue. Elle exige
+en outre un vrai secret, ce qui ferait perdre la propriété ci-dessus.
 
-### Candidat pour le lot 8 : le préchargement après une déconnexion
+`.github/workflows/regles-publiees.yml` la fait donc tourner seule, sur `main`,
+tous les jours à 06:00 UTC, plus à la demande. Trois secrets de dépôt à créer :
+`FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`,
+`FIREBASE_ADMIN_PRIVATE_KEY` — un compte de service en lecture seule, rôle
+« Lecteur des règles Firebase ». Elle ne remplace pas `npm run regles:deploy`,
+qui vérifie déjà après déploiement ; elle rattrape ce que ce geste ne voit pas :
+un déploiement oublié, et une modification faite à la main dans la console.
 
-Le préchargement introduit avec la navigation instantanée continue de travailler
-après que la session est fermée. `seDeconnecter()` détruit le cookie serveur puis
-vide l'état Firebase, mais les requêtes de préchargement déjà lancées — celles
-des `<Link>` visibles, celles de `usePrechargementCertain` — arrivent au serveur
-sans cookie valable. `exigerSession()` lève alors une `ErreurAcces` que
-`onRequestError` écrit dans les journaux Vercel.
+### Les tests de bout en bout des Cloud Functions
 
-**Aucune conséquence de sécurité** : c'est le refus qui fonctionne comme prévu,
-aucune donnée ne sort. Le problème est ailleurs — **ces refus attendus vont noyer
-les vraies erreurs**, et l'on sait déjà ce que coûte un journal illisible : le 500
-de production a demandé deux déploiements faute de voir l'erreur réelle.
+`tests/fonctions/declencheurs.test.ts` — douze tests, les trois déclencheurs
+exercés comme en production : on écrit dans Firestore et on attend ce qui doit
+en sortir. Les émulateurs Firestore, Auth et Functions tournent ensemble, le
+module compilé de `functions/` est chargé, les vrais déclencheurs sont
+enregistrés.
 
-Deux directions à trancher au moment du lot : distinguer côté serveur une requête
-de préchargement (elle porte l'en-tête `next-router-prefetch`, posé par Next — la constante est dans `next/dist/client/components/app-router-headers.js`) pour la refuser en
-silence, ou annuler le préchargement côté navigateur au moment de la déconnexion.
-La première est la plus sûre — elle couvre aussi le cookie expiré en cours de
-route —, mais elle touche à la frontière entre « session absente » et « panne »,
-qui a déjà coûté cher : à instruire avec soin, pas à improviser.
+Ce qui manquait n'était pas le calcul — `classer`, `bilanDesReponses`,
+`doitCompter`, `agreger` avaient leurs tests — mais **le déclenchement** et
+**l'écriture**. Le bilan, en particulier, n'avait jamais tourné une seule fois,
+ni en local ni en production.
 
-### Candidat pour le lot 8 : les Cloud Functions ne sont testées par rien
+**Coût mesuré : deux minutes**, dont treize secondes de démarrage à froid sur le
+premier déclenchement. Trop pour `npm test`, qu'on relance vingt fois par heure.
+D'où trois commandes :
 
-Le lot 7 a ajouté des tests du **dépôt** contre l'émulateur Firestore
-(`tests/depot/`). Ils couvrent ce que le navigateur écrit. Ils ne couvrent pas
-ce que le serveur écrit ensuite, et **cette moitié-là n'a aucun test**.
+```bash
+npm test             # règles et dépôts, émulateur Firestore seul — 45 s
+npm run test:fonctions   # les trois déclencheurs, trois émulateurs — 2 min
+npm run test:tout        # les deux, ce que fait l'intégration continue
+```
 
-Trois déclencheurs, trois écritures que personne ne vérifie :
-`agregerReponseEntrainement` alimente `questionStats` ; `compterReponseSession`
-tient le décompte des votes ; `classerSessionTerminee` écrit le `bilan`, le
-`classement` et les `prix`. Ils s'exécutent avec le SDK Admin, **hors règles** :
-aucun des tests de règles ne les voit, et aucun test de dépôt non plus, puisque
-`npm test` ne démarre que l'émulateur Firestore.
+Deux pièges rencontrés en les écrivant, tous deux consignés dans le code :
 
-**Le bilan n'a jamais tourné une seule fois.** Ni en local, ni en production. Le
-premier exercice réel de cette fonction aura lieu un jeudi matin, sur la séance
-de Noémie, et son échec se verra sur l'écran « Ce qui a trébuché » — après la
-séance, quand il n'y a plus rien à rattraper.
+- **La découverte des fonctions expire au réglage par défaut.** Dix secondes ne
+  suffisent pas ici, et le message est le préfixe fixe déjà connu — « User code
+  failed to load. Cannot determine backend specification. »
+  `scripts/tester-fonctions.mjs` desserre le délai, comme `fonctions:deploy`.
+- **Une sonde qui ne se déclenche pas doit échouer, pas se taire.** La première
+  version rendait « rien ne s'est déclenché » alors que le module n'avait pas
+  chargé du tout : le même symptôme pour deux causes opposées. L'attente lève
+  désormais, avec un message qui renvoie au journal de l'émulateur. Vérifié en
+  cassant volontairement l'écriture du bilan : le jeu de tests devient rouge et
+  dit lequel.
 
-Ce qu'il faudrait, et ce que ça coûte :
+### Le nettoyage des données de recette
 
-- démarrer l'émulateur **functions** en plus de Firestore dans `npm test`. Les
-  deux sont déjà déclarés dans `firebase.json` ; `test:regles` n'en lance qu'un.
-  L'émulateur functions compile `functions/` avant de démarrer, ce qui allonge
-  la suite de plusieurs dizaines de secondes — à mesurer avant de l'imposer à
-  chaque exécution, quitte à en faire une commande séparée ;
-- écrire les scénarios de bout en bout : une séance jouée, terminée, puis la
-  vérification du bilan, du classement et des prix effectivement écrits. Le
-  calcul pur est déjà testé (`tests/statistiques/classement.test.ts`) — ce qui
-  manque est le **déclenchement** et l'**écriture**, c'est-à-dire exactement ce
-  qui a manqué côté dépôt ;
-- vérifier la déduplication par identifiant d'événement, qui repose sur des
-  marqueurs à durée de vie limitée. Le TTL n'est toujours pas créé (voir les
-  gestes de mise en service) : la fonction est écrite pour l'at-least-once, rien
-  ne le prouve.
+`npm run recette:nettoyer` — **le script est écrit, il n'a pas été exécuté.**
 
-**À ne pas confondre avec les tests de dépôt.** Ceux-là sont écrits et verts.
-Celui-ci est un chantier distinct, plus lourd, et c'est le genre de chose qu'on
-découvre le jeudi matin.
+Essai à blanc par défaut : il liste ce qui partirait, groupé et reconnaissable
+— adresses, codes de séance avec leur statut, énoncés —, et ne touche à rien.
+Deux barrières pour exécuter : `--confirmer=EFFACER`, puis la saisie du nom du
+projet à la main, après avoir lu la liste. Firestore n'a pas de corbeille.
+
+Périmètres séparés : `--progression`, `--seances`, `--statistiques`,
+`--synchros`, et `--questions=toutes` ou `--questions=<id>,<id>`. **Aucune
+question n'est supprimée sans être nommée** : la banque contient déjà du travail
+de Noémie, et rien dans un document ne distingue un essai d'une vraie question.
+
+Ne sont pas touchés : `formations`, qui se reconstruit par synchronisation, et
+les comptes Firebase Authentication avec leurs custom claims — les supprimer
+ferait perdre le rôle administrateur, qui ne se réattribue pas tout seul.
+
+La séance `CPY68N` restée `encours` apparaît dans l'essai à blanc, signalée
+« jamais close ».
+
+### Le préchargement après une déconnexion : le diagnostic était faux
+
+Ce candidat annonçait que les requêtes de préchargement arrivant après une
+déconnexion faisaient lever une `ErreurAcces` écrite dans les journaux Vercel.
+**Reproduit sur le build de production, ce n'est pas ce qui se passe.** Une
+requête de préchargement sans cookie reçoit un 307 et **n'écrit rien** : Next la
+traite sans passer par `onRequestError`.
+
+Ce qui écrivait, en revanche, et que personne n'avait vu : **chaque visite
+anonyme de l'accueil et de la série**, préchargement ou non. `chargerReferentiel`
+portait le commentaire « les dispositions rendent alors l'écran de connexion, et
+cette lecture n'a pas lieu ». Elle a lieu : Next évalue la disposition et la page
+du même segment en parallèle. La disposition décidait bien de rendre l'écran de
+connexion, mais la page avait déjà démarré et pris l'`ErreurAcces` en pleine
+figure — avec sa pile, sur l'écran le plus visité de l'outil, le premier qu'un
+commercial voit.
+
+Correction : les pages appellent `chargerReferentielSiConnecte`, qui rend `null`
+quand personne n'est connecté. Le garde de `chargerReferentiel` reste et lève
+toujours — il protège l'autre cas, celui d'une page qui servirait le catalogue à
+un visiteur anonyme. S'il se déclenche désormais, c'est un vrai défaut.
+
+Mesuré sur les huit écrans, sans cookie, avant et après : **quatre lignes
+d'erreur pour six requêtes, puis zéro pour huit.**
+
+### Les écrans de limite, qui n'existaient pas
+
+Le dépôt ne portait ni `error.tsx`, ni `global-error.tsx`, ni `not-found.tsx`.
+Une panne dans une page rendait donc l'écran par défaut de Next — en production,
+« Application error: a server-side exception has occurred », en anglais, sans
+marque et sans issue. `EtatErreur` existait dans le système de design et aucune
+frontière ne s'en servait.
+
+Quatre écrans ajoutés, tous vérifiés au navigateur à 375 pixels :
+
+- `src/app/error.tsx` — la frontière racine. Elle attrape aussi les
+  **dispositions** de `(parcours)`, `admin`, `serie` et `animer`, qu'une
+  frontière de segment ne rattrape pas : c'est le chemin de
+  `ErreurVerificationIdentite`, la panne qui a coûté deux déploiements.
+- `src/app/(parcours)/error.tsx` et `src/app/admin/error.tsx` — la coquille
+  reste à l'écran, et l'on passe à un autre écran par la navigation. Le texte
+  diffère : côté commercial on rassure sur les réponses enregistrées, côté
+  back-office sur la saisie en cours, qui elle n'a pas été envoyée.
+- `src/app/global-error.tsx` — la dernière frontière, sans dépendance à
+  `systeme.css` ni aux polices, puisqu'elle remplace `<html>`.
+- `src/app/not-found.tsx` — un état vide, pas une erreur : rien n'est cassé.
+
+**Le digest est affiché.** En production, Next n'envoie ni le message ni la pile
+au navigateur, seulement cet identifiant — le même que celui des journaux
+serveur. C'est la seule chose qu'un commercial puisse lire à voix haute pour
+qu'on retrouve sa panne.
+
+Piège de version rencontré : dans cette version de Next, la frontière reçoit
+`error` et **`retry`** — pas `reset`. Traduire les noms dans la signature
+revenait à recevoir `undefined` des deux côtés, et l'écran par défaut
+s'affichait quand même. Vérifié à l'écran avant et après.
+
+**La régression de poids, annoncée.** Une frontière d'erreur est un composant
+client, et celle de la racine enveloppe toutes les routes : ce qu'elle importe
+entre dans le fragment initial de **chaque** écran. La première version
+s'appuyait sur `EtatErreur` et `Bouton` du système : mesuré, **+16,6 ko
+transférés partout**, écran de connexion compris. Les écrans de limite ont donc
+été rendus autonomes — mêmes jetons, mêmes formes, mais aucune dépendance vers
+`primitives` ni `etats` — ce qui a rendu 6,5 ko.
+
+Solde assumé : **300,7 → 310,8 ko transférés, 181,8 → 191,9 ko de JS, soit
++10,1 ko sur chaque écran** (build de production servi en local, gzip, même
+appareil de mesure qu'au lot 7). CLS 0. C'est le prix d'un écran de panne en
+français, sur la marque, avec une référence traçable, et d'un vrai 404. Le
+signaler fait partie du marché : une régression annoncée est un arbitrage.
+
+### L'échelle des largeurs
+
+Cinq seuils de requête de média, dont deux à soixante pixels l'un de l'autre
+pour la même intention, et le seuil de la coquille écrit dans trois blocs
+séparés. Ramenés à quatre — 1200, 1040, 900, 760 —, chacun nommé et expliqué une
+fois en tête de `src/styles/systeme.css`, les blocs fusionnés. Une requête de
+média n'accepte pas `var()` : les nombres restent répétés, mais on sait
+désormais ce que chacun veut dire.
+
+### Les pannes du navigateur remontent enfin
+
+`onRequestError` couvrait le serveur. Une panne dans un composant client —
+l'éditeur, l'écran de séance, la révélation du classement — n'écrivait que dans
+la console du commercial. C'est la moitié qui tourne le jeudi, sur dix
+téléphones, et les trois défauts trouvés en séance réelle au lot 7 vivaient
+tous de ce côté-là.
+
+**Pourquoi pas Sentry.** Mesuré sur le paquet CDN de la version 10.74 : le
+bundle navigateur minimal pèse **29,8 ko gzip**, trois fois la régression
+consentie pour les écrans de panne eux-mêmes, sur chaque écran. Et il collecte
+par défaut ce qu'on ne veut surtout pas remonter — le texte des éléments
+cliqués, les valeurs de formulaire, les corps de requête. Le désarmer champ par
+champ est une politique à écrire puis à maintenir à chaque montée de version.
+Pour dix utilisateurs, une seule application et un journal serveur déjà collecté
+par Vercel, le rapport n'y est pas.
+
+**Ce qui a été construit à la place**, pour **1,0 ko mesuré** :
+
+- `src/lib/journal/redaction.ts` — l'expurgation, pure et testée : adresses,
+  chemins `users/{uid}`, jetons. Elle tourne deux fois, dans le navigateur puis
+  sur le serveur, parce qu'un client ne se croit pas sur parole.
+- `src/lib/journal/client.ts` — l'envoi, avec déduplication, plafond de cinq
+  signalements par chargement et `sendBeacon` pour survivre à la navigation.
+- `src/composants/journal/SondeErreurs.tsx` — `error` et `unhandledrejection`,
+  montés par la disposition racine. C'est la moitié qu'aucune frontière React
+  n'attrape : gestionnaires, effets, promesses rejetées.
+- `src/app/api/journal-client/route.ts` — la route. Session exigée, réponse
+  `204` uniforme, écriture sur la sortie d'erreur que Vercel collecte déjà.
+
+**Cinq champs partent, et rien d'autre** : origine, message borné à 300
+caractères, six lignes de pile, le chemin de l'écran **sans sa chaîne de
+requête**, et le digest. Aucune valeur de formulaire, aucun contenu de
+document, aucun corps de requête, aucune capture.
+
+**Aucun identifiant d'utilisateur n'est journalisé** : le rôle suffit. C'est la
+même décision que dans `agregerReponseEntrainement`, prise pour la même raison.
+
+Vérifié de bout en bout dans un vrai navigateur : une promesse rejetée portant
+`users/uid-jordan-4f7b2c/reponses/q-vf_1789 pour jordan@medere.fr` part en
+`users/[uid]/reponses/q-vf_1789 pour [adresse]`, dans le message **comme dans la
+pile** ; la même panne envoyée deux fois n'en produit qu'un signalement ; une
+exception dans un `setTimeout` est bien capturée ; un envoi sans session
+n'écrit rien.
+
+### La session ne se redemande plus chaque semaine
+
+`DUREE_SESSION_MS` passe de cinq à **quatorze jours** — le maximum qu'accepte
+Firebase — et le cookie se **renouvelle en glissant**, à mi-vie.
+
+Un cookie de session Firebase ne se prolonge pas côté serveur : il se
+refabrique à partir d'un jeton d'identité frais, que seul le navigateur peut
+produire. Le serveur constate donc (`renouvellementConseille`, calculé sur
+l'`exp` du jeton) et le navigateur agit, dans `GardeNavigateur`. Le drapeau
+voyage avec la page que les dispositions rendent déjà : **le cas courant ne
+coûte aucune requête supplémentaire**, et le renouvellement lui-même n'arrive
+qu'une visite sur deux pour qui vient une fois par semaine.
+
+Effet de bord utile : le renouvellement repasse par le chemin d'ouverture de
+session, donc il repose le custom claim. Un rôle qui change prend effet à la
+visite suivante, sans reconnexion — le piège des « custom claims non
+rafraîchis » perd son mordant.
+
+### Les secrets du workflow `regles-publiees.yml`
+
+À créer une fois, dans *Settings → Secrets and variables → Actions → New
+repository secret* du dépôt `medere-tech/medere-quiz-commerciaux` :
+
+| Nom | Valeur |
+| --- | --- |
+| `FIREBASE_ADMIN_PROJECT_ID` | l'identifiant du projet Firebase |
+| `FIREBASE_ADMIN_CLIENT_EMAIL` | `client_email` du compte de service |
+| `FIREBASE_ADMIN_PRIVATE_KEY` | `private_key`, **collée telle quelle**, retours à la ligne compris |
+
+Le compte de service n'a besoin que de lire : rôle **Lecteur des règles
+Firebase** (`roles/firebaserules.viewer`), et rien d'autre. Lui donner
+l'écriture ferait de ce workflow un chemin de déploiement, ce qu'il n'est pas.
+
+Un compte dédié vaut mieux que celui de l'application : il se révoque sans
+couper la production. *Console Google Cloud → IAM et administration → Comptes de
+service → Créer*, puis *Clés → Ajouter une clé → JSON*.
+
+Vérification après création : *Actions → Règles publiées → Run workflow*. Le
+journal doit finir sur « Les règles déployées sont exactement celles du dépôt. »
 
 ---
+
+### Le référentiel n'est plus servi en entier
+
+**Deux versions, et le choix se fait par écran.** `chargerReferentiel` rend
+désormais des questions de **liste** — tout sauf `options`, `ordreOptions`,
+`bonnesReponses`, `explication`, `contexte` et les champs de source. Un
+`select()` borne aussi ce que Firestore transporte jusqu'au serveur.
+`chargerReferentielComplet` rend le contenu, et un seul écran l'appelle : la
+série, qui pose les questions.
+
+**Les deux écrans de séance ne reçoivent plus rien.** Ils recevaient la banque
+publiée entière pour n'y chercher qu'une question à la fois, en secours de
+l'écouteur temps réel — qui fait autorité de toute façon et répond en quelques
+dizaines de millisecondes. Le secours coûtait plus qu'il ne servait. Il a fallu
+en revanche distinguer trois états là où il y en avait deux : tant que
+l'écouteur n'a pas parlé, on attend ; quand il rend `null`, la question n'est
+plus publiée. Afficher « question indisponible » pendant l'attente aurait été un
+mensonge, sur l'écran de dix téléphones un jeudi.
+
+**Ce que ça donne, mesuré sur un écran AUTHENTIFIÉ** — build de production servi
+localement, émulateurs Firestore et Auth, vrai cookie de session, document HTML
+encodé :
+
+| banque publiée | accueil et à revoir | série | séance |
+| --- | --- | --- | --- |
+| 150 questions | **16,5 ko** | 34,9 ko | **5,3 ko** |
+| 500 questions | 34,1 ko | 94,2 ko | 3,8 ko |
+
+Avant, les quatre écrans se comportaient comme la colonne « série ». La séance
+est désormais **constante** : elle ne dépend plus de la taille de la banque.
+
+**Pourquoi la série garde le contenu complet, pour l'instant.** Le tirage est
+pondéré par la maîtrise, qui est privée et lue par le navigateur : le serveur ne
+sait pas quelles dix questions il devra servir. L'alternative — tirer, puis
+aller chercher le contenu des dix — échange quelques dizaines de kilo-octets
+contre **un aller-retour supplémentaire avant la première question**. À 150
+questions, l'économie vaut environ 25 ms de transfert en 4G contre 200 à 400 ms
+d'aller-retour : le compte n'y est pas. Il y sera vers 600 à 800 questions.
+**C'est le seuil à surveiller**, et c'est le seul endroit du parcours où la
+taille de la banque compte encore.
+
+### Ce que pèse vraiment un écran, et ce que je mesurais jusqu'ici
+
+**Les chiffres annoncés aux lots 7 et 8 — « 310,8 ko » — ne mesuraient pas ce
+qu'ils prétendaient.** Deux erreurs cumulées :
+
+1. Ils portaient sur l'**écran de connexion**, faute de cookie. Un commercial ne
+   le voit qu'une fois tous les quatorze jours.
+2. L'outil de mesure ne recomposait que les fragments statiques de
+   l'application trouvés sur le disque. **Les ressources tierces et le document
+   HTML n'y entraient pas.**
+
+Mesure refaite, même appareil, cookie de session valable, banque de 150
+questions, première visite, cache vide :
+
+| | connexion | accueil authentifié |
+| --- | --- | --- |
+| tiers Google (reCAPTCHA, App Check) | 390,9 ko | 390,9 ko |
+| scripts de l'application | 198,0 ko | 372,8 ko |
+| polices | 118,3 ko | 118,3 ko |
+| document | 4,6 ko | 16,5 ko |
+| **total transféré** | **715,1 ko** | **903,9 ko** |
+
+Les écarts annoncés lot après lot restent justes — ils étaient mesurés de façon
+cohérente entre eux. **La valeur absolue, elle, était fausse d'un facteur trois.**
+
+**À partir de maintenant, toute mesure de poids se fait sur un écran
+authentifié, avec une banque réaliste, et dit lequel.** Le harnais est dans le
+bac à sable : `COOKIE_SESSION` posé en variable d'environnement, `mesure-cdp.mjs`
+l'envoie en en-tête.
+
+**Deux postes dominent, et aucun n'est ce que ce projet a optimisé jusqu'ici :**
+les 390,9 ko de reCAPTCHA Enterprise, imposés par App Check et non négociables
+sans revenir sur cette décision ; et les 118,3 ko de polices, six faces
+préchargées. Tous deux sont `immutable` ou mis en cache par le tiers : ils se
+paient à la première visite, pas le jeudi suivant. **Candidat pour le lot 9 :
+mesurer la seconde visite, qui est le vrai régime d'usage.**
+
+### Les premiers tests d'écran
+
+`tests/ecrans/session-participant.test.tsx` — dix-neuf tests sur
+`SessionParticipant`, l'écran des dix téléphones. Vitest, déjà là,
+`@testing-library/react` et `happy-dom` en plus ; pas d'émulateur, quelques
+secondes d'exécution.
+
+**Ils répondent à la troisième question**, celle qu'aucun test ne posait : les
+règles disent ce qu'on a le droit d'écrire, le dépôt ce qu'on écrit, ceux-ci ce
+qui s'affiche. Cet écran croise cinq statuts de séance avec cinq états de vote ;
+six combinaisons au plus avaient jamais été vues à la main.
+
+**Règle de rédaction : par rôle et par texte visible, jamais par classe ni par
+structure.** Une seule entorse a été nécessaire et elle est instructive :
+chercher le nom « Jordan » par chaîne exacte échoue, parce qu'il partage son
+nœud de texte avec « · vous ». Le motif `/Jordan/` interroge ce que la personne
+lit ; la chaîne exacte interrogeait la composition de la phrase.
+
+**Deux constats de l'écriture même de ces tests :**
+
+- La révélation du classement dure plusieurs secondes — c'est l'exception
+  assumée à `prefers-reduced-motion`. Le test **attend la mise en scène** au
+  lieu de la désarmer : désarmer reviendrait à vérifier un écran que personne ne
+  verra.
+- Un test écrit depuis la règle du QCM multiple a échoué, et il avait raison de
+  le faire. Voir ci-dessous.
+
+### La consigne du QCM multiple
+
+Une ligne au-dessus des options, sur les **trois** écrans qui posent une
+question — la série, la séance côté participant, l'écran projeté :
+
+> Plusieurs réponses attendues — une réponse incomplète est comptée fausse.
+
+Le groupe d'options porte `role="group"`, un nom et un `aria-describedby` qui
+désigne cette consigne : elle est annoncée une fois à l'entrée du groupe, pas
+répétée à chaque option. Composants `ConsigneReponses` et `GroupeDeReponses`.
+
+**Ajout hors maquette, documenté dans `docs/design-imports.md`.** La seule
+distinction prévue était la forme du marqueur — carré au lieu de rond. Elle ne
+suffit pas : la règle est la moins devinable de l'outil, le public la découvre
+un jeudi sur son téléphone, et pour un lecteur d'écran la forme d'un marqueur
+`aria-hidden` n'existe pas.
+
+**Trouvé par un test d'écran** écrit depuis le modèle et non depuis l'écran : il
+a échoué en ayant raison.
+
+**L'étiquette de type suit.** Elle affichait « Choix multiples » pour **tout**
+QCM, y compris ceux qui n'ont qu'une bonne réponse : l'écran pouvait donc dire
+« CHOIX MULTIPLES » trois lignes au-dessus de « Une seule réponse. »
+L'étiquette créait l'ambiguïté que la consigne venait de lever. Sur les trois
+écrans qui posent une question, elle dit désormais le nombre de réponses
+attendues — « Une réponse », « Plusieurs réponses », « Vrai ou faux »
+inchangé. Les listes et l'éditeur gardent `LIBELLES_TYPE` : c'est là qu'un nom
+de format a sa place, et une question de liste ne porte pas ses bonnes
+réponses de toute façon.
+
+**Les titres des états vides et des erreurs sont devenus des titres.**
+`EtatVide` et `EtatErreur` rendaient leur intitulé dans un `<span>` : un
+lecteur d'écran qui navigue de titre en titre ne s'y arrêtait jamais, sur les
+écrans mêmes où l'on cherche à comprendre ce qui se passe. Passés en `<h2>`,
+sans aucun changement d'affichage — vérifié à la capture.
+
+### Les tests d'écran, suite
+
+| Fichier | Écran | Tests |
+| --- | --- | --- |
+| `session-participant.test.tsx` | 10a · séance, côté commercial | 22 |
+| `serie.test.tsx` | 02–04 · la série et la correction | 14 |
+| `scene-projetee.test.tsx` | 10b · l'écran projeté | 5 |
+
+La série et la correction couvrent ce qui se paie en points : l'ensemble
+sélectionné part entier, une réponse partielle est comptée fausse **et montre
+ce qui manquait**, l'explication s'affiche, une panne d'écriture n'empêche pas
+d'avancer mais se dit, le clavier fait le même travail que la souris, et
+quitter une série engagée demande confirmation en annonçant ce que ça coûte.
+
+**Sur la fragilité, verdict après trois écrans :** aucun test n'a eu besoin de
+connaître une classe, une balise ou une hiérarchie. Trois ajustements ont été
+nécessaires, tous instructifs plutôt que gênants :
+
+- chercher un nom par chaîne exacte échoue quand il partage son nœud de texte
+  avec autre chose (« Jordan · vous ») — le motif interroge ce qu'on lit, la
+  chaîne exacte interrogeait la composition de la phrase ;
+- attendre la correction par son texte est ambigu quand deux éléments le
+  portent ; attendre le **bouton** qui n'apparaît qu'à ce moment-là ne l'est
+  pas ;
+- une assertion écrite de mémoire sur le libellé de confirmation était fausse :
+  l'écran dit « Série abandonnée : aucune étoile », ce qui est mieux.
+
+La révélation du classement dure plusieurs secondes — l'exception assumée à
+`prefers-reduced-motion`. Le test **attend la mise en scène** au lieu de la
+désarmer : désarmer reviendrait à vérifier un écran que personne ne verra.
+
+### Candidats pour le lot 9
+
+**Mesurer la seconde visite.** Toutes les mesures de ce projet portent sur une
+première visite, cache vide. Ce n'est pas le régime d'usage : un commercial
+revient chaque jeudi, et les fragments statiques comme les polices sont
+`immutable`. Le chiffre qui compte — ce que coûte l'ouverture de l'outil entre
+deux appels, la deuxième fois — n'a jamais été relevé sur un écran authentifié.
+
+**Et si la performance doit être reprise, c'est là qu'il faudra regarder :**
+
+| poste | poids | remarque |
+| --- | --- | --- |
+| tiers Google (reCAPTCHA, App Check) | **390,9 ko** | imposé par App Check ; le remettre en cause est une décision de sécurité, pas d'optimisation |
+| polices | **118,3 ko** | six faces préchargées, déjà sous-ensemblées en woff2 |
+
+**Ces deux postes pèsent plus que tout ce que les lots 7, 8 et 9 ont
+optimisé réuni.** Les scripts de l'application, eux, sont à 372,8 ko sur un
+écran authentifié. Tant qu'on n'a pas mesuré la seconde visite, on ne sait pas
+lequel des trois mérite le travail.
+
+---
+
+### Reste à faire, hors dépôt
+
+Un seul geste, et il ne peut pas être fait plus tôt : la stratégie TTL sur
+`questionStats/{questionId}/evenements` (section 4, geste 6) attend qu'un vrai
+commercial ait répondu — le groupe de collections doit exister pour que la
+console accepte de la créer.
+
+Les trois autres gestes de mise en service — déploiement des fonctions,
+nettoyage des données de recette, rotation de la clé de service — sont prêts et
+documentés ; ils se font le jour de l'ouverture.
 
 ---
 

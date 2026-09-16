@@ -56,6 +56,87 @@ Claude Design a produit des écrans qui vont au-delà du périmètre décidé. C
 | **09 · Carte « Session du jeudi »** | **Construite au lot 7.** Le tri l'avait écartée parce qu'« un bouton vers un écran absent vaut moins que pas de bouton » : l'écran d'animation n'existait pas. Il existe, et la carte mène dessus. Elle annonce les questions les plus ratées, dans l'ordre où l'écran d'animation les prend. |
 | **04b · Récompenses et équipe** | **Construit, au lot 7, sous une forme qui lève la contradiction relevée au tri.** L'objection tenait : un classement permanent entre commerciaux transforme un outil d'apprentissage en outil d'évaluation, et les scores d'entraînement restent privés. La séance collective est le seul contexte où le classement ne contredit rien — **ils étaient dans la même pièce et se sont vus répondre**. D'où la coupure : le **classement** est nominatif, il vit dans la séance et n'est lisible que par ceux qui y étaient, présence vérifiée par les règles ; le **prix** est privé, durable, et ne s'agrège à rien. Le tableau meurt avec la séance, le trophée reste. Rien ne remonte dans `questionStats`, et il n'existe nulle part de classement entre commerciaux hors d'une séance vécue ensemble. Chacun choisit le nom sous lequel il apparaît, borné à 32 caractères parce qu'il s'affiche sur un écran projeté. |
 
+### Ajouté hors maquette — la consigne du QCM multiple
+
+**Ce qui a été ajouté**, le 15 septembre 2026 : une ligne de consigne au-dessus
+des options, sur les trois écrans qui posent une question — la série
+(`Serie.tsx`), la séance côté participant (`SessionParticipant.tsx`) et l'écran
+projeté (`SceneProjetee.tsx`).
+
+> Plusieurs réponses attendues — une réponse incomplète est comptée fausse.
+>
+> Une seule réponse.
+
+Le groupe d'options porte désormais `role="group"`, un nom, et un
+`aria-describedby` qui désigne cette consigne : elle est annoncée **une fois**
+à l'entrée du groupe, pas répétée à chaque option. Composants
+`ConsigneReponses` et `GroupeDeReponses`, dans `src/composants/ds/parcours.tsx`.
+
+**Pourquoi hors maquette, et pourquoi quand même.**
+
+Les maquettes distinguent « une réponse » de « plusieurs » par **la forme du
+marqueur** : carré au lieu de rond. C'est une convention juste, et elle ne
+suffit pas ici, pour trois raisons qui se cumulent :
+
+1. **La règle est contre-intuitive et elle coûte des points.** Une sélection
+   incomplète est comptée fausse — pas partiellement juste. C'est la règle la
+   moins devinable de l'outil.
+2. **Le public la découvre en situation.** Un commercial ouvre l'application un
+   jeudi, sur son téléphone, entre deux appels. Il n'a aucune raison de
+   connaître la convention carré/rond, et personne ne la lui expliquera.
+3. **Pour un lecteur d'écran, l'information n'existait pas du tout.** La forme
+   d'un marqueur n'est pas restituée, et le marqueur lui-même est
+   `aria-hidden`.
+
+La série l'annonçait déjà, à sa manière (« Plusieurs réponses attendues. N
+cochées. ») ; la séance et l'écran projeté ne l'annonçaient pas. **Trois
+formulations différentes pour une même règle auraient été pires que le
+silence** : la consigne est désormais un seul composant, partagé.
+
+**Ce qui a été ajouté à la formulation de la série** : la conséquence.
+« Plusieurs réponses attendues » se lit comme une invitation ; « une réponse
+incomplète est comptée fausse » se lit comme une règle. C'est la seconde qui
+change ce qu'on clique.
+
+**Trouvé par un test d'écran**, écrit depuis la règle du modèle et non depuis
+l'écran : il a échoué en ayant raison. Voir
+`tests/ecrans/session-participant.test.tsx`.
+
+**L'étiquette de type suit, et elle aussi sort de la maquette.** Elle affichait
+`LIBELLES_TYPE`, donc « Choix multiples » pour **tout** QCM — y compris ceux
+qui n'ont qu'une bonne réponse. Le terme est techniquement juste : un
+questionnaire à choix multiple propose plusieurs options, il n'en attend pas
+plusieurs. Mais personne ne le lit ainsi, et une fois la consigne ajoutée,
+l'écran pouvait afficher « CHOIX MULTIPLES » trois lignes au-dessus de « Une
+seule réponse. » **L'étiquette créait l'ambiguïté que la phrase venait de
+lever.**
+
+Sur les trois écrans qui posent une question, elle dit désormais le **nombre de
+réponses attendues** : « Une réponse », « Plusieurs réponses », et « Vrai ou
+faux » inchangé — celui-là nomme les deux options elles-mêmes et ne peut pas se
+lire comme « plusieurs réponses ». « Mise en situation » disparaît de ces
+écrans : le contexte est affiché en toutes lettres juste au-dessus de l'énoncé,
+et une mise en situation portait exactement la même ambiguïté qu'un QCM.
+
+**Les listes et l'éditeur gardent `LIBELLES_TYPE`**, qui y est le bon nom — et
+d'ailleurs le seul possible, puisqu'une question de liste ne porte pas ses
+bonnes réponses. Fonction `libelleAttendu`, dans `src/lib/questions/modele.ts`.
+
+### Corrigé hors maquette — les titres des états vides et des erreurs
+
+`EtatVide` et `EtatErreur` rendaient leur intitulé dans un `<span>`.
+Visuellement c'était juste — taille et graisse d'un titre — mais un lecteur
+d'écran qui navigue de titre en titre ne s'y arrêtait jamais, et ce sont
+précisément les écrans où l'on cherche à comprendre ce qui se passe.
+
+Passés en `<h2>`, le 16 septembre 2026, avec `margin: 0` pour annuler la marge
+par défaut. **Rien ne change à l'affichage**, vérifié à la capture. `h2` et non
+`h1` : ces blocs vivent dans une page qui a déjà son titre ; quand ils occupent
+l'écran entier, ce sont les écrans de limite qui prennent le relais, avec un
+`h1`.
+
+Ce n'est pas une amélioration, c'est un défaut d'accessibilité corrigé.
+
 ### Retiré faute de maquette
 
 | Élément | Ce qui a été fait | Pourquoi |

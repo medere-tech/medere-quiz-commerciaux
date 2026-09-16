@@ -14,5 +14,7 @@ export default async function DispositionSerie({ children }: { children: ReactNo
   const session = await lireSession();
   if (!session) return <Connexion motif="anonyme" />;
 
-  return <GardeNavigateur>{children}</GardeNavigateur>;
+  return (
+    <GardeNavigateur renouveler={session.renouvellementConseille}>{children}</GardeNavigateur>
+  );
 }

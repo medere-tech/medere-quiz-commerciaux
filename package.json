@@ -13,6 +13,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit && npm --prefix functions run typecheck",
     "test": "npm run test:regles",
+    "test:tout": "npm run test:regles && npm run test:fonctions",
+    "test:fonctions": "node scripts/tester-fonctions.mjs",
     "test:regles": "firebase emulators:exec --only firestore --project demo-medere-quiz \"vitest run\"",
     "emulateurs": "firebase emulators:start --only firestore --project demo-medere-quiz",
     "regles:deploy": "firebase deploy --only firestore:rules && npm run regles:verifier",
@@ -20,7 +22,8 @@
     "stats:reprise": "node --env-file=.env.local scripts/agreger-historique.ts",
     "etats:reprise": "node --env-file=.env.local scripts/reconstruire-etats.ts",
     "enonces:normaliser": "node --env-file=.env.local scripts/normaliser-enonces.ts",
-    "regles:verifier": "node --env-file=.env.local scripts/verifier-regles.ts",
+    "recette:nettoyer": "node --env-file=.env.local scripts/nettoyer-recette.ts",
+    "regles:verifier": "node --env-file-if-exists=.env.local scripts/verifier-regles.ts",
     "fonctions:deploy": "node scripts/deployer-fonctions.mjs"
   },
   "dependencies": {
@@ -34,12 +37,15 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "5.0.2",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "26.4.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "eslint": "9.39.1",
     "eslint-config-next": "16.3.4",
     "firebase-tools": "15.28.2",
+    "happy-dom": "^20.14.5",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   }

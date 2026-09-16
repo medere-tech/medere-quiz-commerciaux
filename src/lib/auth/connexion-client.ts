@@ -44,7 +44,7 @@ export async function seConnecter(): Promise<User> {
  * retirer le custom claim administrateur, le jeton courant est périmé et doit
  * être renouvelé de force.
  */
-async function ouvrirSessionServeur(utilisateur: User): Promise<void> {
+export async function ouvrirSessionServeur(utilisateur: User): Promise<void> {
   for (const forcerRenouvellement of [false, true]) {
     const idToken = await utilisateur.getIdToken(forcerRenouvellement);
 
@@ -77,4 +77,30 @@ async function ouvrirSessionServeur(utilisateur: User): Promise<void> {
 export async function seDeconnecter(): Promise<void> {
   await fetch('/api/auth/session', { method: 'DELETE' });
   await signOut(authentification());
+}
+
+/**
+ * Refait le cookie de session sans rien demander à personne.
+ *
+ * **Pourquoi c'est le navigateur qui agit.** Un cookie de session Firebase ne
+ * se prolonge pas côté serveur : il se refabrique à partir d'un jeton
+ * d'identité frais, que seul le navigateur peut produire — il détient le jeton
+ * de rafraîchissement. Le serveur dit quand (`renouvellementConseille`), le
+ * navigateur le fait.
+ *
+ * **Un échec ne se voit pas, et c'est voulu.** Le cookie en place est encore
+ * valable — on renouvelle à mi-vie, pas à l'expiration. Interrompre quelqu'un
+ * pour lui dire qu'un renouvellement anticipé a échoué serait du bruit ; la
+ * prochaine visite réessaiera. Seul le journal en garde trace.
+ *
+ * Le renouvellement réutilise le chemin d'ouverture, donc il repose aussi le
+ * custom claim si le rôle a changé entre-temps : un administrateur promu voit
+ * ses droits prendre effet à sa visite suivante, sans reconnexion.
+ */
+export async function renouvelerSessionServeur(utilisateur: User): Promise<void> {
+  try {
+    await ouvrirSessionServeur(utilisateur);
+  } catch (panne: unknown) {
+    console.error('Renouvellement de la session impossible', panne);
+  }
 }
