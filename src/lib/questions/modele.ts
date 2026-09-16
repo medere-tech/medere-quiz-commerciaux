@@ -19,12 +19,52 @@ export type StatutQuestion = (typeof STATUTS_QUESTION)[number];
 export const DIFFICULTES = [1, 2, 3] as const;
 export type Difficulte = (typeof DIFFICULTES)[number];
 
-/** Libellés d'interface, en français, pour les trois types. */
+/**
+ * Libellés d'interface, en français, pour les trois types.
+ *
+ * **Ils nomment le format, et c'est leur place : les listes et l'éditeur.**
+ * Devant quelqu'un qui répond, ils ne conviennent pas — voir
+ * `libelleAttendu` juste en dessous.
+ */
 export const LIBELLES_TYPE: Record<TypeQuestion, string> = {
   vf: 'Vrai ou faux',
   qcm: 'Choix multiples',
   scenario: 'Mise en situation',
 };
+
+/**
+ * Ce que l'étiquette dit à qui s'apprête à répondre : **le nombre de réponses
+ * attendues**, et non le format interne du modèle.
+ *
+ * **Le défaut qu'elle corrige.** L'étiquette affichait `LIBELLES_TYPE`, donc
+ * « Choix multiples » pour **tout** QCM — y compris ceux qui n'ont qu'une bonne
+ * réponse. Techniquement le terme est juste : un questionnaire à choix multiple
+ * propose plusieurs options, il n'en attend pas plusieurs. Mais personne ne le
+ * lit ainsi, et depuis l'ajout de la consigne, l'écran pouvait afficher
+ * « CHOIX MULTIPLES » trois lignes au-dessus de « Une seule réponse. »
+ * L'étiquette créait l'ambiguïté que la phrase venait de lever.
+ *
+ * **« Vrai ou faux » reste tel quel.** Il nomme les deux options elles-mêmes,
+ * ne peut pas se lire comme « plusieurs réponses », et le remplacer par
+ * « Une réponse » retirerait de l'information sans retirer d'ambiguïté.
+ *
+ * **« Mise en situation » disparaît de ces trois écrans**, et c'est assumé : le
+ * contexte est affiché juste au-dessus de l'énoncé, en toutes lettres. Une mise
+ * en situation peut attendre une réponse ou plusieurs, exactement comme un
+ * QCM — l'ambiguïté était la même, la correction doit l'être aussi.
+ *
+ * Réservé aux écrans qui posent une question : la série, la séance côté
+ * participant, l'écran projeté. Les listes et l'éditeur gardent
+ * `LIBELLES_TYPE`, qui y est le bon nom — et qui y est d'ailleurs le seul
+ * possible, puisqu'une question de liste ne porte pas ses bonnes réponses.
+ */
+export function libelleAttendu(question: {
+  type: TypeQuestion;
+  bonnesReponses: string[];
+}): string {
+  if (question.type === 'vf') return LIBELLES_TYPE.vf;
+  return question.bonnesReponses.length > 1 ? 'Plusieurs réponses' : 'Une réponse';
+}
 
 export const LIBELLES_STATUT: Record<StatutQuestion, string> = {
   brouillon: 'Brouillon',

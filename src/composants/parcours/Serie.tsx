@@ -9,10 +9,17 @@ import { usePrechargementCertain } from '@/lib/navigation/intention';
 import { Bouton, Carte, EtiquetteStatut, Meta, Touche, TitreSection } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
-import { Jauge, OptionReponse, ProgressionSerie, Verdict } from '@/composants/ds/parcours';
+import {
+  ConsigneReponses,
+  GroupeDeReponses,
+  Jauge,
+  OptionReponse,
+  ProgressionSerie,
+  Verdict,
+} from '@/composants/ds/parcours';
 import { useDonneesParcours, type Referentiel } from '@/composants/parcours/donnees';
 import type { Question } from '@/lib/questions/depot';
-import { LIBELLES_TYPE } from '@/lib/questions/modele';
+import { libelleAttendu } from '@/lib/questions/modele';
 import { crediterSerie, enregistrerReponse } from '@/lib/serie/depot';
 import {
   LIBELLE_PONDERATION,
@@ -49,6 +56,9 @@ import {
  * réponses déjà données restent, et pèsent sur les tirages suivants.
  */
 
+/** Rattache la consigne au groupe d'options pour les lecteurs d'écran. */
+const CONSIGNE = 'consigne-reponses';
+
 const ROUTE_ACCUEIL: Route = '/';
 
 type Etape = 'question' | 'correction' | 'fin';
@@ -59,7 +69,19 @@ type Passage = {
   correction: Correction;
 };
 
-export function Serie({ referentiel }: { referentiel: Referentiel }) {
+/**
+ * **Le seul écran qui reçoit le contenu de toutes les questions publiées**, et
+ * la raison est structurelle : le tirage est pondéré par la maîtrise, qui est
+ * privée et lue par le navigateur. Le serveur ne sait donc pas quelles dix
+ * questions il devra servir, et ne peut pas les envoyer seules.
+ *
+ * L'alternative — tirer d'abord, puis aller chercher le contenu des dix — a
+ * été mesurée et écartée pour l'instant : elle échange quelques dizaines de
+ * kilo-octets contre un aller-retour supplémentaire avant la première
+ * question. Le compte y sera lorsque la banque aura grossi ; le seuil est
+ * calculé au README.
+ */
+export function Serie({ referentiel }: { referentiel: Referentiel<Question> }) {
   const routeur = useRouter();
   // D'une serie, on revient toujours a l'accueil : autant le charger pendant
   // que le commercial repond, quand le reseau ne fait rien.
@@ -463,7 +485,7 @@ function EnteteSerie({
 function EnTeteQuestion({ question }: { question: Question }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-      <EtiquetteStatut ton="info">{LIBELLES_TYPE[question.type]}</EtiquetteStatut>
+      <EtiquetteStatut ton="info">{libelleAttendu(question)}</EtiquetteStatut>
       <Meta>{question.theme}</Meta>
     </div>
   );
@@ -522,19 +544,18 @@ function VueQuestion({
         {question.enonce}
       </h1>
 
-      <p
-        style={{
-          margin: '14px 0 0',
-          fontSize: 'var(--body-sm-size)',
-          color: 'var(--text-secondary)',
-        }}
-      >
-        {multiple
-          ? `Plusieurs réponses attendues. ${choisies.length} cochée${choisies.length > 1 ? 's' : ''}.`
-          : 'Une seule réponse.'}
-      </p>
+      <ConsigneReponses
+        id={CONSIGNE}
+        multiple={multiple}
+        complement={
+          multiple
+            ? `${choisies.length} cochée${choisies.length > 1 ? 's' : ''}.`
+            : undefined
+        }
+      />
 
-      <div
+      <GroupeDeReponses
+        decritPar={CONSIGNE}
         style={{
           marginTop: 'var(--space-6)',
           display: 'flex',
@@ -553,7 +574,7 @@ function VueQuestion({
             {question.options[identifiant]}
           </OptionReponse>
         ))}
-      </div>
+      </GroupeDeReponses>
     </div>
   );
 }

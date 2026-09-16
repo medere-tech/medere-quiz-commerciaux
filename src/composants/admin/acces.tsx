@@ -7,7 +7,11 @@ import { Bouton, Carte } from '@/composants/ds/primitives';
 import { EtatErreur, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { authentification } from '@/lib/firebase/client';
-import { ErreurConnexion, seConnecter } from '@/lib/auth/connexion-client';
+import {
+  ErreurConnexion,
+  renouvelerSessionServeur,
+  seConnecter,
+} from '@/lib/auth/connexion-client';
 
 /**
  * Porte d'entrée du back-office.
@@ -121,11 +125,38 @@ export function ConnexionAdmin({ motif }: { motif: 'anonyme' | 'sans-droits' }) 
  */
 const SEUIL_AVANT_ATTENTE_MS = 400;
 
-export function GardeNavigateur({ children }: { children: ReactNode }) {
+export function GardeNavigateur({
+  children,
+  /**
+   * Le serveur a constaté que le cookie a passé la moitié de sa vie.
+   *
+   * **Il arrive avec la page, il ne se demande pas.** Les dispositions lisent
+   * déjà la session pour décider quoi rendre : le drapeau voyage avec ce
+   * qu'elles rendent, et le cas courant — un cookie récent — ne coûte aucune
+   * requête supplémentaire.
+   */
+  renouveler = false,
+}: {
+  children: ReactNode;
+  renouveler?: boolean;
+}) {
   const [utilisateur, setUtilisateur] = useState<User | null | undefined>(undefined);
   const [attenteVisible, setAttenteVisible] = useState(false);
 
   useEffect(() => onAuthStateChanged(authentification(), setUtilisateur), []);
+
+  /*
+   * Le renouvellement glissant : une fois par montage, et seulement quand le
+   * serveur l'a demandé.
+   *
+   * Il attend d'avoir l'utilisateur Firebase — c'est lui qui produit le jeton
+   * d'identité frais. Rien ne s'affiche, rien ne bloque : le cookie en place
+   * est encore valable, on le refait avec de l'avance.
+   */
+  useEffect(() => {
+    if (!renouveler || !utilisateur) return;
+    void renouvelerSessionServeur(utilisateur);
+  }, [renouveler, utilisateur]);
 
   useEffect(() => {
     if (utilisateur !== undefined) return;

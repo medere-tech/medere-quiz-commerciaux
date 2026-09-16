@@ -1,18 +1,22 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { Bouton, Carte, Champ, EtiquetteStatut, Meta } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
-import { OptionReponse, Verdict } from '@/composants/ds/parcours';
+import {
+  ConsigneReponses,
+  GroupeDeReponses,
+  OptionReponse,
+  Verdict,
+} from '@/composants/ds/parcours';
 import { Chronometre } from '@/composants/session/Chronometre';
 import { ChoixAvatar, Pastille } from '@/composants/session/Pastille';
 import { RepartitionLue } from '@/composants/session/RepartitionLue';
 import { RevelationClassement } from '@/composants/session/RevelationClassement';
-import type { Referentiel } from '@/composants/parcours/donnees';
 import { authentification } from '@/lib/firebase/client';
-import { LIBELLES_TYPE } from '@/lib/questions/modele';
+import { libelleAttendu } from '@/lib/questions/modele';
 import { corriger } from '@/lib/serie/verdict';
 import { AVATAR_PAR_DEFAUT, type CleAvatar } from '@/lib/session/avatar';
 import {
@@ -54,7 +58,10 @@ type EtatVote = 'ouvert' | 'envoi' | 'envoye' | 'trop-tard' | 'echec';
 
 const CLE_CODE = 'code';
 
-export function SessionParticipant({ referentiel }: { referentiel: Referentiel }) {
+/** Rattache la consigne au groupe d'options pour les lecteurs d'écran. */
+const CONSIGNE = 'consigne-reponses';
+
+export function SessionParticipant() {
   const [uid, setUid] = useState<string | null>(null);
   const [nomPropose, setNomPropose] = useState('');
 
@@ -95,22 +102,31 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
 
   const questionId = session ? session.questionIds[session.indexCourant] : undefined;
 
-  // Même raison que sur l'écran d'animation : le référentiel est figé pour la
-  // durée de la séance, la question affichée ne doit pas l'être.
+  /*
+   * **La question vient du direct, et de nulle part ailleurs.**
+   *
+   * Cet écran recevait tout le référentiel — la banque publiée entière — pour
+   * n'y chercher qu'une question à la fois, en secours du direct. À quatorze
+   * questions le gaspillage ne se voyait pas ; à cent cinquante il se compte
+   * en dizaines de kilo-octets, à chaque chargement, sur le téléphone d'un
+   * commercial en séance. L'écouteur répond en quelques dizaines de
+   * millisecondes et fait autorité de toute façon : le secours coûtait plus
+   * qu'il ne servait.
+   *
+   * **Trois états, et il faut les distinguer.** Tant que l'écouteur n'a pas
+   * parlé, on attend — ce n'est pas une panne. Quand il rend `null`, la
+   * question n'est plus publiée, et là il faut le dire. L'identifiant voyage
+   * avec la valeur, ce qui suffit à reconnaître un instantané en retard.
+   */
   const [vive, setVive] = useState<{ id: string; question: Question | null } | null>(null);
 
   useEffect(() => {
     if (!questionId) return;
-    // L'identifiant voyage avec la valeur : un instantané en retard se
-    // reconnaît et s'ignore, sans avoir à remettre l'état à zéro dans l'effet.
     return ecouterQuestion(questionId, (recue) => setVive({ id: questionId, question: recue }));
   }, [questionId]);
 
-  const question = useMemo(() => {
-    if (!questionId) return null;
-    if (vive?.id === questionId) return vive.question;
-    return referentiel.questions.find((candidate) => candidate.id === questionId) ?? null;
-  }, [questionId, vive, referentiel.questions]);
+  const recue = vive?.id === questionId;
+  const question = recue ? (vive?.question ?? null) : null;
 
   /*
    * Changer de question remet le vote à zéro : c'est une nouvelle manche.
@@ -389,6 +405,15 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
     );
   }
 
+  // L'écouteur n'a pas encore parlé : c'est un chargement, pas un incident.
+  if (!recue) {
+    return (
+      <div className="page-admin">
+        <Squelettes lignes={4} />
+      </div>
+    );
+  }
+
   if (!question) {
     return (
       <div className="page-admin">
@@ -432,7 +457,7 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
       )}
 
       <div style={{ maxWidth: 760, width: '100%', margin: '0 auto' }}>
-        <EtiquetteStatut ton="brouillon">{LIBELLES_TYPE[question.type]}</EtiquetteStatut>
+        <EtiquetteStatut ton="brouillon">{libelleAttendu(question)}</EtiquetteStatut>
         {question.contexte && (
           <p
             style={{
@@ -460,9 +485,19 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
           {question.enonce}
         </h1>
 
-        <div
+        {/*
+         * La règle la plus contre-intuitive de l'outil, dite avant le vote.
+         * Sans elle, la seule différence entre « une réponse » et « plusieurs »
+         * était la forme du marqueur — invisible pour qui ne connaît pas la
+         * convention, inexistante pour un lecteur d'écran. Ajout hors maquette,
+         * documenté dans `docs/design-imports.md`.
+         */}
+        <ConsigneReponses id={CONSIGNE} multiple={multiple} />
+
+        <GroupeDeReponses
+          decritPar={CONSIGNE}
           style={{
-            marginTop: 'var(--space-6)',
+            marginTop: 'var(--space-5)',
             display: 'flex',
             flexDirection: 'column',
             gap: 10,
@@ -496,7 +531,7 @@ export function SessionParticipant({ referentiel }: { referentiel: Referentiel }
               {question.options[identifiant]}
             </OptionReponse>
           ))}
-        </div>
+        </GroupeDeReponses>
 
         {session.revelee ? (
           <div style={{ marginTop: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>

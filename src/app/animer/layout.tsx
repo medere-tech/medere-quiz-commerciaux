@@ -22,5 +22,7 @@ export default async function DispositionAnimation({ children }: { children: Rea
   if (!session) return <ConnexionAdmin motif="anonyme" />;
   if (!session.admin) return <ConnexionAdmin motif="sans-droits" />;
 
-  return <GardeNavigateur>{children}</GardeNavigateur>;
+  return (
+    <GardeNavigateur renouveler={session.renouvellementConseille}>{children}</GardeNavigateur>
+  );
 }

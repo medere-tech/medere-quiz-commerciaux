@@ -337,7 +337,7 @@ contrôle avant commit est `npm run build && npm run typecheck`**, et le second
 échoue clairement si les dépendances de `functions/` ne sont pas installées —
 un `npm install --prefix functions` suffit.
 
-**Déployer l'agrégation, et purger ses marqueurs.** Cinq gestes, et **l'ordre
+**Déployer l'agrégation, et purger ses marqueurs.** Six gestes, et **l'ordre
 n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
 
 1. `npm run fonctions:deploy` — les fonctions se déploient depuis
@@ -346,15 +346,42 @@ n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
 2. **Nettoyage des données de recette**, avant d'ouvrir l'application aux
    commerciaux : les réponses de test et `questionStats` partent ensemble. Voir
    section 3, « `questionStats` contient aujourd'hui des données de recette ».
-3. **Le premier commercial répond.** C'est la condition des deux gestes
+3. **Rotation de la clé du compte de service**, en même temps que le nettoyage
+   et avant l'ouverture aux commerciaux. Console Google Cloud → IAM et
+   administration → Comptes de service → le compte de l'application → Clés :
+   créer une clé JSON neuve, mettre à jour `FIREBASE_ADMIN_PRIVATE_KEY` dans
+   `.env.local` **et** dans les variables Vercel, vérifier que l'application
+   répond, puis supprimer l'ancienne clé. Dans cet ordre : supprimer d'abord
+   couperait la production.
+
+   **Pourquoi ce geste est dans cette liste.** Le 15 septembre 2026, la clé
+   privée du compte de service s'est retrouvée **en clair dans la transcription
+   locale d'une session Claude Code**, sous
+   `~/.claude/projects/<projet>/<session>.jsonl`. Elle n'a été ni committée, ni
+   publiée, ni envoyée à un tiers — mais elle a quitté le dossier des clés pour
+   un dossier que personne ne surveille, et qui n'a jamais été pensé comme un
+   coffre. Une clé de service se remplace en cinq minutes ; la question « qui a
+   lu ce fichier » n'a pas de réponse facile.
+
+   **La règle pratique qui va avec, et elle vaut pour tous les secrets.**
+   *Ne pas laisser une ligne sélectionnée dans un fichier de secrets pendant
+   qu'une session tourne.* L'intégration éditeur transmet **la sélection
+   courante** avec chaque message — sans qu'on copie quoi que ce soit, et sans
+   qu'on le demande. Un fichier simplement **ouvert** ne transmet que son
+   chemin ; un fichier dont une ligne est **sélectionnée** transmet le contenu
+   de cette ligne. La nuance ne se voit pas à l'écran, et c'est précisément ce
+   qui la rend dangereuse. Fermer l'onglet, ou au minimum déplacer le curseur
+   hors de la ligne, avant de lancer une session.
+
+4. **Le premier commercial répond.** C'est la condition des deux gestes
    suivants, et elle n'a rien d'une formalité — voir plus bas.
-4. `npm run stats:reprise -- --faire` — reconstruit les compteurs à partir des
+5. `npm run stats:reprise -- --faire` — reconstruit les compteurs à partir des
    réponses en base. Il ne sert qu'à rattraper les réponses écrites pendant que
-   la fonction était absente ou en panne. **Lancé avant l'étape 3, il vide
+   la fonction était absente ou en panne. **Lancé avant l'étape 4, il vide
    `questionStats` au lieu de la reconstruire** : il écarte les comptes
    administrateurs, et il n'y a alors rien d'autre à compter. L'essai à blanc,
    sans `--faire`, montre l'écart avant d'écrire — le lire.
-5. **Une stratégie TTL sur les marqueurs**, à créer une fois en console :
+6. **Une stratégie TTL sur les marqueurs**, à créer une fois en console :
    *Firestore → Time-to-live (TTL) → Créer une stratégie*. Groupe de
    collections `evenements`, champ d'horodatage `expireLe`. Le groupe de
    collections, pas un chemin : les marqueurs vivent sous
@@ -1027,13 +1054,296 @@ fois en tête de `src/styles/systeme.css`, les blocs fusionnés. Une requête de
 média n'accepte pas `var()` : les nombres restent répétés, mais on sait
 désormais ce que chacun veut dire.
 
-### Reste à faire, hors dépôt
+### Les pannes du navigateur remontent enfin
 
-La stratégie TTL sur `questionStats/{questionId}/evenements` (section 4, geste 5)
-attend toujours qu'un vrai commercial ait répondu : le groupe de collections
-doit exister pour que la console accepte de la créer.
+`onRequestError` couvrait le serveur. Une panne dans un composant client —
+l'éditeur, l'écran de séance, la révélation du classement — n'écrivait que dans
+la console du commercial. C'est la moitié qui tourne le jeudi, sur dix
+téléphones, et les trois défauts trouvés en séance réelle au lot 7 vivaient
+tous de ce côté-là.
+
+**Pourquoi pas Sentry.** Mesuré sur le paquet CDN de la version 10.74 : le
+bundle navigateur minimal pèse **29,8 ko gzip**, trois fois la régression
+consentie pour les écrans de panne eux-mêmes, sur chaque écran. Et il collecte
+par défaut ce qu'on ne veut surtout pas remonter — le texte des éléments
+cliqués, les valeurs de formulaire, les corps de requête. Le désarmer champ par
+champ est une politique à écrire puis à maintenir à chaque montée de version.
+Pour dix utilisateurs, une seule application et un journal serveur déjà collecté
+par Vercel, le rapport n'y est pas.
+
+**Ce qui a été construit à la place**, pour **1,0 ko mesuré** :
+
+- `src/lib/journal/redaction.ts` — l'expurgation, pure et testée : adresses,
+  chemins `users/{uid}`, jetons. Elle tourne deux fois, dans le navigateur puis
+  sur le serveur, parce qu'un client ne se croit pas sur parole.
+- `src/lib/journal/client.ts` — l'envoi, avec déduplication, plafond de cinq
+  signalements par chargement et `sendBeacon` pour survivre à la navigation.
+- `src/composants/journal/SondeErreurs.tsx` — `error` et `unhandledrejection`,
+  montés par la disposition racine. C'est la moitié qu'aucune frontière React
+  n'attrape : gestionnaires, effets, promesses rejetées.
+- `src/app/api/journal-client/route.ts` — la route. Session exigée, réponse
+  `204` uniforme, écriture sur la sortie d'erreur que Vercel collecte déjà.
+
+**Cinq champs partent, et rien d'autre** : origine, message borné à 300
+caractères, six lignes de pile, le chemin de l'écran **sans sa chaîne de
+requête**, et le digest. Aucune valeur de formulaire, aucun contenu de
+document, aucun corps de requête, aucune capture.
+
+**Aucun identifiant d'utilisateur n'est journalisé** : le rôle suffit. C'est la
+même décision que dans `agregerReponseEntrainement`, prise pour la même raison.
+
+Vérifié de bout en bout dans un vrai navigateur : une promesse rejetée portant
+`users/uid-jordan-4f7b2c/reponses/q-vf_1789 pour jordan@medere.fr` part en
+`users/[uid]/reponses/q-vf_1789 pour [adresse]`, dans le message **comme dans la
+pile** ; la même panne envoyée deux fois n'en produit qu'un signalement ; une
+exception dans un `setTimeout` est bien capturée ; un envoi sans session
+n'écrit rien.
+
+### La session ne se redemande plus chaque semaine
+
+`DUREE_SESSION_MS` passe de cinq à **quatorze jours** — le maximum qu'accepte
+Firebase — et le cookie se **renouvelle en glissant**, à mi-vie.
+
+Un cookie de session Firebase ne se prolonge pas côté serveur : il se
+refabrique à partir d'un jeton d'identité frais, que seul le navigateur peut
+produire. Le serveur constate donc (`renouvellementConseille`, calculé sur
+l'`exp` du jeton) et le navigateur agit, dans `GardeNavigateur`. Le drapeau
+voyage avec la page que les dispositions rendent déjà : **le cas courant ne
+coûte aucune requête supplémentaire**, et le renouvellement lui-même n'arrive
+qu'une visite sur deux pour qui vient une fois par semaine.
+
+Effet de bord utile : le renouvellement repasse par le chemin d'ouverture de
+session, donc il repose le custom claim. Un rôle qui change prend effet à la
+visite suivante, sans reconnexion — le piège des « custom claims non
+rafraîchis » perd son mordant.
+
+### Les secrets du workflow `regles-publiees.yml`
+
+À créer une fois, dans *Settings → Secrets and variables → Actions → New
+repository secret* du dépôt `medere-tech/medere-quiz-commerciaux` :
+
+| Nom | Valeur |
+| --- | --- |
+| `FIREBASE_ADMIN_PROJECT_ID` | l'identifiant du projet Firebase |
+| `FIREBASE_ADMIN_CLIENT_EMAIL` | `client_email` du compte de service |
+| `FIREBASE_ADMIN_PRIVATE_KEY` | `private_key`, **collée telle quelle**, retours à la ligne compris |
+
+Le compte de service n'a besoin que de lire : rôle **Lecteur des règles
+Firebase** (`roles/firebaserules.viewer`), et rien d'autre. Lui donner
+l'écriture ferait de ce workflow un chemin de déploiement, ce qu'il n'est pas.
+
+Un compte dédié vaut mieux que celui de l'application : il se révoque sans
+couper la production. *Console Google Cloud → IAM et administration → Comptes de
+service → Créer*, puis *Clés → Ajouter une clé → JSON*.
+
+Vérification après création : *Actions → Règles publiées → Run workflow*. Le
+journal doit finir sur « Les règles déployées sont exactement celles du dépôt. »
 
 ---
+
+### Le référentiel n'est plus servi en entier
+
+**Deux versions, et le choix se fait par écran.** `chargerReferentiel` rend
+désormais des questions de **liste** — tout sauf `options`, `ordreOptions`,
+`bonnesReponses`, `explication`, `contexte` et les champs de source. Un
+`select()` borne aussi ce que Firestore transporte jusqu'au serveur.
+`chargerReferentielComplet` rend le contenu, et un seul écran l'appelle : la
+série, qui pose les questions.
+
+**Les deux écrans de séance ne reçoivent plus rien.** Ils recevaient la banque
+publiée entière pour n'y chercher qu'une question à la fois, en secours de
+l'écouteur temps réel — qui fait autorité de toute façon et répond en quelques
+dizaines de millisecondes. Le secours coûtait plus qu'il ne servait. Il a fallu
+en revanche distinguer trois états là où il y en avait deux : tant que
+l'écouteur n'a pas parlé, on attend ; quand il rend `null`, la question n'est
+plus publiée. Afficher « question indisponible » pendant l'attente aurait été un
+mensonge, sur l'écran de dix téléphones un jeudi.
+
+**Ce que ça donne, mesuré sur un écran AUTHENTIFIÉ** — build de production servi
+localement, émulateurs Firestore et Auth, vrai cookie de session, document HTML
+encodé :
+
+| banque publiée | accueil et à revoir | série | séance |
+| --- | --- | --- | --- |
+| 150 questions | **16,5 ko** | 34,9 ko | **5,3 ko** |
+| 500 questions | 34,1 ko | 94,2 ko | 3,8 ko |
+
+Avant, les quatre écrans se comportaient comme la colonne « série ». La séance
+est désormais **constante** : elle ne dépend plus de la taille de la banque.
+
+**Pourquoi la série garde le contenu complet, pour l'instant.** Le tirage est
+pondéré par la maîtrise, qui est privée et lue par le navigateur : le serveur ne
+sait pas quelles dix questions il devra servir. L'alternative — tirer, puis
+aller chercher le contenu des dix — échange quelques dizaines de kilo-octets
+contre **un aller-retour supplémentaire avant la première question**. À 150
+questions, l'économie vaut environ 25 ms de transfert en 4G contre 200 à 400 ms
+d'aller-retour : le compte n'y est pas. Il y sera vers 600 à 800 questions.
+**C'est le seuil à surveiller**, et c'est le seul endroit du parcours où la
+taille de la banque compte encore.
+
+### Ce que pèse vraiment un écran, et ce que je mesurais jusqu'ici
+
+**Les chiffres annoncés aux lots 7 et 8 — « 310,8 ko » — ne mesuraient pas ce
+qu'ils prétendaient.** Deux erreurs cumulées :
+
+1. Ils portaient sur l'**écran de connexion**, faute de cookie. Un commercial ne
+   le voit qu'une fois tous les quatorze jours.
+2. L'outil de mesure ne recomposait que les fragments statiques de
+   l'application trouvés sur le disque. **Les ressources tierces et le document
+   HTML n'y entraient pas.**
+
+Mesure refaite, même appareil, cookie de session valable, banque de 150
+questions, première visite, cache vide :
+
+| | connexion | accueil authentifié |
+| --- | --- | --- |
+| tiers Google (reCAPTCHA, App Check) | 390,9 ko | 390,9 ko |
+| scripts de l'application | 198,0 ko | 372,8 ko |
+| polices | 118,3 ko | 118,3 ko |
+| document | 4,6 ko | 16,5 ko |
+| **total transféré** | **715,1 ko** | **903,9 ko** |
+
+Les écarts annoncés lot après lot restent justes — ils étaient mesurés de façon
+cohérente entre eux. **La valeur absolue, elle, était fausse d'un facteur trois.**
+
+**À partir de maintenant, toute mesure de poids se fait sur un écran
+authentifié, avec une banque réaliste, et dit lequel.** Le harnais est dans le
+bac à sable : `COOKIE_SESSION` posé en variable d'environnement, `mesure-cdp.mjs`
+l'envoie en en-tête.
+
+**Deux postes dominent, et aucun n'est ce que ce projet a optimisé jusqu'ici :**
+les 390,9 ko de reCAPTCHA Enterprise, imposés par App Check et non négociables
+sans revenir sur cette décision ; et les 118,3 ko de polices, six faces
+préchargées. Tous deux sont `immutable` ou mis en cache par le tiers : ils se
+paient à la première visite, pas le jeudi suivant. **Candidat pour le lot 9 :
+mesurer la seconde visite, qui est le vrai régime d'usage.**
+
+### Les premiers tests d'écran
+
+`tests/ecrans/session-participant.test.tsx` — dix-neuf tests sur
+`SessionParticipant`, l'écran des dix téléphones. Vitest, déjà là,
+`@testing-library/react` et `happy-dom` en plus ; pas d'émulateur, quelques
+secondes d'exécution.
+
+**Ils répondent à la troisième question**, celle qu'aucun test ne posait : les
+règles disent ce qu'on a le droit d'écrire, le dépôt ce qu'on écrit, ceux-ci ce
+qui s'affiche. Cet écran croise cinq statuts de séance avec cinq états de vote ;
+six combinaisons au plus avaient jamais été vues à la main.
+
+**Règle de rédaction : par rôle et par texte visible, jamais par classe ni par
+structure.** Une seule entorse a été nécessaire et elle est instructive :
+chercher le nom « Jordan » par chaîne exacte échoue, parce qu'il partage son
+nœud de texte avec « · vous ». Le motif `/Jordan/` interroge ce que la personne
+lit ; la chaîne exacte interrogeait la composition de la phrase.
+
+**Deux constats de l'écriture même de ces tests :**
+
+- La révélation du classement dure plusieurs secondes — c'est l'exception
+  assumée à `prefers-reduced-motion`. Le test **attend la mise en scène** au
+  lieu de la désarmer : désarmer reviendrait à vérifier un écran que personne ne
+  verra.
+- Un test écrit depuis la règle du QCM multiple a échoué, et il avait raison de
+  le faire. Voir ci-dessous.
+
+### La consigne du QCM multiple
+
+Une ligne au-dessus des options, sur les **trois** écrans qui posent une
+question — la série, la séance côté participant, l'écran projeté :
+
+> Plusieurs réponses attendues — une réponse incomplète est comptée fausse.
+
+Le groupe d'options porte `role="group"`, un nom et un `aria-describedby` qui
+désigne cette consigne : elle est annoncée une fois à l'entrée du groupe, pas
+répétée à chaque option. Composants `ConsigneReponses` et `GroupeDeReponses`.
+
+**Ajout hors maquette, documenté dans `docs/design-imports.md`.** La seule
+distinction prévue était la forme du marqueur — carré au lieu de rond. Elle ne
+suffit pas : la règle est la moins devinable de l'outil, le public la découvre
+un jeudi sur son téléphone, et pour un lecteur d'écran la forme d'un marqueur
+`aria-hidden` n'existe pas.
+
+**Trouvé par un test d'écran** écrit depuis le modèle et non depuis l'écran : il
+a échoué en ayant raison.
+
+**L'étiquette de type suit.** Elle affichait « Choix multiples » pour **tout**
+QCM, y compris ceux qui n'ont qu'une bonne réponse : l'écran pouvait donc dire
+« CHOIX MULTIPLES » trois lignes au-dessus de « Une seule réponse. »
+L'étiquette créait l'ambiguïté que la consigne venait de lever. Sur les trois
+écrans qui posent une question, elle dit désormais le nombre de réponses
+attendues — « Une réponse », « Plusieurs réponses », « Vrai ou faux »
+inchangé. Les listes et l'éditeur gardent `LIBELLES_TYPE` : c'est là qu'un nom
+de format a sa place, et une question de liste ne porte pas ses bonnes
+réponses de toute façon.
+
+**Les titres des états vides et des erreurs sont devenus des titres.**
+`EtatVide` et `EtatErreur` rendaient leur intitulé dans un `<span>` : un
+lecteur d'écran qui navigue de titre en titre ne s'y arrêtait jamais, sur les
+écrans mêmes où l'on cherche à comprendre ce qui se passe. Passés en `<h2>`,
+sans aucun changement d'affichage — vérifié à la capture.
+
+### Les tests d'écran, suite
+
+| Fichier | Écran | Tests |
+| --- | --- | --- |
+| `session-participant.test.tsx` | 10a · séance, côté commercial | 22 |
+| `serie.test.tsx` | 02–04 · la série et la correction | 14 |
+| `scene-projetee.test.tsx` | 10b · l'écran projeté | 5 |
+
+La série et la correction couvrent ce qui se paie en points : l'ensemble
+sélectionné part entier, une réponse partielle est comptée fausse **et montre
+ce qui manquait**, l'explication s'affiche, une panne d'écriture n'empêche pas
+d'avancer mais se dit, le clavier fait le même travail que la souris, et
+quitter une série engagée demande confirmation en annonçant ce que ça coûte.
+
+**Sur la fragilité, verdict après trois écrans :** aucun test n'a eu besoin de
+connaître une classe, une balise ou une hiérarchie. Trois ajustements ont été
+nécessaires, tous instructifs plutôt que gênants :
+
+- chercher un nom par chaîne exacte échoue quand il partage son nœud de texte
+  avec autre chose (« Jordan · vous ») — le motif interroge ce qu'on lit, la
+  chaîne exacte interrogeait la composition de la phrase ;
+- attendre la correction par son texte est ambigu quand deux éléments le
+  portent ; attendre le **bouton** qui n'apparaît qu'à ce moment-là ne l'est
+  pas ;
+- une assertion écrite de mémoire sur le libellé de confirmation était fausse :
+  l'écran dit « Série abandonnée : aucune étoile », ce qui est mieux.
+
+La révélation du classement dure plusieurs secondes — l'exception assumée à
+`prefers-reduced-motion`. Le test **attend la mise en scène** au lieu de la
+désarmer : désarmer reviendrait à vérifier un écran que personne ne verra.
+
+### Candidats pour le lot 9
+
+**Mesurer la seconde visite.** Toutes les mesures de ce projet portent sur une
+première visite, cache vide. Ce n'est pas le régime d'usage : un commercial
+revient chaque jeudi, et les fragments statiques comme les polices sont
+`immutable`. Le chiffre qui compte — ce que coûte l'ouverture de l'outil entre
+deux appels, la deuxième fois — n'a jamais été relevé sur un écran authentifié.
+
+**Et si la performance doit être reprise, c'est là qu'il faudra regarder :**
+
+| poste | poids | remarque |
+| --- | --- | --- |
+| tiers Google (reCAPTCHA, App Check) | **390,9 ko** | imposé par App Check ; le remettre en cause est une décision de sécurité, pas d'optimisation |
+| polices | **118,3 ko** | six faces préchargées, déjà sous-ensemblées en woff2 |
+
+**Ces deux postes pèsent plus que tout ce que les lots 7, 8 et 9 ont
+optimisé réuni.** Les scripts de l'application, eux, sont à 372,8 ko sur un
+écran authentifié. Tant qu'on n'a pas mesuré la seconde visite, on ne sait pas
+lequel des trois mérite le travail.
+
+---
+
+### Reste à faire, hors dépôt
+
+Un seul geste, et il ne peut pas être fait plus tôt : la stratégie TTL sur
+`questionStats/{questionId}/evenements` (section 4, geste 6) attend qu'un vrai
+commercial ait répondu — le groupe de collections doit exister pour que la
+console accepte de la créer.
+
+Les trois autres gestes de mise en service — déploiement des fonctions,
+nettoyage des données de recette, rotation de la clé de service — sont prêts et
+documentés ; ils se font le jour de l'ouverture.
 
 ---
 

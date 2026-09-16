@@ -1,10 +1,11 @@
 'use client';
 
 import { Bouton } from '@/composants/ds/primitives';
+import { ConsigneReponses } from '@/composants/ds/parcours';
 import { Icone } from '@/composants/ds/Icone';
 import { ArreterSeance } from '@/composants/session/ArreterSeance';
 import { Chronometre } from '@/composants/session/Chronometre';
-import { LIBELLES_TYPE } from '@/lib/questions/modele';
+import { libelleAttendu } from '@/lib/questions/modele';
 import type { Question } from '@/lib/questions/depot';
 import { partDesRepondants } from '@/lib/session/repartition';
 
@@ -159,7 +160,7 @@ export function SceneProjetee({
                 color: 'rgba(255,255,255,0.9)',
               }}
             >
-              {LIBELLES_TYPE[question.type]}
+              {libelleAttendu(question)}
             </span>
 
             {/*
@@ -197,6 +198,18 @@ export function SceneProjetee({
             >
               {question.enonce}
             </h1>
+
+            {/*
+             * La même consigne que sur les téléphones de la salle, et à la
+             * même seconde. Une partie des participants est en
+             * visioconférence : ce qui est dit ici est parfois la seule chose
+             * qu'ils lisent en grand. Ajout hors maquette, documenté dans
+             * `docs/design-imports.md`.
+             */}
+            <ConsigneReponses
+              multiple={question.bonnesReponses.length > 1}
+              taille="projete"
+            />
 
             <div className="session-options">
               {question.ordreOptions.map((identifiant, index) => {

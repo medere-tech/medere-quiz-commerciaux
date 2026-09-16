@@ -64,7 +64,7 @@ export default async function DispositionParcours({ children }: { children: Reac
       bascule={session.admin ? VERS_LE_BACK_OFFICE : undefined}
       barreReduite={barreReduite}
     >
-      <GardeNavigateur>{children}</GardeNavigateur>
+      <GardeNavigateur renouveler={session.renouvellementConseille}>{children}</GardeNavigateur>
     </Coquille>
   );
 }

@@ -2,6 +2,8 @@
 
 import { useEffect } from 'react';
 
+import { signalerPanne } from '@/lib/journal/client';
+
 import { EcranDePanne } from '@/composants/ds/ecrans-limites';
 
 /**
@@ -33,7 +35,9 @@ export default function ErreurParcours({
   retry: () => void;
 }) {
   useEffect(() => {
-    console.error('Panne rendue à l’écran', erreur);
+    // Côté serveur, `onRequestError` a déjà écrit la pile. Ici on signale ce
+    // que le navigateur a vu : les deux journaux se rejoignent par le digest.
+    signalerPanne('frontiere', erreur, erreur.digest);
   }, [erreur]);
 
   return (

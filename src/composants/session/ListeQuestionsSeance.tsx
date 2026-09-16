@@ -4,7 +4,7 @@ import { Meta } from '@/composants/ds/primitives';
 import { FormeFormation } from '@/composants/ds/parcours';
 import type { Formation } from '@/lib/formations/depot';
 import { identiteVisuelle } from '@/lib/formations/depot';
-import type { Question } from '@/lib/questions/depot';
+import type { QuestionListee } from '@/lib/questions/lecture';
 import { LIBELLES_TYPE } from '@/lib/questions/modele';
 
 /**
@@ -28,7 +28,8 @@ export function ListeQuestionsSeance({
   derniereFois,
   onBasculer,
 }: {
-  questions: Question[];
+  /** La liste suffit : l'écran n'affiche que l'énoncé et ses attributs. */
+  questions: QuestionListee[];
   formations: Formation[];
   /** Identifiants retenus, dans l'ordre de sélection. */
   choisies: string[];

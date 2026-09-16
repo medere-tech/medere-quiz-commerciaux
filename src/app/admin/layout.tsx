@@ -29,7 +29,7 @@ export default async function DispositionAdmin({ children }: { children: ReactNo
 
   return (
     <CoquilleAdmin nom={session.nom || session.email} barreReduite={barreReduite}>
-      <GardeNavigateur>{children}</GardeNavigateur>
+      <GardeNavigateur renouveler={session.renouvellementConseille}>{children}</GardeNavigateur>
     </CoquilleAdmin>
   );
 }

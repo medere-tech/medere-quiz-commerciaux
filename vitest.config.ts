@@ -20,7 +20,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     /*
      * Les tests de bout en bout des Cloud Functions vivent à part : ils
      * exigent trois émulateurs et le module compilé de `functions/`, là où

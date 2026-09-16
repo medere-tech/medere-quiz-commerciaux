@@ -1,5 +1,5 @@
 import type { Formation } from '@/lib/formations/depot';
-import type { Question } from '@/lib/questions/depot';
+import type { QuestionListee } from '@/lib/questions/lecture';
 import type { EtatQuestion } from '@/lib/serie/tirage';
 
 /**
@@ -47,7 +47,8 @@ export type AvancementFormation = {
  */
 export function avancementParFormation(
   formations: Formation[],
-  questions: Question[],
+  // La liste suffit : cette fonction compte et rattache, elle n'affiche rien.
+  questions: QuestionListee[],
   etats: EtatQuestion[],
 ): AvancementFormation[] {
   const parQuestion = new Map(etats.map((etat) => [etat.id, etat]));
