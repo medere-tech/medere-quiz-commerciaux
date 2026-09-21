@@ -1,16 +1,28 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Route } from 'next';
 import { useRouter } from 'next/navigation';
 import { useIntentionDeNavigation } from '@/lib/navigation/intention';
 
-import { Bouton, Carte, Meta, Onglets, TitrePage, TitreSection } from '@/composants/ds/primitives';
+import {
+  Bouton,
+  Carte,
+  EtiquetteStatut,
+  Meta,
+  Onglets,
+  TitrePage,
+  TitreSection,
+} from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { FormeFormation, Jauge } from '@/composants/ds/parcours';
 import { chargerFormations, identiteVisuelle, type Formation } from '@/lib/formations/depot';
-import { chargerQuestionsParStatut, type Question } from '@/lib/questions/depot';
+import {
+  chargerQuestionsServies,
+  marquerStatut,
+  type Question,
+} from '@/lib/questions/depot';
 import { chargerStatistiques } from '@/lib/statistiques/depot';
 import type { StatsQuestion } from '@/lib/statistiques/modele';
 import {
@@ -66,6 +78,33 @@ export default function PageStatistiques() {
   const [chargement, setChargement] = useState<Chargement>({ etat: 'chargement' });
   const { valeurs, definir } = useParametresUrl(DEFAUTS);
 
+  /*
+   * Marquer une question à relire, sans quitter l'écran.
+   *
+   * **L'état local est mis à jour sans relire la banque.** L'écriture ne touche
+   * qu'un champ, et recharger quatorze questions pour afficher une étiquette
+   * coûterait plus que le geste lui-même. Si l'écriture échoue, l'étiquette ne
+   * paraît pas — c'est le bon signal.
+   */
+  const marquer = useCallback(async (identifiant: string) => {
+    try {
+      await marquerStatut(identifiant, 'aRelire');
+      setChargement((precedent) =>
+        precedent.etat === 'pret'
+          ? {
+              ...precedent,
+              questions: precedent.questions.map((question) =>
+                question.id === identifiant ? { ...question, statut: 'aRelire' as const } : question,
+              ),
+            }
+          : precedent,
+      );
+    } catch (panne: unknown) {
+      const code = (panne as { code?: string })?.code;
+      console.error(`Marquage à relire refusé${code ? ` (${code})` : ''}`, panne);
+    }
+  }, []);
+
   const vue = valeurs.vue;
   const vus = entierBorne(valeurs.vus, PAR_PAGE, 1);
 
@@ -78,7 +117,7 @@ export default function PageStatistiques() {
         // publiées, il n'a aucune raison de télécharger les brouillons. Sans
         // tri : le classement se fait sur le taux d'échec, calculé ici.
         const [publiees, formations, stats] = await Promise.all([
-          chargerQuestionsParStatut('publiee'),
+          chargerQuestionsServies(),
           chargerFormations(),
           chargerStatistiques(),
         ]);
@@ -147,7 +186,7 @@ export default function PageStatistiques() {
         sous={
           resume.reponses === 0
             ? 'Aucune réponse enregistrée pour l’instant. Les chiffres apparaîtront dès les premières séries.'
-            : `${resume.reponses} réponse${resume.reponses > 1 ? 's' : ''} enregistrée${resume.reponses > 1 ? 's' : ''} depuis la mise en service, sur ${resume.questionsPubliees} question${resume.questionsPubliees > 1 ? 's' : ''} publiée${resume.questionsPubliees > 1 ? 's' : ''}. Aucun nom sur cet écran : les réponses sont agrégées sans identifiant.`
+            : `${resume.reponses} réponse${resume.reponses > 1 ? 's' : ''} enregistrée${resume.reponses > 1 ? 's' : ''} depuis la mise en service, sur ${resume.questionsServies} question${resume.questionsServies > 1 ? 's' : ''} servie${resume.questionsServies > 1 ? 's' : ''} aux commerciaux. Aucun nom sur cet écran : les réponses sont agrégées sans identifiant.`
         }
       />
 
@@ -159,15 +198,18 @@ export default function PageStatistiques() {
           note="toutes questions confondues"
           alerte={resume.tauxEchecMoyen > 50}
         />
+        {/* « Servies » désigne ici ce qui sort aux commerciaux — publiées et à
+            relire. Le second chiffre parle de tirage, pour que le même mot ne
+            dise pas deux choses à deux lignes d'écart. */}
         <Chiffre
-          libelle="Questions publiées"
-          valeur={String(resume.questionsPubliees)}
+          libelle="Questions servies"
+          valeur={String(resume.questionsServies)}
           note="dans le tirage des séries"
         />
         <Chiffre
-          libelle="Jamais servies"
+          libelle="Jamais tirées"
           valeur={String(resume.jamaisTentees)}
-          note="publiées, encore jamais tirées"
+          note="servies, encore jamais posées"
         />
       </div>
 
@@ -218,7 +260,7 @@ export default function PageStatistiques() {
         </Carte>
       )}
 
-      {resume.questionsPubliees === 0 ? (
+      {resume.questionsServies === 0 ? (
         <EtatVide
           icone="layers"
           titre="Aucune question publiée"
@@ -306,6 +348,7 @@ export default function PageStatistiques() {
                         routeur.push(`/admin/questions/${ligne.question.id}` as Route)
                       }
                       intention={intention(`/admin/questions/${ligne.question.id}` as Route)}
+                      onMarquer={vue === 'ratees' ? () => void marquer(ligne.question.id) : undefined}
                     />
                   ))}
             </div>
@@ -515,6 +558,7 @@ function LigneQuestion({
   avecTaux = false,
   onOuvrir,
   intention,
+  onMarquer,
 }: {
   question: Question;
   formation: Formation | null;
@@ -527,6 +571,14 @@ function LigneQuestion({
     onTouchStart: () => void;
     onFocus: () => void;
   };
+  /**
+   * Marquer la question à relire, sans quitter l'écran.
+   *
+   * **C'est ici que le signal existe, donc ici que la décision se prend.** Le
+   * taux d'échec est ce qui dit qu'un énoncé ou un argumentaire demande du
+   * travail ; obliger à ouvrir la question pour le noter perdrait le fil.
+   */
+  onMarquer?: () => void;
 }) {
   return (
     <Carte
@@ -609,6 +661,18 @@ function LigneQuestion({
             : 'jamais servie'}
         </Meta>
       </span>
+
+      {onMarquer && (
+        <span className="colonne-fixe" style={{ flex: 'none' }}>
+          {question.statut === 'aRelire' ? (
+            <EtiquetteStatut ton="attention">À relire</EtiquetteStatut>
+          ) : (
+            <Bouton taille="sm" variante="secondaire" onClick={onMarquer}>
+              Marquer à relire
+            </Bouton>
+          )}
+        </span>
+      )}
 
       <span className="colonne-fixe" style={{ flex: 'none', display: 'flex' }}>
         <Icone nom="chevronRight" taille={16} couleur="var(--neutral-40)" />

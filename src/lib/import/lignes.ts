@@ -252,6 +252,10 @@ export function analyserLigne(
     ordreOptions,
     bonnesReponses,
     explication: valeurs.explication,
+    /* L'import ne connaît pas de colonne d'argumentaire : il vient de fiches
+       existantes, et l'angle de vente s'écrit dans l'éditeur, question par
+       question. */
+    argumentaire: '',
     formationIds,
     theme: valeurs.theme,
     difficulte,

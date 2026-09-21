@@ -1,4 +1,5 @@
 import type { Question } from '@/lib/questions/depot';
+import { TAILLE_SERIE } from '@/lib/serie/tirage';
 
 /**
  * Verdict d'une réponse, et ce que l'écran de correction doit montrer.
@@ -131,9 +132,35 @@ function titrer(
  * Étoiles d'une série complète. Une série abandonnée n'en rapporte aucune —
  * c'est l'appelant qui ne les crédite pas, la fonction ne connaît que le
  * score.
+ *
+ * **Le taux se mesure sur une série pleine, pas sur la longueur du tirage**, et
+ * c'est la correction d'un défaut qui était déjà en production. Un rattrapage
+ * ne tire que les questions ratées : quand il n'en reste qu'une, la série en
+ * compte une, et un pourcentage sur une question ne vaut que 0 ou 100. Une
+ * seule bonne réponse payait donc **trois étoiles**, autant que dix — et rien
+ * n'empêchait de recommencer.
+ *
+ * Dix questions restent donc le dénominateur. Un rattrapage de huit, parfait,
+ * vaut 80 % et deux étoiles : du travail réel, payé au prorata de ce qu'il
+ * pesait. Une question seule vaut 10 %, donc rien — et l'écran de fin le dit
+ * plutôt que de laisser chercher.
+ *
+ * **Conséquence à connaître** : tant que la banque compte moins de dix
+ * questions servies, une série ordinaire est courte elle aussi et paiera moins.
+ * C'est un état de recette, pas un état du produit.
  */
 export function etoilesGagnees(justes: number, total: number): number {
   if (total <= 0) return 0;
-  const taux = justes / total;
+  const taux = justes / Math.max(total, TAILLE_SERIE);
   return ETOILES_PAR_SEUIL.find((palier) => taux >= palier.seuil)?.etoiles ?? 0;
+}
+
+/**
+ * Le tirage était-il trop court pour payer ce qu'il vaut ?
+ *
+ * Sert à l'écran de fin : une série de trois questions toutes justes affiche
+ * zéro étoile, et sans un mot ce zéro passe pour une panne.
+ */
+export function tirageCourt(total: number): boolean {
+  return total > 0 && total < TAILLE_SERIE;
 }

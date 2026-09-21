@@ -38,6 +38,22 @@ firebase deploy --only firestore:rules
 
 **Le rôle administrateur est un custom claim**, jamais un champ Firestore. Un champ `isAdmin` dans un document utilisateur est une faille, pas une autorisation.
 
+**Ne jamais demander de secret dans la conversation.** Ni jeton de session, ni
+cookie d'authentification, ni clé privée, ni jeton d'API. Un cookie de session
+Médéré vaut quatorze jours d'accès complet, rôle administrateur compris, et ce
+qui est collé dans une transcription y reste. Si une vérification en a besoin,
+**la voie est un compte jetable et un secret qui ne quitte pas la machine** —
+fabriqué par un script, écrit dans un fichier hors du dépôt, jamais affiché,
+supprimé après. Et si aucune voie de ce genre n'existe, **on le dit et on se
+passe de la mesure** : une mesure manquante se rattrape, un secret partagé non.
+
+**Jusqu'à la mise en service, la base ne contient que de la recette.** Tout ce
+qui s'y trouve sera effacé — `npm run recette:nettoyer` est écrit pour ça. **Aucune
+décision de modèle ne doit être prise pour préserver ces données.** Si une bonne
+pratique impose une migration, un champ obligatoire ou une rupture de
+compatibilité, on l'applique : on repart propre. Ne pas proposer de rendre un
+champ facultatif « pour ne pas casser l'existant » — l'existant est jetable.
+
 **Ni `localStorage` ni `sessionStorage`.**
 
 ## Conventions
@@ -114,6 +130,98 @@ l'une contre l'autre.
 un import en tête d'un module partagé, se demander quel écran le tirera sans
 l'employer.
 
+**Ce qu'un écran ne peint pas, il ne doit pas le télécharger.** Masquer en CSS
+ne coûte pas rien : un `display: none` sur une image la fait quand même
+demander. Les quatre formes de fond de l'écran de jonction étaient chargées sur
+téléphone pour n'être jamais visibles — même défaut que les polices servies
+depuis `public/`. Quand une maquette ne dessine pas un élément à une largeur, le
+retirer du **document**, pas seulement de l'œil.
+
+**Une barre collante ne sort jamais de son conteneur.** `position: sticky` se
+cale sur l'ancêtre qui défile, et **s'arrête au bord de son bloc conteneur** :
+dès que ce bloc quitte l'écran, la barre part avec lui. Si l'élément doit tenir
+face à la **fenêtre**, c'est `fixed`, pas `sticky` — avec une réserve de hauteur
+sur la page, posée uniquement quand cette page porte la barre.
+
+Le piège s'est présenté **trois fois**, et à chaque fois il ne se voyait qu'en
+défilant, jamais à la lecture du CSS :
+
+1. **Le panneau de composition** (lot 11) — les deux actions décrochaient de
+   126 px en fin de défilement, parce que la réserve de bas de page valait pour
+   tous les écrans mobiles alors que seuls certains portent un pied.
+2. **Les commandes de la salle d'attente** (lot 10) — déclarées `sticky`, effet
+   nul : `.salle-attente` porte `overflow: hidden` pour rogner un collage, et
+   **un conteneur qui rogne est un conteneur de défilement**. Il ne défile
+   jamais, donc rien ne colle.
+3. **« Rejoindre » sur l'écran de jonction** — `sticky` au bas de la carte du
+   formulaire, il quittait la fenêtre dès que la carte passait. C'est l'écran
+   que dix commerciaux ouvrent chaque jeudi.
+
+Corollaire : **un collant se vérifie en défilant, pas en lisant la règle qui le
+déclare.** Mesurer sa position avant et après un défilement complet, à chaque
+largeur de la maquette.
+
+**`router.replace` est une navigation, `history.replaceState` n'en est pas
+une.** Filtrer, trier, chercher ne sont pas des navigations : `router.replace`
+change bien l'adresse, mais il fait aussi ce que fait toute navigation — **il
+redemande au serveur la charge du segment**. Sur cet outil, cela veut dire le
+rendu serveur de la page — donc la banque entière relue par le SDK Admin —,
+puis un nouvel objet `referentiel` passé au composant client, donc les états et
+la progression relus dans Firestore.
+`window.history.replaceState` change l'adresse **sans** passer par le routeur :
+aucune requête, aucun rendu serveur. **Mesuré** : un onglet de format passe de
+six requêtes à zéro, un sélecteur de tri de quatre à zéro, trois frappes de
+recherche de trois charges RSC à aucune.
+
+**Mais l'adresse seule ne redessine pas l'écran, et la documentation de Next
+l'annonce à tort.** Elle promet que `pushState` et `replaceState` tiennent
+`usePathname` et `useSearchParams` à jour ; en 16.3.4, sur une page dynamique,
+`useSearchParams` ne provoque aucun rendu. Mesuré : l'adresse passait à
+`?format=vf`, l'onglet actif ne bougeait pas, la liste ne se filtrait plus — et
+le choix suivant, reparti d'une adresse périmée, effaçait le précédent. La
+valeur courante doit donc vivre dans un état React, semée depuis l'adresse, et
+`replaceState` ne sert plus qu'à rendre la vue rechargeable et partageable. Voir
+`useParametresUrl`.
+
+**Ce que cela a coûté sans que personne le voie.** `useParametresUrl` porte
+l'état des listes — filtre, tri, recherche, nombre de lignes chargées — sur
+quatre écrans : la banque de questions, les formations, les statistiques et « À
+revoir ». Chacun de ces gestes rejouait la chaîne complète, **depuis le lot où
+ces onglets existent**. Rien ne clignotait, rien n'était faux à l'écran : le
+même résultat arrivait, simplement payé deux fois.
+
+La condition qui rend `replaceState` légitime tient en une ligne, et il faut la
+vérifier avant de s'en servir : **aucune de ces pages ne lit `searchParams` côté
+serveur.** Une page qui le ferait ne verrait pas le changement — c'est la seule
+raison qui justifierait de revenir au routeur. `router.push` reste la bonne
+primitive pour ce qui est vraiment une navigation, et `<Link>` pour tout ce qui
+en est une visiblement.
+
+Corollaire, et il rejoint celui du collant : **un aller-retour serveur ne se
+lit pas dans le code, il se compte au réseau.** Ni la déclaration ni le rendu ne
+disent qu'une requête part.
+
+**Une requête ne s'arrête pas parce que son écran est parti.** Un drapeau
+`vivant` dans un effet empêche d'**écrire** dans un composant démonté ; il
+n'empêche pas les requêtes suivantes de **partir**. Une boucle qui en émet
+soixante continue de les émettre après la navigation, et l'écran suivant attend
+derrière la file.
+
+**Mesuré au lot 17 :** l'écran des formations lance une agrégation par
+formation visible. Atteindre les séances **depuis cet écran** prenait
+**24 978 ms** ; sans y passer, **1 824 ms**. Treize fois, pour un écran dont
+rien ne signalait qu'il était en cause.
+
+La règle : **toute boucle qui émet des requêtes prend un `AbortSignal`**, et
+l'effet qui la lance l'abandonne dans son ménage. Le SDK Firestore n'accepte
+pas de signal sur ses lectures : ce qui est déjà parti ne s'annule pas — c'est
+la seconde raison de borner le parallélisme, après le HTTP/2. Une vague en vol
+au plus, jamais soixante.
+
+Corollaire, qui vaut au-delà des requêtes : **ce qu'on mesure sur un écran ne
+dit rien de ce qu'il coûte au suivant.** Les soixante agrégations avaient été
+mesurées — cinq secondes, annoncées — et le vrai prix se payait ailleurs.
+
 ### La règle de méthode
 
 À chaque lot qui touche au front, **avant livraison**, mesurer sur les écrans
@@ -134,6 +242,56 @@ lui-même n'est pas un chiffre juste.** Les deux erreurs de ce harnais étaient
 invisibles précisément parce qu'il se trompait de la même façon à chaque lot.
 Une série de mesures qui évoluent proprement ne prouve rien sur ce qu'elles
 mesurent. Vérifier ce qu'on compte, pas seulement que les comptes se suivent.
+
+**Et le même motif, un cran plus loin : un faux qui rend ce qui arrange ne
+prouve rien.** Un test double — `vi.mock`, une fausse dépendance, un faux
+crochet — décide de ce que le monde répond. S'il répond ce qui rendrait le code
+juste, le test passe et ne garde rien. Il ne se signalera jamais tout seul, pour
+la même raison que le harnais ci-dessus : il se trompe identiquement à chaque
+exécution.
+
+**Constaté au 16.** Les tests d'écran faisaient rendre à `useSearchParams` une
+adresse mise à jour après un `history.replaceState`. C'était commode, et c'était
+faux : le vrai `useSearchParams` de Next 16.3.4 ne provoque aucun rendu dans ce
+cas. Les tests passaient, **le filtre était cassé en silence sur quatre
+écrans** — l'adresse changeait, l'écran ne bougeait pas, et le choix suivant,
+reparti d'une adresse périmée, effaçait le précédent. Seul le navigateur l'a vu.
+
+La règle qui en sort, et qui se vérifie en deux gestes :
+
+1. **Un faux imite le comportement réel, pas le comportement souhaitable.**
+   Quand on ignore ce que fait le vrai, on va le lire ou on le mesure — ici,
+   quatre lignes dans `node_modules/next/dist/client/components/app-router.js`
+   et une frappe dans un navigateur.
+2. **Un test doit pouvoir tomber.** Avant de croire un test neuf, le faire
+   échouer : remettre l'ancienne implémentation, casser la valeur attendue. Un
+   test vert qui ne tombe sur rien ne garde rien.
+
+Corollaire : **ce qui traverse une frontière qu'on a simulée n'est pas
+vérifié.** Le faux dit ce qui s'écrit, jamais ce que l'autre côté en fait. Les
+règles Firestore se testent donc sur l'émulateur, les écrans se recettent au
+navigateur, et les deux restent dus même quand la suite est verte.
+
+**Et le compilateur peut tenir cette règle à notre place : `vi.mock` prend
+`import('…')`, pas une chaîne.**
+
+```ts
+vi.mock(import('@/lib/serie/depot'), async (original) => { … });
+```
+
+La forme à promesse type la fabrique en `Partial<typeof module>` : **un faux
+qui promet moins, ou autre chose, que le vrai ne compile plus.** La forme à
+chaîne ne vérifie rien. Le passage des deux formes a trouvé trois écarts que
+l'audit à l'œil avait laissés — dont `crediterSerie` rendant `undefined` là où
+le vrai rend la liste des récompenses gagnées, sur laquelle l'écran appelle
+`.includes`.
+
+Deux surfaces tierces ne s'y plient pas raisonnablement — `Auth` de Firebase,
+le SDK `firebase/firestore`. **Les conversions de type vivent donc toutes dans
+`tests/aide/faux.ts`, nommées, justifiées, et comptées** : il y en a deux, plus
+un faux de module non typé. Une conversion dispersée dans chaque fichier se
+multiplie sans que personne ne la recompte ; rassemblée, elle se corrige en un
+endroit et se relit d'un coup d'œil.
 
 Comparer au lot précédent. **Si l'un des deux se dégrade, le dire avec le
 chiffre — même quand la dégradation est justifiée.** Une régression annoncée est

@@ -76,6 +76,20 @@ export function validerQuestion(brouillon: BrouillonQuestion): ResultatValidatio
     );
   }
 
+  /*
+   * **L'argumentaire est facultatif, et sa borne ne l'est pas.** Il n'est pas
+   * exigé parce qu'une question de fait n'a pas d'angle de vente ; en réclamer
+   * un produirait du remplissage, et le remplissage est pire que l'absence.
+   */
+  const argumentaire = texte(brouillon.argumentaire);
+  if (argumentaire.length > PLAFONDS.argumentaire) {
+    ajouter(
+      'argumentaire',
+      `L'argumentaire fait ${argumentaire.length} caractères, le maximum est ` +
+        `${PLAFONDS.argumentaire}. C'est une phrase à dire au téléphone, pas un paragraphe.`,
+    );
+  }
+
   const theme = texte(brouillon.theme);
   if (theme.length === 0) {
     ajouter('theme', 'Le thème est obligatoire : il sert à filtrer la banque de questions.');
@@ -216,6 +230,7 @@ export function validerQuestion(brouillon: BrouillonQuestion): ResultatValidatio
     ordreOptions: ordre,
     bonnesReponses,
     explication,
+    argumentaire,
     formationIds,
     theme,
     difficulte: brouillon.difficulte,

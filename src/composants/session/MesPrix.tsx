@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react';
 
 import { Carte, Meta, TitreSection } from '@/composants/ds/primitives';
 import { Icone } from '@/composants/ds/Icone';
-import { Pastille } from '@/composants/session/Pastille';
-import { useMonAvatar } from '@/lib/session/avatar-client';
 import { chargerMesPrix, type Distinction, type Prix } from '@/lib/session/depot';
 
 /**
@@ -16,33 +14,32 @@ import { chargerMesPrix, type Distinction, type Prix } from '@/lib/session/depot
  * quitte l'écran ; le prix, lui, revient ici chaque fois qu'on ouvre
  * l'application. C'est ce qui en fait autre chose qu'une félicitation.
  *
+ * **Trois cartes, toujours les mêmes, dans le même ordre.** Le podium ne change
+ * pas de forme selon ce qu'on a gagné : une distinction jamais obtenue reste à
+ * sa place, en grisé. Un podium vide montre ses trois marches — c'est ce qui
+ * donne envie d'y monter. Deux Or gagnés font un « 2 » dans la carte Or, jamais
+ * une seconde carte : le nombre de cartes ne bouge pas.
+ *
  * **Ces documents sont privés et fermés en écriture à tout client**, leur
  * propriétaire compris : seule la Cloud Function les écrit, à partir des
  * réponses. Personne ne voit les prix de personne, et personne ne s'attribue
  * les siens.
  *
- * Les séances sans distinction figurent aussi : « 4e, séance du 12 septembre »
- * est une trace de participation, et elle n'appartient qu'à son porteur.
+ * **À ne pas confondre avec les récompenses**, juste à côté sur le même écran.
+ * Un prix nomme une séance et un rang ; une récompense nomme un palier. Les
+ * teintes ne se croisent pas non plus : turquoise, jaune et argent sont
+ * réservés ici.
  */
 
-const MEDAILLES: Record<Distinction, { libelle: string; teinte: string; encre: string }> = {
-  diamant: { libelle: 'Diamant', teinte: '#17BEBB', encre: '#053b3a' },
-  or: { libelle: 'Or', teinte: '#FECA45', encre: '#4a3a05' },
-  argent: { libelle: 'Argent', teinte: '#DBD6CD', encre: '#3f3b3c' },
-};
+/** L'ordre du podium. Il ne dépend pas de ce qui a été gagné. */
+const PODIUM: { cle: Distinction; libelle: string; teinte: string; encre: string }[] = [
+  { cle: 'diamant', libelle: 'Diamant', teinte: '#17BEBB', encre: '#053b3a' },
+  { cle: 'or', libelle: 'Or', teinte: '#FECA45', encre: '#4a3a05' },
+  { cle: 'argent', libelle: 'Argent', teinte: '#DBD6CD', encre: '#3f3b3c' },
+];
 
-const A_MONTRER = 3;
-
-function dateCourte(millisecondes: number | null): string {
-  if (millisecondes === null) return '';
-  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' }).format(
-    new Date(millisecondes),
-  );
-}
-
-export function MesPrix({ uid, nom }: { uid: string; nom: string }) {
+export function MesPrix({ uid }: { uid: string }) {
   const [prix, setPrix] = useState<Prix[] | null>(null);
-  const avatar = useMonAvatar();
 
   useEffect(() => {
     let vivant = true;
@@ -60,88 +57,106 @@ export function MesPrix({ uid, nom }: { uid: string; nom: string }) {
     };
   }, [uid]);
 
+  /*
+   * Le bloc n'apparaît qu'à partir de la première séance jouée. Un podium vide
+   * montre ses trois marches à qui a déjà participé — mais à qui n'est jamais
+   * venu, il ne promet rien qu'il comprenne.
+   */
   if (prix === null || prix.length === 0) return null;
 
-  const distingues = prix.filter((gagne) => gagne.distinction !== null);
-  const visibles = prix.slice(0, A_MONTRER);
-  const reste = prix.length - visibles.length;
+  const comptes = Object.fromEntries(
+    PODIUM.map(({ cle }) => [cle, prix.filter((gagne) => gagne.distinction === cle).length]),
+  ) as Record<Distinction, number>;
+
+  const distingues = prix.filter((gagne) => gagne.distinction !== null).length;
+  const sansDistinction = prix.length - distingues;
 
   return (
     <div>
-      <TitreSection indice={`${distingues.length} sur ${prix.length} séances`}>
+      <TitreSection
+        indice={`${distingues} sur ${prix.length} séance${prix.length > 1 ? 's' : ''}`}
+      >
         Vos prix
       </TitreSection>
 
-      <div
-        style={{
-          marginTop: 'var(--space-4)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-        }}
-      >
-        {visibles.map((gagne) => {
-          const medaille = gagne.distinction ? MEDAILLES[gagne.distinction] : null;
+      {/* La ligne qui dit d'où ils viennent. Les récompenses, juste à côté,
+          portent la sienne : sans elles, deux blocs de médaillons teintés se
+          ressemblent trop sur le même écran. */}
+      <Meta style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+        Gagnés en séance collective, le jeudi.
+      </Meta>
+
+      <div className="podium">
+        {PODIUM.map(({ cle, libelle, teinte, encre }) => {
+          const compte = comptes[cle];
+          const gagne = compte > 0;
 
           return (
             <Carte
-              key={gagne.sessionId}
+              key={cle}
+              className="podium-marche"
               rayon="var(--radius-lg)"
-              rembourrage="14px 18px"
-              elevation="petite"
-              style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}
+              rembourrage="16px 18px"
+              elevation={gagne ? 'carte' : 'petite'}
+              style={gagne ? undefined : { background: 'var(--surface-page)' }}
             >
-              {/* La médaille gagne le cercle quand il y en a une ; sinon
-                  c'est la pastille qui l'occupe, et le rang passe à côté. */}
-              {medaille ? (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: 34,
-                    height: 34,
-                    flex: 'none',
-                    borderRadius: 999,
-                    background: medaille.teinte,
-                    color: medaille.encre,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Icone nom="award" taille={17} />
-                </span>
-              ) : (
-                <Pastille nom={nom} avatar={avatar} taille={34} />
-              )}
+              <span
+                aria-hidden="true"
+                className="podium-medaille"
+                style={{
+                  background: gagne ? teinte : 'var(--surface-sunken)',
+                  color: gagne ? encre : 'var(--neutral-50)',
+                }}
+              >
+                <Icone nom="award" taille={18} />
+              </span>
 
-              <span style={{ flex: 1, minWidth: 0 }}>
+              <span className="podium-nombre">
                 <span
                   style={{
                     display: 'block',
-                    fontSize: 'var(--body-md-size)',
-                    fontWeight: medaille ? 600 : 400,
-                    color: 'var(--text-heading)',
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 26,
+                    lineHeight: 1,
+                    color: gagne ? 'var(--text-heading)' : 'var(--neutral-50)',
                   }}
                 >
-                  {medaille ? medaille.libelle : `${gagne.rang}e`}
-                  {gagne.obtenuLeMs !== null && ` · séance du ${dateCourte(gagne.obtenuLeMs)}`}
+                  {/* Un tiret, pas un zéro : la marche est libre, elle n'est
+                      pas un échec chiffré. */}
+                  {gagne ? compte : '—'}
                 </span>
-                <Meta style={{ fontSize: 12 }}>
-                  {gagne.justes} bonne{gagne.justes > 1 ? 's' : ''} réponse
-                  {gagne.justes > 1 ? 's' : ''} · {gagne.participants} participant
-                  {gagne.participants > 1 ? 's' : ''}
-                </Meta>
+                <span
+                  style={{
+                    display: 'block',
+                    marginTop: 4,
+                    fontSize: 'var(--body-sm-size)',
+                    fontWeight: gagne ? 'var(--weight-semibold)' : 400,
+                    color: gagne ? 'var(--text-heading)' : 'var(--neutral-60)',
+                  }}
+                >
+                  {libelle}
+                </span>
+              </span>
+
+              <span className="visuellement-cache">
+                {gagne
+                  ? `${compte} prix ${libelle} gagné${compte > 1 ? 's' : ''}`
+                  : `Aucun prix ${libelle} pour l’instant`}
               </span>
             </Carte>
           );
         })}
-
-        {reste > 0 && (
-          <Meta style={{ fontSize: 12 }}>
-            et {reste} autre{reste > 1 ? 's' : ''} séance{reste > 1 ? 's' : ''}.
-          </Meta>
-        )}
       </div>
+
+      {/* Les séances jouées sans distinction ne disparaissent pas : elles
+          n'ont simplement pas de marche. */}
+      {sansDistinction > 0 && (
+        <Meta style={{ display: 'block', marginTop: 10, fontSize: 12 }}>
+          {sansDistinction === 1
+            ? 'Une séance jouée sans distinction.'
+            : `${sansDistinction} séances jouées sans distinction.`}
+        </Meta>
+      )}
     </div>
   );
 }

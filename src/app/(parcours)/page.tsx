@@ -1,5 +1,7 @@
 import { Accueil } from '@/composants/parcours/Accueil';
 import { lireSession } from '@/lib/auth/session-serveur';
+import { monParcours } from '@/lib/serveur/donnees-privees';
+import { etatsDesQuestions } from '@/lib/serie/etats';
 import { chargerReferentielSiConnecte } from '@/lib/serveur/referentiel';
 
 /** 01 · Accueil du commercial. */
@@ -9,10 +11,32 @@ export default async function PageAccueil() {
   const session = await lireSession();
   if (!session) return null;
 
-  const referentiel = await chargerReferentielSiConnecte();
+  /*
+   * **Le référentiel et l'historique partent ensemble.** Ils ne dépendent pas
+   * l'un de l'autre ; les enchaîner doublerait l'attente du rendu.
+   */
+  const [referentiel, parcours] = await Promise.all([
+    chargerReferentielSiConnecte(),
+    monParcours(),
+  ]);
   if (!referentiel) return null;
 
   const prenom = (session.nom || session.email).split(' ')[0] ?? '';
 
-  return <Accueil prenom={prenom} referentiel={referentiel} />;
+  return (
+    <Accueil
+      prenom={prenom}
+      referentiel={referentiel}
+      parcours={{
+        uid: parcours.uid,
+        progression: parcours.progression,
+        /* La même complétion qu'au client : une question sans document d'état
+           n'a jamais été vue, et son absence *est* l'information. */
+        etats: etatsDesQuestions(
+          referentiel.questions.map((question) => question.id),
+          parcours.etats,
+        ),
+      }}
+    />
+  );
 }

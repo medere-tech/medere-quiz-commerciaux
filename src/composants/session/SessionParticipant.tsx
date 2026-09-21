@@ -2,31 +2,33 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { Bouton, Carte, Champ, EtiquetteStatut, Meta } from '@/composants/ds/primitives';
+import { Bouton, Carte, EtiquetteStatut, Meta } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
-import { Icone } from '@/composants/ds/Icone';
 import {
   ConsigneReponses,
   GroupeDeReponses,
   OptionReponse,
+  Argumentaire,
+  SignatureExplication,
   Verdict,
 } from '@/composants/ds/parcours';
+import { AccesSeance, type VerdictAcces } from '@/composants/session/AccesSeance';
 import { Chronometre } from '@/composants/session/Chronometre';
-import { ChoixAvatar, Pastille } from '@/composants/session/Pastille';
 import { RepartitionLue } from '@/composants/session/RepartitionLue';
 import { RevelationClassement } from '@/composants/session/RevelationClassement';
 import { authentification } from '@/lib/firebase/client';
 import { libelleAttendu } from '@/lib/questions/modele';
 import { corriger } from '@/lib/serie/verdict';
-import { AVATAR_PAR_DEFAUT, type CleAvatar } from '@/lib/session/avatar';
+import { TITRE_PAUSE_PARTICIPANT } from '@/lib/session/seance';
+import type { CleAvatar } from '@/lib/session/avatar';
 import {
   chargerMaReponse,
   chercherSessionParCode,
   ecouterClassement,
   ecouterQuestion,
   ecouterSession,
-  NOM_SESSION_MAX,
   rejoindre,
+  type LieuPresence,
   repondreEnSession,
   type Rang,
   type Session,
@@ -56,8 +58,6 @@ import type { Question } from '@/lib/questions/lecture';
 
 type EtatVote = 'ouvert' | 'envoi' | 'envoye' | 'trop-tard' | 'echec';
 
-const CLE_CODE = 'code';
-
 /** Rattache la consigne au groupe d'options pour les lecteurs d'écran. */
 const CONSIGNE = 'consigne-reponses';
 
@@ -65,11 +65,11 @@ export function SessionParticipant() {
   const [uid, setUid] = useState<string | null>(null);
   const [nomPropose, setNomPropose] = useState('');
 
-  const [code, setCode] = useState('');
-  const [nom, setNom] = useState('');
-  const [avatar, setAvatar] = useState<CleAvatar>(AVATAR_PAR_DEFAUT);
-  const [recherche, setRecherche] = useState<'repos' | 'encours' | 'introuvable' | 'echec'>('repos');
-
+  /*
+   * Le code, le nom et la couleur vivent désormais dans `AccesSeance`, qui est
+   * le seul écran à s'en servir. Ce composant ne garde que ce qui survit à la
+   * jonction : l'identité, et la séance une fois rejointe.
+   */
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [horsLigne, setHorsLigne] = useState(false);
@@ -81,9 +81,7 @@ export function SessionParticipant() {
   useEffect(() => {
     return authentification().onAuthStateChanged((utilisateur) => {
       setUid(utilisateur?.uid ?? null);
-      const propose = utilisateur?.displayName?.split(' ')[0] ?? '';
-      setNomPropose(propose);
-      setNom((actuel) => (actuel === '' ? propose : actuel));
+      setNomPropose(utilisateur?.displayName?.split(' ')[0] ?? '');
     });
   }, []);
 
@@ -184,22 +182,67 @@ export function SessionParticipant() {
     };
   }, [uid, sessionId, questionId]);
 
-  const rejoindreParCode = useCallback(async () => {
-    if (!uid || code.trim() === '' || nom.trim() === '') return;
-    setRecherche('encours');
-    try {
-      const trouvee = await chercherSessionParCode(code.toUpperCase());
-      if (!trouvee) {
-        setRecherche('introuvable');
-        return;
+  /**
+   * Entrer dans la séance.
+   *
+   * **Trois issues, et elles ne se confondent pas.** « Aucune séance ouverte
+   * avec ce code » n'est pas « l'accès est fermé », qui n'est pas « la
+   * recherche n'a pas abouti » — la première fait relire le code, la deuxième
+   * fait lever la main, la troisième fait attendre le réseau. Les fondre en un
+   * booléen ferait chercher une faute de frappe à quelqu'un qui n'en a pas
+   * faite.
+   *
+   * **La lecture donne le message, la règle donne le refus.** On lit la séance
+   * avant d'écrire pour savoir quoi dire ; c'est la règle de création d'un
+   * marqueur de présence qui interdit réellement d'entrer. Un onglet resté
+   * ouvert sur l'ancien état ne passe donc pas.
+   */
+  const rejoindreParCode = useCallback(
+    async (
+      codeSaisi: string,
+      nomChoisi: string,
+      avatarChoisi: CleAvatar,
+      presenceChoisie: LieuPresence,
+    ): Promise<VerdictAcces> => {
+      if (!uid) return 'introuvable';
+
+      const trouvee = await chercherSessionParCode(codeSaisi.toUpperCase());
+      if (!trouvee) return 'introuvable';
+
+      /*
+       * **On tente, puis on explique — et surtout pas l'inverse.**
+       *
+       * Refuser d'avance sur `verrouillee` paraissait économique : une lecture
+       * qu'on a déjà, un aller-retour de moins. C'était faux, et le navigateur
+       * l'a montré. Quelqu'un qui est *dans la salle* et qui recharge son
+       * onglet repasse par cet écran — `sessionId` ne vit que dans l'état React
+       * — et se voyait alors refuser l'entrée de la pièce où il se trouvait. La
+       * règle, elle, l'aurait laissé passer : verrouiller ne ferme que la
+       * *création* d'un marqueur, et le sien existe.
+       *
+       * La règle est donc seule juge. L'écran ne parle qu'après elle.
+       */
+      try {
+        await rejoindre(trouvee.id, uid, nomChoisi, avatarChoisi, presenceChoisie);
+      } catch (probleme) {
+        /*
+         * On relit avant de nommer le refus : la porte a pu se fermer entre
+         * la lecture et l'écriture, ou la séance se terminer. Tout refus que
+         * la relecture n'explique pas remonte — un `catch` ne doit absorber
+         * que les causes qu'il sait nommer.
+         */
+        if ((probleme as { code?: string })?.code !== 'permission-denied') throw probleme;
+        const relue = await chercherSessionParCode(codeSaisi.toUpperCase());
+        if (!relue) return 'introuvable';
+        if (relue.verrouillee) return 'fermee';
+        throw probleme;
       }
-      await rejoindre(trouvee.id, uid, nom, avatar);
+
       setSessionId(trouvee.id);
-      setRecherche('repos');
-    } catch {
-      setRecherche('echec');
-    }
-  }, [uid, code, nom, avatar]);
+      return 'entre';
+    },
+    [uid],
+  );
 
   const envoyer = useCallback(async () => {
     if (!uid || !session || !question || choisies.length === 0) return;
@@ -230,115 +273,18 @@ export function SessionParticipant() {
 
   /* ------------------------------------------------------ rejoindre */
 
+  /*
+   * L'écran d'accès — 10a et 10b au bureau, 06 et 06b en mobile.
+   *
+   * Il a remplacé le formulaire nu qui vivait ici. Ce qu'il ajoute n'est pas
+   * décoratif : il annonce ce que la séance va couvrir, combien de temps elle
+   * prendra, et qui est déjà dans la salle. On n'entre plus à l'aveugle dans
+   * une pièce dont on ne sait rien.
+   */
   if (!sessionId) {
     return (
       <div className="page-admin">
-        <div style={{ maxWidth: 460, width: '100%', margin: '0 auto' }}>
-          <h1
-            style={{
-              margin: 0,
-              fontFamily: 'var(--font-sans)',
-              fontWeight: 300,
-              fontSize: 'clamp(24px, 5vw, 30px)',
-              lineHeight: 1.18,
-              color: 'var(--text-heading)',
-            }}
-          >
-            Rejoindre la{' '}
-            <em style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic', fontWeight: 400 }}>
-              session du jeudi
-            </em>
-          </h1>
-          <p
-            style={{
-              margin: '12px 0 24px',
-              fontSize: 'var(--body-md-size)',
-              lineHeight: 1.55,
-              color: 'var(--neutral-70)',
-            }}
-          >
-            Le code est annoncé à voix haute au début de la séance.
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-            <Champ
-              label="Code de la séance"
-              value={code}
-              onChange={(valeur) => setCode(valeur.toUpperCase())}
-              placeholder="JEUDI7"
-              autoComplete="off"
-              name={CLE_CODE}
-              style={{ textTransform: 'uppercase', letterSpacing: '0.12em' }}
-            />
-            {/*
-             * Le nom se règle ici, au moment de rejoindre, et pas dans un
-             * réglage : un écran de préférences qu'il faut penser à ouvrir
-             * avant le jeudi ne serait jamais ouvert. Il est prérempli avec le
-             * choix de la dernière fois, ou le prénom du compte.
-             */}
-            <Champ
-              label="Votre nom au classement"
-              value={nom}
-              onChange={(valeur) => setNom(valeur.slice(0, NOM_SESSION_MAX))}
-              aide={`Visible par toute la salle, sur l’écran projeté. ${NOM_SESSION_MAX} caractères au plus.`}
-              placeholder={nomPropose || 'Votre prénom'}
-              autoComplete="off"
-            />
-            {/*
-             * La couleur se choisit ici aussi, au même moment que le nom : sur
-             * l'écran projeté, c'est elle qu'on reconnaît en premier, avant de
-             * lire les initiales.
-             */}
-            <span>
-              <span
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--space-3)',
-                  marginBottom: 10,
-                }}
-              >
-                <Pastille nom={nom || nomPropose || '?'} avatar={avatar} taille={40} />
-                <span
-                  style={{
-                    fontSize: 'var(--body-sm-size)',
-                    fontWeight: 600,
-                    color: 'var(--text-heading)',
-                  }}
-                >
-                  Votre couleur
-                </span>
-              </span>
-              <ChoixAvatar nom={nom || nomPropose || '?'} valeur={avatar} onChoisir={setAvatar} />
-            </span>
-
-            <Bouton
-              taille="lg"
-              pleineLargeur
-              disabled={recherche === 'encours' || code.trim() === '' || nom.trim() === ''}
-              iconeGauche={<Icone nom="users" taille={16} />}
-              onClick={() => void rejoindreParCode()}
-            >
-              {recherche === 'encours' ? 'Recherche…' : 'Rejoindre'}
-            </Bouton>
-
-            {recherche === 'introuvable' && (
-              <Carte rayon="var(--radius-md)" rembourrage="14px 16px" elevation="petite">
-                <span style={{ fontSize: 'var(--body-sm-size)', color: 'var(--text-heading)' }}>
-                  Aucune séance ouverte sous ce code. Vérifiez-le auprès de l’animatrice — une
-                  séance terminée ne se rejoint plus.
-                </span>
-              </Carte>
-            )}
-            {recherche === 'echec' && (
-              <Carte rayon="var(--radius-md)" rembourrage="14px 16px" elevation="petite">
-                <span style={{ fontSize: 'var(--body-sm-size)', color: 'var(--status-danger-texte)' }}>
-                  La recherche n’a pas abouti. Réessayez dans un instant.
-                </span>
-              </Carte>
-            )}
-          </div>
-        </div>
+        <AccesSeance uid={uid} nomPropose={nomPropose} onRejoindre={rejoindreParCode} />
       </div>
     );
   }
@@ -360,12 +306,36 @@ export function SessionParticipant() {
    * des états : dix personnes qui appuient sur « Envoyer » et se font refuser
    * sans comprendre. L'écran change, et il annonce que ça reprendra.
    */
+  /*
+   * **Rejoint, mais la séance n'a pas commencé.**
+   *
+   * Entre l'ouverture de la salle et la première question, l'animatrice dicte
+   * le code et attend les retardataires — c'est la salle d'attente, côté
+   * projection. Le participant, lui, n'a rien à faire : sans cet écran il
+   * verrait la question 1 avant qu'elle soit posée, et pourrait y répondre
+   * pendant que Noémie parle encore.
+   *
+   * L'écran reste ouvert et la question arrivera toute seule : c'est le même
+   * contrat que la pause, poussé par le même écouteur.
+   */
+  if (!session.demarree) {
+    return (
+      <div className="page-admin">
+        <EtatVide
+          icone="users"
+          titre="Vous êtes dans la salle"
+          texte="La première question arrivera sur cet écran dès que l’animatrice la posera. Gardez-le ouvert."
+        />
+      </div>
+    );
+  }
+
   if (session.statut === 'pause') {
     return (
       <div className="page-admin">
         <EtatVide
           icone="clock"
-          titre="Séance en pause"
+          titre={TITRE_PAUSE_PARTICIPANT}
           texte="L’animatrice a suspendu la séance. Gardez cet écran ouvert : la question suivante arrivera toute seule."
         />
       </div>
@@ -546,6 +516,17 @@ export function SessionParticipant() {
             >
               {question.explication}
             </Verdict>
+
+            {/* Le même angle de vente qu'à l'entraînement : ce qui se dit au
+                téléphone ne change pas parce qu'on est un jeudi. */}
+            {question.argumentaire.trim().length > 0 && (
+              <Argumentaire>{question.argumentaire}</Argumentaire>
+            )}
+
+            <SignatureExplication
+              auteur={question.explicationAuteur}
+              majLe={question.explicationMajLe}
+            />
           </div>
         ) : (
           <Carte

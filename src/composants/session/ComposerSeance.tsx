@@ -4,374 +4,380 @@ import type { Route } from 'next';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { Bouton, Carte, EtiquetteStatut, Meta, Selecteur, TitrePage, TitreSection } from '@/composants/ds/primitives';
-import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
+import { estServie } from '@/lib/questions/modele';
+
+import { Bouton, Onglets } from '@/composants/ds/primitives';
+import { EtatErreur, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
-import { HistoriqueSeances } from '@/composants/session/HistoriqueSeances';
-import { ListeQuestionsSeance } from '@/composants/session/ListeQuestionsSeance';
+import {
+  BanqueDeSeance,
+  TENTATIVES_FIABLES,
+  type AttributsQuestion,
+} from '@/composants/session/BanqueDeSeance';
+import { PanneauComposition, CADENCES } from '@/composants/session/PanneauComposition';
 import type { Referentiel } from '@/composants/parcours/donnees';
 import { authentification } from '@/lib/firebase/client';
-import { LIBELLES_TYPE, TYPES_QUESTION, type TypeQuestion } from '@/lib/questions/modele';
+import { chargerStatistiques } from '@/lib/statistiques/depot';
+import { tauxEchec } from '@/lib/statistiques/analyse';
 import {
   creerSession,
-  lancerSeance,
   mesSeances,
-  supprimerSeance,
+  modifierSeance,
+  preparerEtLancer,
   type Session,
 } from '@/lib/session/depot';
+import { titreParDefaut } from '@/lib/session/seance';
 
 /**
- * Composer une séance à l'avance.
+ * Page 7 · Composer une séance.
  *
- * **La séance porte sur ce que Noémie vient de présenter, pas sur un tirage.**
- * Jusqu'ici l'écran d'animation prenait les huit premières questions publiées :
- * c'était un dépannage, pas une fonctionnalité. Elle choisit désormais.
+ * **Repris entièrement au lot 11.** L'écran du lot 7 avait été assemblé sans
+ * maquette : filtres, liste, pied collant, le tout sur une seule colonne qui
+ * mêlait la composition, les séances prêtes et l'historique. La maquette
+ * sépare les trois, numérote les étapes, et donne à la banque sa propre zone
+ * de défilement. C'est cette version-là.
  *
- * **Une séance préparée est une séance `attente`.** Le modèle le prévoyait
- * depuis le lot 1 ; la lancer revient à la passer à `encours`. Aucun champ
- * nouveau. Préparée le mardi, lancée le jeudi : c'est le cas normal, et c'est
- * pour lui que l'état existe.
+ * **Trois étapes, deux dispositions.** Au-delà de 1200 px, deux colonnes : la
+ * banque à gauche sur toute la hauteur, le formulaire à droite. En dessous, la
+ * maquette ne replie pas — elle change de navigation, et les trois étapes
+ * deviennent trois onglets. Empiler aurait donné une page de trois mètres où
+ * l'on perd de vue ce qu'on a retenu.
  *
- * **Les filtres viennent du référentiel déjà chargé par le serveur.** La banque
- * a ses filtres Firestore pour paginer deux cents questions ; ici, le
- * référentiel des questions publiées est déjà en mémoire — celui-là même qui
- * sert au tirage des séries. Le refiltrer côté navigateur ne coûte rien et
- * évite un aller-retour par changement de filtre.
+ * **Le tirage ne fait pas la séance.** Elle porte sur ce que Noémie vient de
+ * présenter : elle choisit, et l'ordre des cases est l'ordre de passage.
  */
 
-const SANS_FILTRE = 'toutes';
+type Etat = 'chargement' | 'pret' | 'echec';
 
-export function ComposerSeance({ referentiel }: { referentiel: Referentiel }) {
+/** Les trois onglets de la vue étroite, dans l'ordre des étapes. */
+type Onglet = 'decrire' | 'choisir' | 'ordonner';
+
+const ONGLETS: { valeur: Onglet; libelle: string }[] = [
+  { valeur: 'decrire', libelle: 'Description et minutage' },
+  { valeur: 'choisir', libelle: 'Questions' },
+  { valeur: 'ordonner', libelle: 'Ordre de passage' },
+];
+
+export function ComposerSeance({
+  referentiel,
+  /** Séance préparée à reprendre, ou questions à pré-cocher. */
+  reprise,
+  ratees,
+}: {
+  referentiel: Referentiel;
+  reprise?: string;
+  ratees?: string[];
+}) {
   const routeur = useRouter();
   const [uid, setUid] = useState<string | null>(null);
-  const [seances, setSeances] = useState<Session[] | null>(null);
-  const [echec, setEchec] = useState(false);
-
-  const [formation, setFormation] = useState<string>(SANS_FILTRE);
-  const [type, setType] = useState<string>(SANS_FILTRE);
-  const [choisies, setChoisies] = useState<string[]>([]);
-  const [duree, setDuree] = useState(45);
+  const [animateurNom, setAnimateurNom] = useState('');
+  const [etat, setEtat] = useState<Etat>('chargement');
   const [enregistrement, setEnregistrement] = useState(false);
+  const [echecEcriture, setEchecEcriture] = useState<string | null>(null);
 
-  useEffect(() => authentification().onAuthStateChanged((u) => setUid(u?.uid ?? null)), []);
+  const [titre, setTitre] = useState(() => titreParDefaut());
+  const [description, setDescription] = useState('');
+  const [duree, setDuree] = useState<number>(30);
+  const [sansChronometre, setSansChronometre] = useState(false);
+  const [choisies, setChoisies] = useState<string[]>(ratees ?? []);
+  const [onglet, setOnglet] = useState<Onglet>('choisir');
+
+  /** Taux d'échec et dernière fois posée, par question. */
+  const [attributs, setAttributs] = useState<Map<string, AttributsQuestion>>(new Map());
+
+  useEffect(
+    () =>
+      authentification().onAuthStateChanged((utilisateur) => {
+        setUid(utilisateur?.uid ?? null);
+        setAnimateurNom(utilisateur?.displayName ?? '');
+      }),
+    [],
+  );
 
   /*
-   * Un compteur plutôt qu'un appel direct : l'effet ne fait qu'écouter une
-   * valeur qui change, et React ne voit pas de `setState` posé dans son corps.
+   * Ce qu'on peut mettre dans une séance : tout ce qui sort aux commerciaux.
+   *
+   * **Les questions à relire comprises, et c'est le bon choix** : ce sont
+   * précisément celles qui font trébucher, donc la matière d'un jeudi. La
+   * banque les signale par leur étiquette — Noémie voit qu'elle en compose une
+   * avant de la retenir.
    */
-  const [rafraichir, setRafraichir] = useState(0);
-  const recharger = useCallback(() => setRafraichir((tour) => tour + 1), []);
+  const publiees = useMemo(
+    () => referentiel.questions.filter((question) => estServie(question.statut)),
+    [referentiel.questions],
+  );
 
+  /*
+   * Deux lectures, en parallèle : les statistiques agrégées pour le taux
+   * d'échec, et les séances de l'animatrice pour savoir ce qui a déjà été
+   * posé. L'une sans l'autre donnerait une banque à moitié renseignée, où
+   * l'on ne saurait pas si une colonne manque ou vaut zéro.
+   */
   useEffect(() => {
     if (!uid) return;
     let vivant = true;
 
-    mesSeances(uid)
-      .then((liste) => {
-        if (vivant) setSeances(liste);
+    Promise.all([chargerStatistiques(), mesSeances(uid)])
+      .then(([stats, seances]) => {
+        if (!vivant) return;
+
+        const posees = derniereFois(seances);
+        const table = new Map<string, AttributsQuestion>();
+
+        for (const question of publiees) {
+          const stat = stats.find((ligne) => ligne.questionId === question.id);
+          table.set(question.id, {
+            tauxEchec:
+              stat && stat.tentatives >= TENTATIVES_FIABLES
+                ? tauxEchec(stat.echecs, stat.tentatives)
+                : null,
+            poseeLeMs: posees.get(question.id) ?? null,
+          });
+        }
+
+        setAttributs(table);
+
+        // Reprendre une séance préparée : on repart de ce qu'elle contient.
+        const aReprendre = reprise ? seances.find((seance) => seance.id === reprise) : undefined;
+        if (aReprendre) {
+          setTitre(aReprendre.titre);
+          setDescription(aReprendre.description);
+          setChoisies(aReprendre.questionIds);
+          setSansChronometre(aReprendre.dureeQuestionSecondes === 0);
+          if (aReprendre.dureeQuestionSecondes > 0) setDuree(aReprendre.dureeQuestionSecondes);
+        }
+
+        setEtat('pret');
       })
-      .catch(() => {
-        if (vivant) setEchec(true);
+      .catch((panne: unknown) => {
+        const code = (panne as { code?: string })?.code;
+        console.error(`Lecture de la banque impossible${code ? ` (${code})` : ''}`, panne);
+        if (vivant) setEtat('echec');
       });
 
     return () => {
       vivant = false;
     };
-  }, [uid, rafraichir]);
+  }, [uid, publiees, reprise]);
 
-  const publiees = useMemo(
-    () => referentiel.questions.filter((question) => question.statut === 'publiee'),
-    [referentiel.questions],
-  );
-
-  const visibles = useMemo(
-    () =>
-      publiees.filter(
-        (question) =>
-          (formation === SANS_FILTRE || question.formationIds.includes(formation)) &&
-          (type === SANS_FILTRE || question.type === type),
-      ),
-    [publiees, formation, type],
-  );
-
-  /*
-   * La dernière fois que chaque question a été posée.
-   *
-   * On ne bloque pas : reposer une question mal comprise est exactement ce
-   * qu'on veut pouvoir faire. On le signale, et Noémie décide.
-   */
-  const derniereFois = useMemo(() => {
-    const dates = new Map<string, number>();
-    for (const seance of seances ?? []) {
-      if (seance.statut === 'attente' || seance.creeeLeMs === null) continue;
-      for (const questionId of seance.questionIds) {
-        const connue = dates.get(questionId);
-        if (connue === undefined || seance.creeeLeMs > connue) dates.set(questionId, seance.creeeLeMs);
-      }
-    }
-    return dates;
-  }, [seances]);
-
-  const enCours = seances?.find((seance) => seance.statut === 'encours' || seance.statut === 'pause');
-  const preparees = seances?.filter((seance) => seance.statut === 'attente') ?? [];
-
-  const basculer = (identifiant: string) =>
+  const basculer = useCallback((identifiant: string) => {
     setChoisies((actuelles) =>
       actuelles.includes(identifiant)
         ? actuelles.filter((autre) => autre !== identifiant)
         : [...actuelles, identifiant],
     );
+  }, []);
 
-  const enregistrer = useCallback(async () => {
-    if (!uid || choisies.length === 0) return;
-    setEnregistrement(true);
-    try {
-      await creerSession(uid, choisies, duree, 'attente');
-      setChoisies([]);
-      recharger();
-    } catch {
-      setEchec(true);
-    } finally {
-      setEnregistrement(false);
-    }
-  }, [uid, choisies, duree, recharger]);
+  /**
+   * Prendre une formation entière.
+   *
+   * **Les rangs déjà attribués ne bougent pas.** On retire du choix ce qui
+   * appartenait à cette formation, puis on ajoute le groupe entier à la fin :
+   * les questions retenues ailleurs gardent leur numéro, et le groupe arrive
+   * d'un bloc, dans l'ordre de la liste. Recliquer le rend.
+   */
+  const prendreFormation = useCallback((identifiants: string[]) => {
+    setChoisies((actuelles) => {
+      const toutePrise = identifiants.every((id) => actuelles.includes(id));
+      const sansCeGroupe = actuelles.filter((id) => !identifiants.includes(id));
+      return toutePrise ? sansCeGroupe : [...sansCeGroupe, ...identifiants];
+    });
+  }, []);
 
-  if (!uid || seances === null) {
+  const deplacer = useCallback((identifiant: string, pas: -1 | 1) => {
+    setChoisies((actuelles) => {
+      const depuis = actuelles.indexOf(identifiant);
+      const vers = depuis + pas;
+      if (depuis < 0 || vers < 0 || vers >= actuelles.length) return actuelles;
+      const suivantes = [...actuelles];
+      const [deplacee] = suivantes.splice(depuis, 1);
+      suivantes.splice(vers, 0, deplacee as string);
+      return suivantes;
+    });
+  }, []);
+
+  const annonce = useMemo(
+    () => ({ titre, description, animateurNom }),
+    [titre, description, animateurNom],
+  );
+
+  const ecrire = useCallback(
+    async (lancer: boolean) => {
+      if (!uid || choisies.length === 0 || titre.trim() === '') return;
+      setEnregistrement(true);
+      setEchecEcriture(null);
+
+      const secondes = sansChronometre ? 0 : duree;
+
+      try {
+        if (reprise) {
+          await modifierSeance(reprise, choisies, secondes, { titre, description });
+        } else if (lancer) {
+          // Un seul chemin d'ouverture : on prépare, puis on lance.
+          await preparerEtLancer(uid, choisies, secondes, annonce);
+          routeur.push('/animer' as Route);
+          return;
+        } else {
+          await creerSession(uid, choisies, secondes, 'attente', annonce);
+        }
+        routeur.push('/admin/session' as Route);
+      } catch (panne) {
+        /*
+         * La cause est journalisée, jamais avalée. Au lot 9, un `catch` muet
+         * a masqué un refus de règles pendant deux déploiements : le code
+         * Firestore désigne la cause, et `permission-denied` désigne les
+         * règles.
+         */
+        const code = (panne as { code?: string })?.code;
+        console.error(`Écriture de la séance refusée${code ? ` (${code})` : ''}`, panne);
+        setEchecEcriture(
+          code === 'permission-denied'
+            ? 'Les règles ont refusé cette séance. Vérifiez qu’elles sont bien déployées.'
+            : 'La séance n’a pas pu être enregistrée. Réessayez dans un instant.',
+        );
+        setEnregistrement(false);
+      }
+    },
+    [uid, choisies, titre, description, duree, sansChronometre, reprise, annonce, routeur],
+  );
+
+  if (!uid || etat === 'chargement') {
     return (
-      <div className="page-admin">
+      <div className="preparer preparer--cadre">
         <Squelettes lignes={5} />
       </div>
     );
   }
 
-  if (echec) {
+  if (etat === 'echec') {
     return (
-      <div className="page-admin">
+      <div className="preparer">
         <EtatErreur
-          titre="Séances indisponibles"
-          texte="La liste de vos séances n’a pas pu être lue. Réessayez dans un instant."
+          titre="Banque indisponible"
+          texte="Les questions et leurs statistiques n’ont pas pu être lues. Réessayez dans un instant."
         />
       </div>
     );
   }
 
+  const banque = (
+    <BanqueDeSeance
+      questions={publiees}
+      formations={referentiel.formations}
+      attributs={attributs}
+      choisies={choisies}
+      onBasculer={basculer}
+      onPrendreFormation={prendreFormation}
+    />
+  );
+
+  const panneau = (
+    <PanneauComposition
+      titre={titre}
+      onTitre={setTitre}
+      description={description}
+      onDescription={setDescription}
+      duree={duree}
+      onDuree={setDuree}
+      sansChronometre={sansChronometre}
+      onSansChronometre={setSansChronometre}
+      choisies={choisies}
+      questions={publiees}
+      formations={referentiel.formations}
+      onRetirer={basculer}
+      onDeplacer={deplacer}
+      enregistrement={enregistrement}
+      onLancer={() => void ecrire(true)}
+      onEnregistrer={() => void ecrire(false)}
+      libelleEnregistrer={reprise ? 'Enregistrer les modifications' : 'Enregistrer et fermer'}
+    />
+  );
+
   return (
-    <div
-      className="page-admin"
-      /*
-       * De la place sous le dernier bloc quand le pied est collant : sinon il
-       * recouvre en permanence la fin de l'historique, et rien n'indique qu'il
-       * y a quelque chose dessous.
-       */
-      style={choisies.length > 0 ? { paddingBottom: 180 } : undefined}
-    >
-      <TitrePage
-        titre="Session collective"
-        sous="Composez la séance du jeudi à l’avance, puis lancez-la le jour venu. Les questions choisies sont posées dans l’ordre où vous les cochez."
-      />
-
-      {/* Une séance déjà ouverte passe avant tout le reste : c'est là qu'il
-          faut aller, pas dans la composition d'une nouvelle. */}
-      {enCours && (
-        <Carte
-          rayon="var(--radius-lg)"
-          rembourrage="18px 22px"
-          elevation="carte"
-          style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}
-        >
-          <EtiquetteStatut ton={enCours.statut === 'pause' ? 'attention' : 'publiee'}>
-            {enCours.statut === 'pause' ? 'En pause' : 'En direct'}
-          </EtiquetteStatut>
-          <span style={{ flex: 1, minWidth: 200 }}>
-            <span style={{ display: 'block', fontSize: 'var(--body-md-size)', fontWeight: 600 }}>
-              Séance {enCours.code} en cours
-            </span>
-            <Meta style={{ fontSize: 12 }}>
-              Question {enCours.indexCourant + 1} sur {enCours.questionIds.length}
-            </Meta>
-          </span>
-          <Bouton href={'/animer' as Route} iconeGauche={<Icone nom="presentation" taille={15} />}>
-            Reprendre l’animation
-          </Bouton>
-        </Carte>
-      )}
-
-      {preparees.length > 0 && (
+    <div className="preparer preparer--cadre">
+      <header className="preparer-entete">
         <div>
-          <TitreSection indice={`${preparees.length} en attente`}>Séances préparées</TitreSection>
-          <div style={{ marginTop: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {preparees.map((seance) => (
-              <Carte
-                key={seance.id}
-                rayon="var(--radius-lg)"
-                rembourrage="14px 18px"
-                elevation="petite"
-                style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}
-              >
-                <span style={{ flex: 1, minWidth: 180 }}>
-                  <span style={{ display: 'block', fontSize: 'var(--body-md-size)', fontWeight: 600 }}>
-                    {seance.questionIds.length} question{seance.questionIds.length > 1 ? 's' : ''}
-                  </span>
-                  <Meta style={{ fontSize: 12 }}>
-                    Code {seance.code} ·{' '}
-                    {seance.dureeQuestionSecondes === 0
-                      ? 'sans chronomètre'
-                      : `${seance.dureeQuestionSecondes} s par question`}
-                  </Meta>
-                </span>
-                <Bouton
-                  variante="secondaire"
-                  onClick={() => void supprimerSeance(seance.id).then(() => recharger())}
-                >
-                  Supprimer
-                </Bouton>
-                <Bouton
-                  iconeGauche={<Icone nom="play" taille={15} />}
-                  disabled={Boolean(enCours)}
-                  onClick={() => {
-                    void lancerSeance(seance.id).then(() => routeur.push('/animer' as Route));
-                  }}
-                >
-                  Lancer
-                </Bouton>
-              </Carte>
-            ))}
-          </div>
-          {enCours && (
-            <Meta style={{ fontSize: 12 }}>
-              Terminez la séance en cours avant d’en lancer une autre.
-            </Meta>
-          )}
+          <h1 className="preparer-titre">
+            {reprise ? 'Reprendre la séance' : 'Préparer la séance du jeudi'}
+          </h1>
+          <p className="preparer-sous-titre">
+            Elle reste modifiable jusqu’au lancement. Rien n’est visible des commerciaux avant
+            que vous ne lanciez.
+          </p>
         </div>
-      )}
+        <Bouton
+          variante="fantome"
+          taille="lg"
+          href={'/admin/session' as Route}
+          iconeGauche={<Icone nom="clock" taille={16} />}
+          style={{ whiteSpace: 'nowrap', flex: 'none' }}
+        >
+          Séances et historique
+        </Bouton>
+      </header>
 
-      <div>
-        <TitreSection indice={`${visibles.length} question${visibles.length > 1 ? 's' : ''} publiée${visibles.length > 1 ? 's' : ''}`}>
-          Composer une séance
-        </TitreSection>
-
-        <div
+      {echecEcriture && (
+        <p
+          role="alert"
           style={{
-            marginTop: 'var(--space-4)',
-            display: 'flex',
-            gap: 'var(--space-3)',
-            flexWrap: 'wrap',
-            alignItems: 'center',
+            margin: 'var(--air-bloc) 0 0',
+            color: 'var(--status-danger-texte)',
+            fontSize: 'var(--body-sm-size)',
           }}
         >
-          <Selecteur
-            value={formation}
-            onChange={setFormation}
-            options={[
-              { valeur: SANS_FILTRE, libelle: 'Toutes les formations' },
-              ...referentiel.formations.map((f) => ({ valeur: f.id, libelle: f.nom })),
-            ]}
-          />
-          <Selecteur
-            value={type}
-            onChange={setType}
-            options={[
-              { valeur: SANS_FILTRE, libelle: 'Tous les formats' },
-              ...TYPES_QUESTION.map((t) => ({ valeur: t, libelle: LIBELLES_TYPE[t as TypeQuestion] })),
-            ]}
-          />
-          <Bouton
-            variante="secondaire"
-            disabled={visibles.length === 0}
-            onClick={() =>
-              setChoisies((actuelles) => [
-                ...actuelles,
-                ...visibles.map((q) => q.id).filter((id) => !actuelles.includes(id)),
-              ])
-            }
-          >
-            Tout ajouter
-          </Bouton>
-          {choisies.length > 0 && (
-            <Bouton variante="fantome" onClick={() => setChoisies([])}>
-              Tout retirer
-            </Bouton>
-          )}
-        </div>
+          {echecEcriture}
+        </p>
+      )}
 
-        {visibles.length === 0 ? (
-          <div style={{ marginTop: 'var(--space-5)' }}>
-            <EtatVide
-              icone="layers"
-              titre="Aucune question publiée sous ce filtre"
-              texte="Élargissez la formation ou le format, ou publiez des questions depuis la banque."
-            />
-          </div>
-        ) : (
-          <ListeQuestionsSeance
-            questions={visibles}
-            formations={referentiel.formations}
-            choisies={choisies}
-            derniereFois={derniereFois}
-            onBasculer={basculer}
-          />
-        )}
+      {/*
+       * Les onglets n'existent qu'en dessous de 1200 px — la feuille de style
+       * les montre ou les cache. Au large, les trois étapes sont côte à côte
+       * et un onglet n'aurait rien à sélectionner.
+       */}
+      <div className="preparer-onglets">
+        <Onglets
+          items={ONGLETS}
+          valeur={onglet}
+          onChange={setOnglet}
+          libelle="Étapes de la composition"
+        />
       </div>
 
-      <HistoriqueSeances seances={seances} questions={publiees} />
-
-      {/* Le pied de composition ne paraît que s'il y a quelque chose à
-          enregistrer : un encadré vide au bas de l'écran n'annonce rien. */}
-      {choisies.length > 0 && (
-        <Carte
-          rayon="var(--radius-xl)"
-          rembourrage="18px 22px"
-          elevation="carte"
-          style={{
-            position: 'sticky',
-            bottom: 'var(--space-4)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-4)',
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ flex: 1, minWidth: 200 }}>
-            <span
-              style={{
-                display: 'block',
-                fontFamily: 'var(--font-display)',
-                fontSize: 22,
-                lineHeight: 1.2,
-                color: 'var(--text-heading)',
-              }}
-            >
-              {choisies.length} question{choisies.length > 1 ? 's' : ''} dans la séance
-            </span>
-            <Meta style={{ fontSize: 13 }}>
-              Posées dans l’ordre où vous les avez cochées.
-            </Meta>
-          </span>
-
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Meta style={{ fontSize: 12 }}>Temps par question</Meta>
-            {[0, 30, 45, 60].map((valeur) => (
-              <Bouton
-                key={valeur}
-                taille="sm"
-                variante={duree === valeur ? 'primaire' : 'secondaire'}
-                onClick={() => setDuree(valeur)}
-              >
-                {valeur === 0 ? 'Sans' : `${valeur} s`}
-              </Bouton>
-            ))}
-          </span>
-
-          <Bouton
-            taille="lg"
-            disabled={enregistrement}
-            iconeGauche={<Icone nom="check" taille={16} />}
-            onClick={() => void enregistrer()}
-          >
-            {enregistrement ? 'Enregistrement…' : 'Préparer la séance'}
-          </Bouton>
-        </Carte>
-      )}
+      {/*
+        * L'onglet actif est porté par la grille, et c'est la feuille de style
+        * qui montre ou cache. Rendre deux fois le panneau pour deux onglets
+        * aurait dupliqué ses champs — et son `id` de chronomètre avec eux.
+        */}
+      <div className="preparer-grille" data-onglet={onglet}>
+        <div className="preparer-colonne">{banque}</div>
+        {panneau}
+      </div>
     </div>
   );
 }
+
+/**
+ * La dernière fois que chaque question a été posée.
+ *
+ * **Une séance préparée ne compte pas** : elle n'a pas encore été jouée, et
+ * signaler « déjà posée » pour une question qui attend dans une séance du
+ * jeudi prochain serait faux. On ne retient que ce qui a tourné.
+ */
+export function derniereFois(seances: Session[]): Map<string, number> {
+  const dates = new Map<string, number>();
+
+  for (const seance of seances) {
+    if (seance.statut === 'attente') continue;
+    const quand = seance.termineeLeMs ?? seance.ouverteLeMs ?? seance.creeeLeMs;
+    if (quand === null) continue;
+
+    for (const questionId of seance.questionIds) {
+      const connue = dates.get(questionId);
+      if (connue === undefined || quand > connue) dates.set(questionId, quand);
+    }
+  }
+
+  return dates;
+}
+
+export { CADENCES };

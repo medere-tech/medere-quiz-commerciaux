@@ -72,6 +72,7 @@ async function semer(): Promise<void> {
     await setDoc(doc(base, 'questions/q-vf'), question());
     await setDoc(doc(base, 'questions/q-qcm'), QCM_MULTIPLE);
     await setDoc(doc(base, 'questions/q-brouillon'), question({ statut: 'brouillon' }));
+    await setDoc(doc(base, 'questions/q-a-relire'), question({ statut: 'aRelire' }));
     await setDoc(doc(base, `users/${JORDAN.uid}`), utilisateur());
   });
 }
@@ -523,6 +524,22 @@ describe('Forme des réponses individuelles', () => {
     await semer();
     await assertFails(
       setDoc(doc(connecte(env, JORDAN), chemin('f8')), reponse({ questionId: 'q-brouillon' })),
+    );
+  });
+
+  /*
+   * **La conséquence la moins visible du troisième statut.**
+   *
+   * Les règles recalculent le verdict depuis la question, et refusaient toute
+   * réponse à une question qui n'était pas `publiee`. Sans cette ligne, une
+   * question marquée à relire aurait continué de sortir dans les séries — elle
+   * est servie — mais chaque réponse aurait été rejetée, et le commercial
+   * aurait vu « enregistrement incomplet » sans rien comprendre.
+   */
+  it('une réponse à une question marquée à relire est acceptée', async () => {
+    await semer();
+    await assertSucceeds(
+      setDoc(doc(connecte(env, JORDAN), chemin('f9')), reponse({ questionId: 'q-a-relire' })),
     );
   });
 

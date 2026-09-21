@@ -159,8 +159,23 @@ service cloud.firestore {
     // la trame change, l'application bloquerait pour une raison qui ne la
     // regarde pas. Absents ou vides, ces champs passent ; renseignés, ils
     // sont bornés comme les autres.
+    /*
+     * L'angle de vente et la signature de l'explication sont **facultatifs**,
+     * et pour deux raisons différentes.
+     *
+     * L'argumentaire, parce qu'une question de fait n'en a pas : en exiger un
+     * produirait du remplissage, et le remplissage apprend au commercial à
+     * sauter la carte.
+     *
+     * La signature, parce que les questions écrites avant ce lot n'en portent
+     * pas — et **la raison n'est pas de ménager les données existantes**, qui
+     * sont de la recette : c'est qu'une signature s'acquiert en écrivant. Une
+     * question importée depuis une fiche n'a personne à créditer tant que
+     * Noémie n'y a pas touché.
+     */
     function champsQuestionFacultatifs() {
-      return ['sourceFiche', 'sourceVersion', 'enonceNormalise'];
+      return ['sourceFiche', 'sourceVersion', 'enonceNormalise',
+              'argumentaire', 'explicationAuteur', 'explicationMajLe'];
     }
 
     function questionValide(donnees) {
@@ -170,7 +185,7 @@ service cloud.firestore {
         && texteBorne(donnees.enonce, 500)
         && texteBorne(donnees.explication, 1000)
         && texteBorne(donnees.theme, 60)
-        && donnees.statut in ['brouillon', 'publiee']
+        && donnees.statut in ['brouillon', 'aRelire', 'publiee']
         && donnees.difficulte in [1, 2, 3]
         && donnees.formationIds is list
         && donnees.formationIds.size() > 0
@@ -208,9 +223,43 @@ service cloud.firestore {
         && (!('enonceNormalise' in donnees) || texteFacultatifBorne(donnees.enonceNormalise, 500))
         && (!('sourceFiche' in donnees) || texteFacultatifBorne(donnees.sourceFiche, 200))
         && (!('sourceVersion' in donnees) || texteFacultatifBorne(donnees.sourceVersion, 40))
+        /*
+         * L'angle de vente et la signature de l'explication.
+         *
+         * **Tous trois facultatifs, et pour des raisons différentes.**
+         * L'argumentaire l'est parce qu'une question de fait n'en a pas — en
+         * exiger un produirait du remplissage. La signature l'est parce que
+         * les questions écrites avant ce lot n'en portent pas, et qu'exiger
+         * une signature qu'on n'a pas casserait leur prochain enregistrement.
+         */
+        && (!('argumentaire' in donnees) || texteFacultatifBorne(donnees.argumentaire, 600))
+        && (!('explicationAuteur' in donnees)
+              || texteFacultatifBorne(donnees.explicationAuteur, 60))
+        && (!('explicationMajLe' in donnees) || horodatagePasse(donnees.explicationMajLe))
         && identifiantBorne(donnees.creeePar)
         && horodatagePasse(donnees.creeeLe)
         && horodatagePasse(donnees.modifieeLe);
+    }
+
+    /*
+     * La date de l'explication ne bouge que si l'explication bouge.
+     *
+     * **C'est une garantie, pas une politesse du client.** L'écran du
+     * commercial annonce « mise à jour le… » juste à côté de l'explication :
+     * si une correction de virgule faisait avancer cette date, elle
+     * n'apprendrait plus rien. `modifieeLe`, lui, suit chaque enregistrement —
+     * c'est ce qui classe la banque, et c'est son rôle.
+     *
+     * La comparaison porte sur le texte exact : les règles ne savent pas
+     * normaliser les espaces, et une écriture qui ne changerait que ceux-là
+     * serait refusée si elle bougeait la date. Le client, lui, ne la bouge pas
+     * dans ce cas — les deux se rejoignent sur le cas qui compte.
+     */
+    function signatureCoherente(avant, apres) {
+      return (avant.explication == apres.explication
+              && avant.get('argumentaire', '') == apres.get('argumentaire', ''))
+        ? avant.get('explicationMajLe', null) == apres.get('explicationMajLe', null)
+        : true;
     }
 
     match /questions/{questionId} {
@@ -221,7 +270,8 @@ service cloud.firestore {
       allow update: if estAdmin()
         && questionValide(request.resource.data)
         && request.resource.data.creeePar == resource.data.creeePar
-        && request.resource.data.creeeLe == resource.data.creeeLe;
+        && request.resource.data.creeeLe == resource.data.creeeLe
+        && signatureCoherente(resource.data, request.resource.data);
       allow delete: if estAdmin();
     }
 
@@ -238,7 +288,8 @@ service cloud.firestore {
 
     function champsUtilisateur() {
       return ['email', 'nom', 'photoURL', 'role',
-              'etoiles', 'seriesTerminees', 'creeLe', 'vuLe', 'nomSession', 'avatar'];
+              'etoiles', 'seriesTerminees', 'creeLe', 'vuLe', 'nomSession',
+              'avatar', 'presence', 'assiduite', 'recompenses'];
     }
 
     function majUtilisateurAutorisee() {
@@ -246,7 +297,15 @@ service cloud.firestore {
       let apres = request.resource.data;
       return apres.keys().hasOnly(champsUtilisateur())
         && apres.diff(avant).affectedKeys().hasOnly(
-             ['etoiles', 'seriesTerminees', 'vuLe', 'nomSession', 'avatar'])
+             ['etoiles', 'seriesTerminees', 'vuLe', 'nomSession', 'avatar',
+              'presence', 'assiduite', 'recompenses'])
+        /*
+         * Le dernier lieu déclaré — en salle ou en visio —, proposé d'emblée à
+         * la séance suivante. Comme le nom et la couleur : un réglage qu'il
+         * faudrait penser à ouvrir avant le jeudi ne serait jamais ouvert.
+         * Facultatif, parce que les comptes existants ne le portent pas.
+         */
+        && (!apres.keys().hasAny(['presence']) || apres.presence in ['salle', 'visio'])
         // Une teinte de la palette, et rien d'autre. La liste est fermée ici
         // pour qu'un avatar inconnu ne se glisse pas dans un écran projeté.
         && apres.avatar in ['bleu', 'turquoise', 'vert', 'jaune',
@@ -271,7 +330,75 @@ service cloud.firestore {
         && apres.seriesTerminees is int
         && apres.seriesTerminees >= avant.seriesTerminees
         && apres.seriesTerminees - avant.seriesTerminees <= 1
-        && horodatagePasse(apres.vuLe);
+        && horodatagePasse(apres.vuLe)
+        && assiduiteValide(avant, apres)
+        && recompensesValides(avant, apres);
+    }
+
+    /*
+     * Les récompenses : les paliers franchis, et le jour où ils l'ont été.
+     *
+     * **Rien ne s'y retire ni ne s'y réécrit.** Une récompense obtenue est un
+     * fait du passé : la reprendre serait pire que ne jamais l'accorder, et
+     * réécrire sa date effacerait le jour où elle a été gagnée. C'est la
+     * garantie qui justifie de stocker plutôt que de dériver — sans elle,
+     * autant tout recalculer à chaque affichage.
+     *
+     * **Le plafond borne la croissance**, et c'est son seul rôle. Les neuf
+     * identifiants ne sont **pas** figés ici, contrairement aux avatars : les
+     * inscrire dans les règles imposerait un déploiement de règles à chaque
+     * palier ajouté, avec le risque de désynchronisation que le lot 3 a payé
+     * assez cher. Une clé inconnue du code ne rend rien à l'écran.
+     *
+     * Facultatif : les comptes ouverts avant ce lot ne portent pas la carte.
+     */
+    function recompensesValides(avant, apres) {
+      return !apres.keys().hasAny(['recompenses'])
+        || (apres.recompenses.keys().size() <= 24
+            && (!avant.keys().hasAny(['recompenses'])
+                || (apres.recompenses.keys().hasAll(avant.recompenses.keys())
+                    && !apres.recompenses.diff(avant.recompenses).affectedKeys()
+                         .hasAny(avant.recompenses.keys()))));
+    }
+
+    /*
+     * La régularité : semaine en cours, série de jours d'affilée, record.
+     *
+     * **Verrouillée comme les étoiles**, et pour la même raison : ce sont des
+     * compteurs que le client écrit lui-même. Le record ne redescend jamais,
+     * la série ne saute pas de palier — elle repart à un ou avance d'un seul
+     * cran —, et la semaine ne peut pas dépasser sept entrées. Cette dernière
+     * borne est ce qui empêche le champ de grossir : c'est là qu'elle se tient,
+     * pas seulement dans le code qui l'écrit.
+     *
+     * **Ce que les règles ne garantissent pas, et qui est assumé :** c'est
+     * l'horloge du navigateur qui décide du jour. Un commercial peut donc se
+     * fabriquer une série en avançant sa montre. L'enjeu est une pastille
+     * d'assiduité ; l'alternative — horodatage serveur et déclencheur Cloud —
+     * coûterait une fonction pour une décoration.
+     *
+     * Facultatif : les comptes ouverts avant ce lot ne portent pas le champ.
+     */
+    function assiduiteValide(avant, apres) {
+      return !apres.keys().hasAny(['assiduite'])
+        || (apres.assiduite.keys().hasOnly(
+              ['dernierJour', 'serie', 'record', 'semaine'])
+            && apres.assiduite.keys().hasAll(
+                 ['dernierJour', 'serie', 'record', 'semaine'])
+            && apres.assiduite.dernierJour is string
+            && apres.assiduite.dernierJour.size() == 10
+            && apres.assiduite.serie is int
+            && apres.assiduite.serie >= 1
+            && apres.assiduite.record is int
+            && apres.assiduite.record >= apres.assiduite.serie
+            && apres.assiduite.semaine is list
+            && apres.assiduite.semaine.size() >= 1
+            && apres.assiduite.semaine.size() <= 7
+            // Premier passage : rien à comparer, le champ n'existait pas.
+            && (!avant.keys().hasAny(['assiduite'])
+                || (apres.assiduite.record >= avant.assiduite.record
+                    && (apres.assiduite.serie == 1
+                        || apres.assiduite.serie <= avant.assiduite.serie + 1))));
     }
 
     function champsEtat() {
@@ -306,10 +433,23 @@ service cloud.firestore {
     // comme les statistiques ne valent plus rien. Même mécanisme pour
     // l'entraînement individuel et pour la session collective.
 
+    /*
+     * Les statuts qui sortent aux commerciaux.
+     *
+     * **« À relire » en fait partie**, et c'est ici que ça se joue : sans cette
+     * ligne, une réponse à une question marquée à relire serait refusée, et le
+     * commercial verrait « enregistrement incomplet » sans comprendre. Le
+     * statut dit « cette question demande du travail », pas « elle ne sort
+     * plus » — pour retirer une question, il y a le brouillon.
+     */
+    function statutsServis() {
+      return ['publiee', 'aRelire'];
+    }
+
     function verdictConforme(donnees) {
       let question = get(/databases/$(database)/documents/questions/$(donnees.questionId));
       return question != null
-        && question.data.statut == 'publiee'
+        && question.data.statut in statutsServis()
         // Aucune option inventée, y compris quand la réponse est fausse.
         && donnees.optionsChoisies.toSet().hasOnly(question.data.options.keys().toSet())
         // Une réponse partielle à un QCM multiple est fausse.
@@ -418,10 +558,65 @@ service cloud.firestore {
 
     // --- Sessions collectives --------------------------------------------
 
+    /*
+     * Les champs d'une séance.
+     *
+     * **`titre`, `animateurNom` et `ouverteLe` sont obligatoires**, comme tous
+     * les autres : `hasOnly` et `hasAll` se lisent sur l'état d'après fusion,
+     * si bien qu'un document qui n'en porte pas ne se met plus à jour du tout.
+     * C'est voulu. Jusqu'à la mise en service, la base ne contient que de la
+     * recette, effacée par `scripts/nettoyer-recette.ts` : aucune décision de
+     * modèle n'est prise ici pour préserver des documents jetables.
+     */
     function champsSession() {
-      return ['code', 'questionIds', 'indexCourant', 'revelee', 'statut',
-              'animateurUid', 'creeeLe', 'repartition', 'repondants',
+      return ['code', 'titre', 'description', 'animateurNom', 'questionIds',
+              'indexCourant', 'revelee', 'demarree', 'verrouillee', 'statut',
+              'animateurUid', 'creeeLe', 'ouverteLe', 'termineeLe',
+              'presentsFinal', 'effectifAttendu', 'repartition', 'repondants',
               'dureeQuestionSecondes', 'questionOuverteLe'];
+    }
+
+    /*
+     * Ce que la séance annonce d'elle-même.
+     *
+     * **Le titre est projeté sur un mur**, donc borné et sans caractère de
+     * contrôle — un titre sur deux lignes casserait la mise en page de l'écran
+     * d'animation. Soixante caractères : de quoi nommer un sujet, pas de quoi
+     * écrire un programme.
+     *
+     * **`animateurNom` est recopié depuis le compte de l'animatrice, par
+     * elle-même.** Personne d'autre ne peut aller le lire : `users/{uid}` est
+     * fermé à tout le monde sauf à son propriétaire, sans exception
+     * administrateur. C'est le même motif que le nom porté par un marqueur de
+     * présence, et pour la même raison.
+     *
+     * **`ouverteLe` vaut `null` tant que la séance est en attente.** Une séance
+     * composée le mardi et lancée le jeudi porte deux dates ; celle-ci est
+     * posée au lancement, et `creeeLe` ne bouge pas.
+     */
+    function annonceSeanceValide(donnees) {
+      return texteBorne(donnees.titre, 60)
+        && donnees.titre.matches('^[^[:cntrl:]]+$')
+        // La description peut rester vide : le titre suffit à annoncer une
+        // séance, et un champ obligatoire qu'on ne sait pas remplir se remplit
+        // mal. Bornée quand même — elle s'affiche sur une carte étroite.
+        && texteFacultatifBorne(donnees.description, 160)
+        && donnees.description.matches('^[^[:cntrl:]]*$')
+        && nomAffichageValide(donnees.animateurNom)
+        && (donnees.ouverteLe == null || horodatagePasse(donnees.ouverteLe))
+        /*
+         * Ce que la séance laisse en se fermant.
+         *
+         * **Écrits par la Cloud Function du bilan, jamais par un client** — le
+         * SDK Admin ignore ces règles. Ils figurent quand même au modèle : un
+         * champ qu'aucune règle ne déclare ferait échouer `hasOnly` à la
+         * première écriture cliente qui suivrait, et le refus serait
+         * incompréhensible. Le client les pose à `null` et `0` à la création,
+         * et n'y touche plus.
+         */
+        && (donnees.termineeLe == null || horodatagePasse(donnees.termineeLe))
+        && donnees.presentsFinal is int
+        && donnees.presentsFinal >= 0;
     }
 
     /*
@@ -518,6 +713,7 @@ service cloud.firestore {
         && donnees.keys().hasAll(champsSession())
         && repartitionValide(donnees)
         && chronometreValide(donnees)
+        && annonceSeanceValide(donnees)
         // Le code est lu à voix haute puis saisi à la main.
         && texteBorne(donnees.code, 12)
         && donnees.questionIds is list
@@ -528,6 +724,41 @@ service cloud.firestore {
         && donnees.indexCourant >= 0
         && donnees.indexCourant < donnees.questionIds.size()
         && donnees.revelee is bool
+        /*
+         * **Trois moments, pas deux.**
+         *
+         * `attente` : composée, pas ouverte — le code ne vaut rien.
+         * `encours` + `demarree` faux : la salle est ouverte, on attend le
+         *   monde. C'est la salle d'attente, où le code se dicte.
+         * `encours` + `demarree` vrai : la première question est posée.
+         *
+         * Le statut seul ne distinguait pas les deux derniers, et c'est
+         * précisément entre eux que vit l'écran de salle d'attente.
+         */
+        && donnees.demarree is bool
+        /*
+         * La porte de la salle.
+         *
+         * **Un booléen sur la séance, et rien de plus.** Il ne dit pas qui est
+         * entré ni qui a été refusé : il dit si la porte accepte encore
+         * quelqu'un. Une séance neuve l'a à faux — une salle s'ouvre ouverte —,
+         * et il se pose et se défait autant de fois que nécessaire, comme la
+         * pause. Le seul endroit où il agit est la création d'un marqueur de
+         * présence, plus bas.
+         */
+        && donnees.verrouillee is bool
+        /*
+         * L'effectif attendu, dénominateur de « 8 sur 10 ».
+         *
+         * Il ne se devine pas : l'outil n'a pas de liste d'invités, le code est
+         * dit à voix haute et quiconque l'entend entre. Noémie le déclare.
+         * Zéro vaut « non déclaré », et l'écran n'affiche alors aucun
+         * dénominateur plutôt qu'un chiffre inventé. Le plafond borne une
+         * saisie accidentelle, il n'a pas d'autre sens.
+         */
+        && donnees.effectifAttendu is int
+        && donnees.effectifAttendu >= 0
+        && donnees.effectifAttendu <= 500
         /*
          * Les cinq états d'une séance.
          *
@@ -606,9 +837,19 @@ service cloud.firestore {
     }
 
     function participantValide(donnees) {
-      return donnees.keys().hasOnly(['nom', 'rejointLe', 'avatar'])
-        && donnees.keys().hasAll(['nom', 'rejointLe', 'avatar'])
+      return donnees.keys().hasOnly(['nom', 'rejointLe', 'avatar', 'presence'])
+        && donnees.keys().hasAll(['nom', 'rejointLe', 'avatar', 'presence'])
         && nomAffichageValide(donnees.nom)
+        /*
+         * En salle ou en visio.
+         *
+         * **La séance est hybride, et l'animatrice doit le savoir.** Une partie
+         * de la salle voit l'écran projeté avec plusieurs secondes de retard :
+         * savoir qui est devant elle et qui est au bout d'un lien change la
+         * façon de mener la séance. Chacun le déclare pour lui-même, comme son
+         * nom et sa couleur.
+         */
+        && donnees.presence in ['salle', 'visio']
         // Recopié depuis le document utilisateur pour la même raison que le
         // nom : l'animatrice doit pouvoir dessiner la salle sans lire les
         // données privées de qui que ce soit.
@@ -630,6 +871,30 @@ service cloud.firestore {
     function estPresent(sessionId) {
       return exists(
         /databases/$(database)/documents/sessions/$(sessionId)/participants/$(request.auth.uid));
+    }
+
+    /*
+     * La salle accepte-t-elle encore quelqu'un ?
+     *
+     * **Deux conditions, et une seule porte.** La séance doit être en cours ou
+     * en pause — on ne s'inscrit pas à une séance close pour en lire le
+     * classement —, et la porte ne doit pas avoir été fermée par l'animatrice.
+     *
+     * **Ce que cette fonction ne garde pas est aussi important que ce qu'elle
+     * garde.** Elle n'est appelée qu'à la *création* d'un marqueur de présence.
+     * Qui est déjà dans la salle a déjà le sien : il vote, il apparaît au
+     * classement, il corrige son nom, et rien ici ne le concerne. Verrouiller
+     * ferme la porte, cela ne vide pas la pièce.
+     *
+     * `get('verrouillee', false)` plutôt que l'accès direct : une séance écrite
+     * par le SDK Admin — la Cloud Function du bilan — ne passe pas par
+     * `sessionValide`, et une porte absente est une porte ouverte.
+     */
+    function salleOuverte(sessionId) {
+      return get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut
+               in ['encours', 'pause']
+        && get(/databases/$(database)/documents/sessions/$(sessionId))
+             .data.get('verrouillee', false) == false;
     }
 
     match /sessions/{sessionId} {
@@ -706,23 +971,85 @@ service cloud.firestore {
           && verdictConforme(request.resource.data)
           && get(/databases/$(database)/documents/sessions/$(sessionId)).data.revelee == false
           && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut == 'encours';
-        allow update, delete: if false;
+        allow update: if false;
+        /*
+         * **Une séance abandonnée efface ses réponses.**
+         *
+         * Elles ne servaient qu'au classement, et il n'y en aura pas. Elles
+         * sont déjà invisibles de tous une fois la séance close — `list` plus
+         * haut est conditionné à `encours` ou `pause` — mais invisible n'est
+         * pas effacé, et une séance qu'on abandonne ne laisse rien de nominatif
+         * derrière elle.
+         *
+         * **Trois verrous, et chacun sert.** L'animatrice de cette séance et
+         * personne d'autre ; sur une séance `abandonnee` et pas une autre ;
+         * jamais sur une séance terminée, dont le classement se calcule
+         * précisément à partir de ces réponses.
+         *
+         * **La progression individuelle n'est pas concernée**, et ne peut pas
+         * l'être : `users/{uid}/reponses` est fermé en suppression, et les
+         * compteurs d'`etats` ne redescendent pas. Ces réponses-là étaient
+         * réelles — décision du lot 7, promise en toutes lettres à l'écran.
+         *
+         * En pratique c'est la Cloud Function du bilan qui efface, par le SDK
+         * Admin, donc hors de ces règles. Cette autorisation dit néanmoins qui
+         * aurait le droit, et ferme la porte à tous les autres.
+         */
+        allow delete: if estAnimateur(sessionId)
+          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut
+               == 'abandonnee';
       }
 
       match /participants/{participantUid} {
         // L'animatrice lit toute la salle : c'est ce qui lui permet de nommer
         // les votes en direct. Un participant ne lit que son propre marqueur.
         allow get: if estAnimateur(sessionId) || estProprietaire(participantUid);
-        allow list: if estAnimateur(sessionId);
+        /*
+         * **Qui est déjà dans la salle, avant même d'avoir rejoint.**
+         *
+         * L'écran d'accès annonce les présents : c'est le sens d'une séance
+         * collective, et c'est ce que l'écran projeté affiche déjà devant tout
+         * le monde. La liste s'ouvre donc au domaine — mais seulement pendant
+         * la séance.
+         *
+         * **La clause de statut n'est pas une précaution de plus, c'est la
+         * clause qui rend l'ouverture acceptable.** C'est la seule collection
+         * nominative de l'outil. Sans elle, chaque séance passée deviendrait
+         * une archive permanente de qui était là quel jeudi, lisible par tout
+         * le domaine — exactement ce que la règle jumelle interdit quelques
+         * lignes plus haut pour la liste des réponses, et pour la même raison.
+         * Pendant la séance, cette liste ne dit rien que la pièce ne voie ;
+         * après, il n'en reste rien.
+         *
+         * **Ouvrir la lecture n'ouvre pas la présence.** La création reste
+         * réservée au propriétaire du marqueur, et `estPresent()` — la barrière
+         * du classement — est un `exists()`, pas une liste. Personne ne devient
+         * présent pour avoir su lire.
+         */
+        allow list: if estAnimateur(sessionId)
+          || (domaineAutorise()
+              && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut
+                   in ['encours', 'pause']);
+        /*
+         * **Toute la portée du verrou tient sur cette ligne, et c'est voulu.**
+         * Pendant une pause aussi on entre : c'est le moment où un retardataire
+         * rattrape la salle. Après la fin, non — on ne s'inscrit pas à une
+         * séance close pour en lire le classement. Et pas non plus quand
+         * l'animatrice a fermé la porte : voir `salleOuverte`.
+         */
         allow create: if domaineAutorise()
           && estProprietaire(participantUid)
           && participantValide(request.resource.data)
-          // Pendant une pause aussi : c'est le moment où un retardataire
-          // rattrape la salle. Après la fin, non — on ne s'inscrit pas à une
-          // séance close pour en lire le classement.
-          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut
-               in ['encours', 'pause'];
-        // Le nom peut changer en cours de séance, la présence non.
+          && salleOuverte(sessionId);
+        /*
+         * Le nom peut changer en cours de séance, la présence non.
+         *
+         * **Cette règle est la réponse à « que deviennent ceux qui sont déjà
+         * là ».** Elle ne regarde ni le statut de la séance ni la porte : un
+         * présent reste un présent. C'est aussi par elle que passe la
+         * reconnexion d'un onglet rechargé — `rejoindre` fusionne alors sans
+         * réécrire `rejointLe`, faute de quoi une reconnexion serait refusée.
+         */
         allow update: if estProprietaire(participantUid)
           && participantValide(request.resource.data)
           && request.resource.data.rejointLe == resource.data.rejointLe;

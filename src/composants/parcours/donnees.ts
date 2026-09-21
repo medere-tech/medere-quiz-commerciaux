@@ -64,12 +64,50 @@ export type EtatChargement<Q extends QuestionListee = QuestionListee> =
   | { etat: 'erreur'; echec: EchecDeLecture }
   | { etat: 'pret'; donnees: DonneesParcours<Q> };
 
+/**
+ * Ce que le serveur a déjà lu des données privées, quand il l'a fait.
+ *
+ * **Mesuré :** par le navigateur, la donnée arrivait à l'écran au bout de huit
+ * secondes et demie — scripts, puis attestation App Check, puis poignée de main
+ * du canal Firestore, en file. Le serveur n'attend rien de tout cela : il lit
+ * avec le SDK Admin pendant qu'il rend le HTML, et la donnée part avec.
+ *
+ * Voir `src/lib/serveur/donnees-privees.ts` pour la décision et ce qu'elle
+ * coûte, et le README pour les deux chiffres.
+ */
+export type ParcoursSeme = {
+  uid: string;
+  etats: EtatComplet[];
+  progression: Progression;
+};
+
 export function useDonneesParcours<Q extends QuestionListee>(
   referentiel: Referentiel<Q>,
+  seme?: ParcoursSeme,
 ): EtatChargement<Q> {
-  const [resultat, setResultat] = useState<EtatChargement<Q>>({ etat: 'chargement' });
+  /*
+   * **Quand le serveur a semé, il n'y a rien à charger.** L'état de départ est
+   * déjà `pret` : aucun squelette, aucun effet, aucune lecture. Le crochet
+   * garde son second chemin — le client — pour les écrans qui n'ont pas encore
+   * été semés, et pour qu'un rechargement de données reste possible.
+   */
+  const [resultat, setResultat] = useState<EtatChargement<Q>>(() =>
+    seme
+      ? {
+          etat: 'pret',
+          donnees: {
+            uid: seme.uid,
+            questions: referentiel.questions,
+            formations: referentiel.formations,
+            progression: seme.progression,
+            etats: seme.etats,
+          },
+        }
+      : { etat: 'chargement' },
+  );
 
   useEffect(() => {
+    if (seme) return;
     let vivant = true;
 
     async function charger() {
@@ -111,6 +149,9 @@ export function useDonneesParcours<Q extends QuestionListee>(
     return () => {
       vivant = false;
     };
+    // `seme` est lu au premier rendu et ne change pas : l'inclure ferait
+    // relancer l'effet à chaque nouvelle identité d'objet, pour rien.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [referentiel]);
 
   return resultat;

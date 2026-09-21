@@ -22,6 +22,7 @@
     "stats:reprise": "node --env-file=.env.local scripts/agreger-historique.ts",
     "etats:reprise": "node --env-file=.env.local scripts/reconstruire-etats.ts",
     "enonces:normaliser": "node --env-file=.env.local scripts/normaliser-enonces.ts",
+    "sessions:completer": "node --env-file=.env.local scripts/completer-sessions.ts",
     "recette:nettoyer": "node --env-file=.env.local scripts/nettoyer-recette.ts",
     "regles:verifier": "node --env-file-if-exists=.env.local scripts/verifier-regles.ts",
     "fonctions:deploy": "node scripts/deployer-fonctions.mjs"
@@ -30,6 +31,7 @@
     "firebase": "12.18.0",
     "firebase-admin": "13.10.0",
     "next": "16.3.4",
+    "qrcode-generator": "2.0.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "read-excel-file": "^9.3.10",

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Route } from 'next';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
@@ -26,8 +26,11 @@ import {
   LIBELLES_TYPE,
   PLAFONDS,
   TYPES_QUESTION,
+  LIBELLES_STATUT,
+  TONS_STATUT,
   accepteUnContexte,
   brouillonVierge,
+  nomDeSignature,
   type BrouillonQuestion,
   type Difficulte,
   type StatutQuestion,
@@ -84,6 +87,13 @@ export default function PageEditeur() {
   const creation = identifiant === 'nouvelle';
 
   const [brouillon, setBrouillon] = useState<BrouillonQuestion>(brouillonVierge());
+  /*
+   * L'explication et l'argumentaire tels qu'ils sont **en base**, pas à
+   * l'écran. C'est à eux qu'on compare pour décider si la date de mise à jour
+   * doit bouger : comparer à l'état de la saisie ferait toujours « pas de
+   * changement ».
+   */
+  const signature = useRef({ explication: '', argumentaire: '' });
   const [formations, setFormations] = useState<Formation[]>([]);
   const [chargement, setChargement] = useState(true);
   const [questionAbsente, setQuestionAbsente] = useState(false);
@@ -108,6 +118,10 @@ export default function PageEditeur() {
           if (!question) {
             setQuestionAbsente(true);
           } else {
+            signature.current = {
+              explication: question.explication,
+              argumentaire: question.argumentaire,
+            };
             setBrouillon({
               type: question.type,
               contexte: question.contexte,
@@ -116,6 +130,7 @@ export default function PageEditeur() {
               ordreOptions: question.ordreOptions,
               bonnesReponses: question.bonnesReponses,
               explication: question.explication,
+              argumentaire: question.argumentaire,
               formationIds: question.formationIds,
               theme: question.theme,
               difficulte: question.difficulte,
@@ -222,7 +237,11 @@ export default function PageEditeur() {
       if (!utilisateur) throw new Error('session absente');
 
       if (creation) {
-        const nouvel = await creerQuestion(resultat.question, utilisateur.uid);
+        const nouvel = await creerQuestion(
+          resultat.question,
+          utilisateur.uid,
+          nomDeSignature(utilisateur),
+        );
         // On reste sur la question créée, en gardant de quoi revenir.
         router.replace(
           (retour
@@ -230,7 +249,16 @@ export default function PageEditeur() {
             : `/admin/questions/${nouvel}`) as Route,
         );
       } else {
-        await enregistrerQuestion(identifiant, resultat.question);
+        await enregistrerQuestion(identifiant, resultat.question, {
+          /* Ce qui était en base avant cette saisie : la date de l'explication
+             ne bouge que si le texte bouge. */
+          precedente: signature.current,
+          auteurNom: nomDeSignature(utilisateur),
+        });
+        signature.current = {
+          explication: resultat.question.explication,
+          argumentaire: resultat.question.argumentaire,
+        };
         modifier({ statut });
       }
       setBrouillon((precedent) => ({ ...precedent, statut }));
@@ -267,6 +295,19 @@ export default function PageEditeur() {
       ['Bonne réponse désignée', brouillon.bonnesReponses.length > 0],
       ['Formation rattachée', brouillon.formationIds.length > 0],
       ['Explication rédigée', brouillon.explication.trim().length > 0],
+    ] as const;
+  }, [brouillon]);
+
+  /*
+   * Ce qui n'est pas exigé, et qu'on signale quand même.
+   *
+   * Un contrôle rouge dit « vous ne pouvez pas » ; celui-ci dit « vous
+   * pourriez ». Les mêmes pastilles pour les deux auraient fait de
+   * l'argumentaire une obligation de fait.
+   */
+  const suggestions = useMemo(() => {
+    return [
+      ['Argumentaire écrit', brouillon.argumentaire.trim().length > 0],
     ] as const;
   }, [brouillon]);
 
@@ -347,13 +388,21 @@ export default function PageEditeur() {
             {creation ? 'Nouvelle question' : 'Modifier une question'}
           </h1>
           <span style={{ display: 'flex', gap: 'var(--space-4)', marginTop: 8, alignItems: 'center' }}>
-            <EtiquetteStatut ton={brouillon.statut === 'publiee' ? 'publiee' : 'brouillon'}>
-              {brouillon.statut === 'publiee' ? 'Publiée' : 'Brouillon'}
+            <EtiquetteStatut ton={TONS_STATUT[brouillon.statut] ?? 'brouillon'}>
+              {LIBELLES_STATUT[brouillon.statut] ?? brouillon.statut}
             </EtiquetteStatut>
+            {/*
+              * **La phrase dit ce que le statut fait, pas comment il s'appelle.**
+              * « À relire » est le seul dont le nom ne suffit pas : il sort aux
+              * commerciaux comme une publiée, et c'est exactement ce qu'on
+              * risquerait de croire l'inverse.
+              */}
             <Meta style={{ fontSize: 12 }}>
               {brouillon.statut === 'publiee'
                 ? 'Cette question entre dans les séries.'
-                : "Un brouillon n'entre dans aucune série."}
+                : brouillon.statut === 'aRelire'
+                  ? 'Elle entre toujours dans les séries : le marquage est une note de travail. Pour la retirer, enregistrez-la en brouillon.'
+                  : "Un brouillon n'entre dans aucune série."}
             </Meta>
           </span>
         </div>
@@ -381,6 +430,14 @@ export default function PageEditeur() {
             onClick={() => void enregistrer('brouillon')}
           >
             Enregistrer le brouillon
+          </Bouton>
+          <Bouton
+            variante="secondaire"
+            taille="lg"
+            disabled={enregistrement}
+            onClick={() => void enregistrer('aRelire')}
+          >
+            {brouillon.statut === 'aRelire' ? 'Garder à relire' : 'Marquer à relire'}
           </Bouton>
           <Bouton taille="lg" disabled={enregistrement} onClick={() => void enregistrer('publiee')}>
             Publier
@@ -588,6 +645,24 @@ export default function PageEditeur() {
             placeholder="Expliquez pourquoi cette réponse est la bonne, en une ou deux phrases."
           />
 
+          {/*
+            * L'angle de vente, distinct du pourquoi.
+            *
+            * **Facultatif, et l'aide le dit.** Une question de fait n'a pas
+            * d'angle de vente ; en réclamer un produirait du remplissage, et
+            * le commercial apprendrait à sauter la carte. Quand il est vide,
+            * la carte ne s'affiche simplement pas.
+            */}
+          <ZoneDeTexte
+            label="À l’argumentaire — facultatif"
+            value={brouillon.argumentaire}
+            onChange={(argumentaire) => modifier({ argumentaire })}
+            erreur={messagePour(erreurs, 'argumentaire')}
+            aide={`Ce que le commercial en fait au téléphone, quand il y a quelque chose à en faire. ${brouillon.argumentaire.length} caractères sur ${PLAFONDS.argumentaire}.`}
+            lignes={2}
+            placeholder="« Proposez l’assistant dentaire dès la découverte : qui vous assiste au fauteuil ? »"
+          />
+
           <div
             style={{
               display: 'grid',
@@ -759,6 +834,55 @@ export default function PageEditeur() {
               Ces six points valent aussi pour un brouillon : les règles de sécurité les vérifient à
               chaque enregistrement, publication ou non.
             </Meta>
+
+            {/*
+              * Ce qui n'est pas exigé, et qu'on signale quand même. Pastille
+              * creuse et non alerte rouge : « vous pourriez », pas « vous ne
+              * pouvez pas ».
+              */}
+            <div
+              style={{
+                marginTop: 16,
+                paddingTop: 14,
+                borderTop: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              {suggestions.map(([libelle, fait]) => (
+                <span key={libelle} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span
+                    style={{
+                      width: 18,
+                      height: 18,
+                      flex: 'none',
+                      borderRadius: 999,
+                      background: fait ? 'var(--status-success)' : 'var(--surface-sunken)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {fait && (
+                      <Icone nom="check" taille={11} epaisseur={2.3} couleur="#fff" />
+                    )}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 'var(--body-sm-size)',
+                      color: fait ? 'var(--neutral-70)' : 'var(--neutral-60)',
+                    }}
+                  >
+                    {libelle}
+                  </span>
+                </span>
+              ))}
+              <Meta style={{ fontSize: 12 }}>
+                Facultatif : une question de fait n’a pas d’angle de vente, et en inventer un
+                apprend au commercial à sauter la carte.
+              </Meta>
+            </div>
           </Carte>
         </div>
       </div>

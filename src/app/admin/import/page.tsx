@@ -20,7 +20,7 @@ import { chargerFormations, type Formation } from '@/lib/formations/depot';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import { authentification } from '@/lib/firebase/client';
 import { creerQuestion, enoncesDejaEnBanque } from '@/lib/questions/depot';
-import { LIBELLES_DIFFICULTE, DIFFICULTES } from '@/lib/questions/modele';
+import { LIBELLES_DIFFICULTE, DIFFICULTES, nomDeSignature } from '@/lib/questions/modele';
 import { ENTETE_MODELE, LIBELLES_COLONNE, type Colonne } from '@/lib/import/colonnes';
 import { lireCollage, lireFeuille, type ResultatCollage } from '@/lib/import/collage';
 import {
@@ -301,7 +301,11 @@ export default function PageImport() {
         const analyse = file.shift();
         if (!analyse) return;
         try {
-          await creerQuestion(analyse.question!, utilisateur.uid);
+          await creerQuestion(
+            analyse.question!,
+            utilisateur.uid,
+            nomDeSignature(utilisateur),
+          );
           ecrites.push(analyse.ligne.numero);
         } catch {
           echouees.push({

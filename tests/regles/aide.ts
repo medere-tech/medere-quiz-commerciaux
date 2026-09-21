@@ -123,16 +123,35 @@ export function reponseSession(uid: string, remplacements: Document = {}): Docum
 export function session(remplacements: Document = {}): Document {
   return {
     code: 'JEUDI7',
+    // Ce que la séance annonce d'elle-même. Le titre est obligatoire ; la
+    // description peut rester vide.
+    titre: 'Objections sur les classes virtuelles',
+    description: '',
+    // Recopié depuis le compte de l'animatrice, par elle-même : personne
+    // d'autre ne peut lire `users/{uid}`.
+    animateurNom: 'Noémie',
     questionIds: ['q-vf', 'q-qcm'],
     indexCourant: 0,
     revelee: false,
+    // La salle d'attente vit entre l'ouverture et la première question.
+    demarree: true,
+    // La porte de la salle. Une séance s'ouvre ouverte.
+    verrouillee: false,
     statut: 'encours',
     animateurUid: NOEMIE.uid,
     creeeLe: HIER,
+    // Posé au lancement, pas à la composition : une séance en attente vaut
+    // `null`.
+    ouverteLe: HIER,
+    // Posés à la clôture par la Cloud Function du bilan.
+    termineeLe: null,
+    presentsFinal: 0,
     // Répartition de la question en cours, écrite à la révélation. Vide tant
     // que la bonne réponse n'est pas montrée.
     repartition: [],
     repondants: 0,
+    // Zéro vaut « non déclaré » : aucun dénominateur inventé.
+    effectifAttendu: 0,
     // Chronomètre : une échéance commune à tous les appareils, posée quand la
     // question est poussée. Zéro seconde veut dire « pas de chronomètre ».
     dureeQuestionSecondes: 45,
@@ -143,7 +162,14 @@ export function session(remplacements: Document = {}): Document {
 
 /** Marqueur de présence à une séance, conforme au modèle. */
 export function participant(remplacements: Document = {}): Document {
-  return { nom: 'Jordan', avatar: 'turquoise', rejointLe: HIER, ...remplacements };
+  return {
+    nom: 'Jordan',
+    avatar: 'turquoise',
+    // En salle ou en visio : la séance est hybride.
+    presence: 'salle',
+    rejointLe: HIER,
+    ...remplacements,
+  };
 }
 
 /** Formation du référentiel, conforme au modèle. */

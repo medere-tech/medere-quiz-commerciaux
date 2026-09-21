@@ -3,6 +3,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 import { Icone } from '@/composants/ds/Icone';
+import { Carte, Meta } from '@/composants/ds/primitives';
 
 /**
  * Composants du parcours commercial, repris du système de design.
@@ -470,5 +471,84 @@ export function FormeFormation({
       height={taille}
       style={{ display: 'block', flex: 'none', objectFit: 'contain' }}
     />
+  );
+}
+
+/**
+ * « À l'argumentaire » — l'angle de vente, à côté du pourquoi.
+ *
+ * **Deux choses différentes, et c'est l'objectif métier.** Le verdict dit
+ * pourquoi la réponse est juste ; cette carte dit quoi en faire au téléphone.
+ * Le commercial ne vient pas seulement vérifier qu'il avait raison, il vient
+ * chercher la phrase qu'il redira à l'appel suivant.
+ *
+ * **Elle ne s'affiche pas quand elle est vide.** Une question de fait n'a pas
+ * d'angle de vente, et une carte vide ou remplie de généralités apprend à
+ * sauter la carte.
+ */
+export function Argumentaire({ children }: { children: ReactNode }) {
+  return (
+    <Carte rayon="var(--radius-lg)" rembourrage="16px 18px" elevation="petite">
+      <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <Icone nom="target" taille={16} couleur="var(--accent-primary)" />
+        <span
+          style={{
+            fontSize: 'var(--body-sm-size)',
+            fontWeight: 'var(--weight-semibold)',
+            color: 'var(--text-heading)',
+          }}
+        >
+          À l’argumentaire
+        </span>
+      </span>
+      <p
+        style={{
+          margin: 0,
+          fontSize: 'var(--body-sm-size)',
+          lineHeight: 1.6,
+          color: 'var(--neutral-70)',
+          textWrap: 'pretty',
+        }}
+      >
+        {children}
+      </p>
+    </Carte>
+  );
+}
+
+/**
+ * Qui a écrit l'explication, et quand elle a changé.
+ *
+ * **La date dit quand l'explication a changé, pas quand la question a été
+ * touchée.** Une correction de faute de frappe ne la fait pas bouger — c'est
+ * garanti par les règles, pas seulement par le code qui écrit. Sans cela,
+ * « mise à jour le 3 mars » sur un changement de virgule n'apprendrait rien.
+ *
+ * Le nom est recopié sur la question par celle qui l'écrit : `users/{uid}` est
+ * fermé sans exception administrateur, et une question n'a pas le droit d'y
+ * aller chercher un nom.
+ *
+ * Rend `null` quand il n'y a ni nom ni date — les questions écrites avant ce
+ * lot n'en portent pas, et une signature vide ne vaut pas d'être affichée.
+ */
+export function SignatureExplication({
+  auteur,
+  majLe,
+}: {
+  auteur: string;
+  majLe: Date | null;
+}) {
+  const nom = auteur.trim();
+  if (!nom && !majLe) return null;
+
+  const date = majLe
+    ? new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' }).format(majLe)
+    : null;
+
+  return (
+    <Meta style={{ display: 'block', fontSize: 11 }}>
+      {nom ? `Explication rédigée par ${nom}` : 'Explication'}
+      {date ? ` · mise à jour le ${date}` : ''}
+    </Meta>
   );
 }

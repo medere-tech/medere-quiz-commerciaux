@@ -136,9 +136,35 @@ export function GardeNavigateur({
    * requête supplémentaire.
    */
   renouveler = false,
+  /**
+   * **Rendre les enfants tout de suite, sur la foi du cookie déjà vérifié.**
+   *
+   * Ce drapeau n'est pas une optimisation de confort : il répare une inversion.
+   * La garde n'est montée que lorsque la disposition a lu la session côté
+   * serveur — sans cookie valide, c'est `Connexion` qui est rendu, et on
+   * n'arrive jamais ici. Attendre en plus le SDK du navigateur, c'est
+   * redemander au client une réponse que le serveur a déjà donnée, et la payer
+   * au prix du chargement d'un SDK.
+   *
+   * Le coût était mesuré, sur `/a-revoir`, build de production, cache vide :
+   * le HTML servi porte les données privées (uid et `etoiles` à l'octet 29 469)
+   * et le squelette d'attente, mais **aucun texte rendu de l'écran**. La preuve
+   * que la garde en était la cause tient à deux exécutions au HTML identique :
+   * avec session navigateur, le contenu paraît à 6 546 ms ; sans, l'écran
+   * affiche « Votre session a expiré » et ne peint jamais un contenu pourtant
+   * reçu. Ce n'est pas une déduction, c'est une différence.
+   *
+   * **Il ne se pose que là où l'écran est semé par le serveur** — `(parcours)`
+   * et `serie`. Les écrans du back-office lisent encore `currentUser` dans
+   * leurs gestionnaires, avec un `if (!utilisateur) return;` qui avale le clic
+   * en silence : les rendre trop tôt exposerait ce défaut au lieu de le
+   * corriger. Ils gardent l'attente jusqu'à ce qu'ils soient semés à leur tour.
+   */
+  surLaFoiDuCookie = false,
 }: {
   children: ReactNode;
   renouveler?: boolean;
+  surLaFoiDuCookie?: boolean;
 }) {
   const [utilisateur, setUtilisateur] = useState<User | null | undefined>(undefined);
   const [attenteVisible, setAttenteVisible] = useState(false);
@@ -163,6 +189,26 @@ export function GardeNavigateur({
     const minuterie = window.setTimeout(() => setAttenteVisible(true), SEUIL_AVANT_ATTENTE_MS);
     return () => window.clearTimeout(minuterie);
   }, [utilisateur]);
+
+  /*
+   * **Le mode « sur la foi du cookie » : on rend, puis on corrige.**
+   *
+   * Tant que le SDK n'a pas répondu, il n'y a rien à attendre : le serveur a
+   * vérifié le cookie et a déjà semé l'écran. Quand il répond « personne »,
+   * l'écran ne bascule pas sous les doigts — le contenu reste, et un bandeau
+   * dit ce qui s'est passé et ce qu'il faut faire. Ce que la page montre est
+   * juste : ces données sont bien celles du porteur du cookie. Ce qui ne
+   * marchera pas, ce sont les écritures, et c'est exactement ce que le bandeau
+   * annonce.
+   */
+  if (surLaFoiDuCookie) {
+    return (
+      <>
+        {utilisateur === null && <CorrectionSessionNavigateur />}
+        {children}
+      </>
+    );
+  }
 
   // Vérifier une session n'est pas un incident : c'est un chargement, et il se
   // montre comme tous les autres écrans de chargement du système — des
@@ -197,4 +243,71 @@ export function GardeNavigateur({
   }
 
   return <>{children}</>;
+}
+
+/**
+ * La correction, quand le SDK finit par répondre « personne ».
+ *
+ * Le cas est rare et réel : le cookie de session tient quatorze jours, la
+ * session du navigateur peut avoir été effacée entre-temps — navigation
+ * privée fermée, données de site nettoyées, déconnexion depuis un autre
+ * onglet. Le serveur a raison d'afficher la page ; le navigateur a raison de
+ * dire qu'il ne pourra rien écrire.
+ *
+ * **C'est une correction, pas une bascule.** Elle s'ajoute au-dessus d'un
+ * écran déjà lu, elle ne le remplace pas : un commercial en train de lire sa
+ * progression ne doit pas la voir disparaître parce qu'un SDK a fini de
+ * charger. Et elle dit la conséquence exacte — ce qui est affiché est juste,
+ * ce qui sera tenté ne partira pas — plutôt que de s'excuser.
+ */
+function CorrectionSessionNavigateur() {
+  return (
+    <div
+      className="correction-session"
+      role="status"
+      style={{ padding: 'clamp(16px, 3.2vw, 24px) clamp(16px, 3.2vw, 40px) 0' }}
+    >
+      <Carte rayon="var(--radius-lg)" rembourrage="18px 22px" elevation="petite">
+        <div className="correction-session-ligne">
+          <span className="correction-session-picto">
+            <Icone nom="refresh" taille={20} couleur="var(--neutral-70)" />
+          </span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span
+              style={{
+                display: 'block',
+                fontSize: 'var(--body-md-size)',
+                fontWeight: 600,
+                color: 'var(--text-heading)',
+                textWrap: 'pretty',
+              }}
+            >
+              Votre session a expiré dans ce navigateur
+            </span>
+            <span
+              style={{
+                display: 'block',
+                marginTop: 4,
+                fontSize: 'var(--body-sm-size)',
+                lineHeight: 1.5,
+                color: 'var(--neutral-70)',
+                textWrap: 'pretty',
+              }}
+            >
+              Ce que vous lisez est à jour. En revanche, rien de ce que vous ferez ne sera
+              enregistré tant que vous ne vous serez pas reconnecté.
+            </span>
+          </span>
+          <Bouton
+            variante="secondaire"
+            onClick={() => {
+              void seConnecter().then(() => window.location.reload());
+            }}
+          >
+            Se reconnecter
+          </Bouton>
+        </div>
+      </Carte>
+    </div>
+  );
 }

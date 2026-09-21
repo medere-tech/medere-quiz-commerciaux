@@ -6,6 +6,10 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { Icone, type NomIcone } from '@/composants/ds/Icone';
+import {
+  useNombreDeQuestionsServies,
+  useNombreDeRatees,
+} from '@/lib/navigation/compteurs';
 import { seDeconnecter } from '@/lib/auth/connexion-client';
 import { Pastille } from '@/composants/session/Pastille';
 import { useMonAvatar } from '@/lib/session/avatar-client';
@@ -56,6 +60,12 @@ export type Entree = {
    * plutôt que de faire changer la navigation de forme à chaque livraison.
    */
   route?: Route;
+  /**
+   * Nom du compteur à afficher au bout de la ligne, quand la maquette en pose
+   * un. La coquille le calcule elle-même : une navigation qui attendrait le
+   * chiffre de chaque écran ne l'aurait sur aucun.
+   */
+  compteur?: 'questionsServies' | 'ratees';
 };
 
 /**
@@ -73,6 +83,7 @@ export const NAVIGATION_ADMIN: Entree[] = [
     icone: 'layers',
     chemin: '/admin/questions',
     route: '/admin/questions',
+    compteur: 'questionsServies',
   },
   {
     libelle: 'Import en masse',
@@ -110,33 +121,83 @@ export const NAVIGATION_ADMIN: Entree[] = [
  * back-office. Nommer le contexte est la moitié du travail d'une bascule : on
  * ne sait pas qu'on peut passer ailleurs si l'on ne sait pas où l'on est.
  */
-function Marque({ contexte }: { contexte: string }) {
+/**
+ * Le signe de la marque : deux barres.
+ *
+ * **Tracé, et non servi.** Le fichier fourni par le design est un PNG de
+ * 328 × 420 — deux barres blanches aux extrémités pleinement arrondies, rien
+ * d'autre. Un dessin de cette nature se décrit en deux rectangles, et le
+ * décrire vaut mieux que le servir : `public/` retombe sous le
+ * `Cache-Control: max-age=0, must-revalidate` de Vercel, soit **un
+ * aller-retour par visite sur tous les écrans authentifiés**, pour une marque
+ * affichée à trente pixels. C'est exactement le défaut corrigé sur les polices
+ * au lot de performance, et il ne se reprend pas ici.
+ *
+ * **Les proportions viennent du fichier, mesurées au pixel** : barres de 129
+ * unités de large sur 405 de haut, séparées de 62, extrémités arrondies au
+ * rayon de la demi-largeur. La boîte fait donc 320 × 405, et la maquette la
+ * pose à 55 % du côté du pavé.
+ */
+function MarqueMedere({ hauteur }: { hauteur: number }) {
   return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <svg
+      width={Math.round((hauteur * 320) / 405)}
+      height={hauteur}
+      viewBox="0 0 320 405"
+      fill="#fff"
+      aria-hidden="true"
+      style={{ display: 'block' }}
+    >
+      <rect x="0" y="0" width="129" height="405" rx="64.5" />
+      <rect x="191" y="0" width="129" height="405" rx="64.5" />
+    </svg>
+  );
+}
+
+export function Marque({
+  contexte,
+  taille = 30,
+  tailleLibelle = 'var(--body-sm-size)',
+  fond = 'clair',
+}: {
+  contexte: string;
+  /**
+   * Côté du pavé, en pixels. Trente dans une barre latérale ; davantage sur
+   * l'écran projeté de la salle d'attente, qui se lit à plusieurs mètres. Les
+   * barres suivent proportionnellement.
+   */
+  taille?: number;
+  tailleLibelle?: string;
+  /**
+   * Sur fond encre, le pavé plein disparaîtrait : il devient un carré translucide
+   * et le libellé passe en blanc. C'est ce que fait la maquette de connexion.
+   */
+  fond?: 'clair' | 'encre';
+}) {
+  const surEncre = fond === 'encre';
+
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: Math.round(taille / 3) }}>
       <span
         style={{
-          width: 30,
-          height: 30,
-          borderRadius: 8,
-          background: 'var(--brand-ink)',
+          width: taille,
+          height: taille,
+          flex: 'none',
+          borderRadius: Math.round(taille * 0.27),
+          background: surEncre ? 'rgba(255, 255, 255, 0.12)' : 'var(--brand-ink)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        {/* Deux barres de la marque, tracées : le fichier logo n'est pas
-            embarqué dans le dépôt. Voir README, section 7. */}
-        <span style={{ display: 'flex', gap: 3 }}>
-          <span style={{ width: 3, height: 13, borderRadius: 2, background: '#fff' }} />
-          <span style={{ width: 3, height: 13, borderRadius: 2, background: '#fff' }} />
-        </span>
+        <MarqueMedere hauteur={Math.round(taille * 0.55)} />
       </span>
       <span
         style={{
-          fontSize: 'var(--body-sm-size)',
+          fontSize: tailleLibelle,
           fontWeight: 600,
           letterSpacing: '0.01em',
-          color: 'var(--text-heading)',
+          color: surEncre ? 'rgba(255, 255, 255, 0.72)' : 'var(--text-heading)',
         }}
       >
         {contexte}
@@ -205,6 +266,47 @@ function BasculeContexte({
 function Initiales({ nom }: { nom: string }) {
   const avatar = useMonAvatar();
   return <Pastille nom={nom} avatar={avatar} taille={28} titre={nom} />;
+}
+
+/**
+ * Le nombre au bout d'une entrée de navigation.
+ *
+ * **Tant qu'il n'est pas connu, rien ne s'affiche** — ni zéro, ni tiret, ni
+ * squelette. Un compteur qui apparaît une demi-seconde après le reste est un
+ * détail ; un compteur qui annonce « 0 » puis « 12 » est un mensonge court.
+ *
+ * Le nombre est annoncé en toutes lettres aux lecteurs d'écran : « 12 » collé
+ * à « À revoir » ne se lit pas tout seul.
+ */
+function CompteurEntree({
+  quoi,
+  libelle,
+}: {
+  quoi: 'questionsServies' | 'ratees';
+  libelle: string;
+}) {
+  const servies = useNombreDeQuestionsServies();
+  const ratees = useNombreDeRatees();
+  const nombre = quoi === 'questionsServies' ? servies : ratees;
+
+  if (nombre === null) return null;
+
+  return (
+    <span
+      className="coquille-libelle"
+      style={{
+        flex: 'none',
+        fontSize: 11,
+        fontWeight: 'var(--weight-bold)',
+        color: 'var(--neutral-70)',
+      }}
+    >
+      <span aria-hidden="true">{nombre}</span>
+      <span className="visuellement-cache">
+        {` — ${nombre} ${quoi === 'ratees' ? 'à revoir' : 'servies aux commerciaux'}, dans ${libelle}`}
+      </span>
+    </span>
+  );
 }
 
 function PastilleUtilisateur({ nom, role }: { nom: string; role: string }) {
@@ -413,6 +515,12 @@ export function Coquille({
                 <span className="coquille-libelle" style={{ flex: 1 }}>
                   {entree.libelle}
                 </span>
+                {/* Le compteur suit le libellé : replier la barre le masque
+                    avec lui, sinon un nombre flotterait à côté d'une icône
+                    sans dire de quoi il parle. */}
+                {entree.compteur && (
+                  <CompteurEntree quoi={entree.compteur} libelle={entree.libelle} />
+                )}
               </>
             );
             const style = {

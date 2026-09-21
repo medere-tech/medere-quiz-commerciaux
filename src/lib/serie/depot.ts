@@ -7,15 +7,30 @@ import {
   getDocs,
   increment,
   query,
+  runTransaction,
   serverTimestamp,
-  updateDoc,
   where,
   writeBatch,
 } from 'firebase/firestore';
 
 import { baseDeDonnees } from '@/lib/firebase/firestore';
+/* Purs, donc partagés avec le rendu serveur : voir `serie/etats.ts`. */
+export { etatsDesQuestions, type EtatComplet } from '@/lib/serie/etats';
+import type { EtatComplet } from '@/lib/serie/etats';
+import { enMillisecondes } from '@/lib/firebase/horodatage';
 import { enQuestion, type Question } from '@/lib/questions/lecture';
-import type { EtatQuestion } from '@/lib/serie/tirage';
+import { STATUTS_SERVIS } from '@/lib/questions/modele';
+import {
+  apresUneSerie,
+  assiduiteVide,
+  clefDuJour,
+  type Assiduite,
+} from '@/lib/serie/assiduite';
+import {
+  avecNouvelles,
+  paliersAtteints,
+  type Mesures,
+} from '@/lib/serie/recompenses';
 
 /**
  * Accès aux données du parcours commercial.
@@ -55,6 +70,21 @@ import type { EtatQuestion } from '@/lib/serie/tirage';
 export type Progression = {
   etoiles: number;
   seriesTerminees: number;
+  /**
+   * La régularité : semaine en cours, série de jours d'affilée, record.
+   *
+   * Un champ du document de progression, et non une collection par jour — voir
+   * `src/lib/serie/assiduite.ts` pour le raisonnement et la borne.
+   */
+  assiduite: Assiduite;
+  /**
+   * Les paliers franchis, et le jour où ils l'ont été.
+   *
+   * Une carte bornée par un ensemble fermé — la liste vit dans
+   * `src/lib/serie/recompenses.ts`, jamais en base. Une clé inconnue du code
+   * ne rend rien à l'écran.
+   */
+  recompenses: Record<string, string>;
 };
 
 /**
@@ -85,8 +115,11 @@ let cache: { questions: Question[]; lues: number } | null = null;
 export async function chargerQuestionsPubliees(): Promise<Question[]> {
   if (cache && Date.now() - cache.lues < FRAICHEUR_MS) return cache.questions;
 
+  /* « À relire » sort aux commerciaux comme « publiée » : le statut dit qu'une
+     question demande du travail, pas qu'elle doit disparaître. Voir
+     `STATUTS_SERVIS`. */
   const instantane = await getDocs(
-    query(collection(baseDeDonnees(), 'questions'), where('statut', '==', 'publiee')),
+    query(collection(baseDeDonnees(), 'questions'), where('statut', 'in', [...STATUTS_SERVIS])),
   );
   const questions = instantane.docs.map((document) => enQuestion(document.id, document.data()));
 
@@ -107,11 +140,6 @@ export function oublierQuestionsPubliees(): void {
  * n'ont pas d'état — leur absence *est* l'information, et `etatsDesQuestions`
  * les complète avec un état neuf.
  */
-export type EtatComplet = EtatQuestion & {
-  /** Toutes tentatives confondues. `tentatives - reussies` donne les échecs. */
-  tentatives: number;
-};
-
 export async function chargerMesEtats(uid: string): Promise<Map<string, EtatComplet>> {
   const instantane = await getDocs(collection(baseDeDonnees(), 'users', uid, 'etats'));
 
@@ -129,6 +157,7 @@ export async function chargerMesEtats(uid: string): Promise<Map<string, EtatComp
           tentatives,
           derniereRatee: donnees.derniereRatee === true,
           dejaVue: tentatives > 0,
+          vueLeMs: enMillisecondes(donnees.majLe),
         },
       ];
     }),
@@ -139,15 +168,6 @@ export async function chargerMesEtats(uid: string): Promise<Map<string, EtatComp
  * L'état de chaque question tirable. Une question sans document d'état n'a
  * jamais été vue : c'est le poids le plus fort après un échec.
  */
-export function etatsDesQuestions(
-  identifiants: string[],
-  etats: Map<string, EtatComplet>,
-): EtatComplet[] {
-  return identifiants.map(
-    (id) =>
-      etats.get(id) ?? { id, reussies: 0, tentatives: 0, derniereRatee: false, dejaVue: false },
-  );
-}
 
 export async function chargerProgression(uid: string): Promise<Progression> {
   const document = await getDoc(doc(baseDeDonnees(), 'users', uid));
@@ -156,6 +176,45 @@ export async function chargerProgression(uid: string): Promise<Progression> {
   return {
     etoiles: typeof donnees.etoiles === 'number' ? donnees.etoiles : 0,
     seriesTerminees: typeof donnees.seriesTerminees === 'number' ? donnees.seriesTerminees : 0,
+    assiduite: enAssiduite(donnees.assiduite),
+    recompenses: enRecompenses(donnees.recompenses),
+  };
+}
+
+/**
+ * Relecture défensive de la carte des récompenses.
+ *
+ * Les comptes ouverts avant ce lot ne la portent pas, et une clé dont le code
+ * ne connaît plus le palier est simplement ignorée à l'affichage — jamais une
+ * cause d'erreur.
+ */
+function enRecompenses(brut: unknown): Record<string, string> {
+  if (typeof brut !== 'object' || brut === null) return {};
+  const carte: Record<string, string> = {};
+  for (const [cle, valeur] of Object.entries(brut as Record<string, unknown>)) {
+    if (typeof valeur === 'string') carte[cle] = valeur;
+  }
+  return carte;
+}
+
+/**
+ * Relecture défensive du champ d'assiduité.
+ *
+ * Les comptes ouverts avant ce lot ne le portent pas, et la base est de la
+ * recette : un champ absent ou d'une forme inattendue doit rendre une
+ * assiduité vide, jamais faire tomber l'accueil.
+ */
+function enAssiduite(brut: unknown): Assiduite {
+  if (typeof brut !== 'object' || brut === null) return assiduiteVide();
+  const champs = brut as Record<string, unknown>;
+
+  return {
+    dernierJour: typeof champs.dernierJour === 'string' ? champs.dernierJour : '',
+    serie: typeof champs.serie === 'number' ? champs.serie : 0,
+    record: typeof champs.record === 'number' ? champs.record : 0,
+    semaine: Array.isArray(champs.semaine)
+      ? champs.semaine.filter((jour): jour is string => typeof jour === 'string')
+      : [],
   };
 }
 
@@ -211,10 +270,73 @@ export async function enregistrerReponse(
  * est allée à son terme : une série abandonnée ne rapporte rien, alors que ses
  * réponses, elles, sont déjà enregistrées.
  */
-export async function crediterSerie(uid: string, etoiles: number): Promise<void> {
-  await updateDoc(doc(baseDeDonnees(), 'users', uid), {
-    etoiles: increment(etoiles),
-    seriesTerminees: increment(1),
-    vuLe: serverTimestamp(),
+export async function crediterSerie(
+  uid: string,
+  etoiles: number,
+  bilan: {
+    /** Toutes les réponses justes : la récompense se constate ici, pas plus tard. */
+    parfaite: boolean;
+    /** Ce que l'écran mesure déjà — formations et mises en situation. */
+    catalogue: Omit<Mesures, 'recordJours' | 'joursActifsCetteSemaine'>;
+  },
+  /*
+   * Rend les récompenses **nouvellement** obtenues, pour que la fin de série
+   * puisse les annoncer. Celles qu'on avait déjà n'en font pas partie : « vous
+   * venez de gagner » ne se dit pas d'un palier franchi le mois dernier.
+   */
+): Promise<string[]> {
+  const base = baseDeDonnees();
+  const utilisateur = doc(base, 'users', uid);
+
+  /*
+   * **Une transaction, parce que l'assiduité se calcule depuis son état.**
+   *
+   * Les étoiles et le compte de séries s'incrémentent sans rien relire. La
+   * série de jours, elle, dépend du `dernierJour` déjà en base : deux onglets
+   * qui termineraient une série en même temps la compteraient deux fois si
+   * chacun partait de la valeur qu'il avait chargée en ouvrant la page. La
+   * lecture coûte une unité par série terminée — quelques-unes par jour pour
+   * toute l'équipe.
+   */
+  let nouvelles: string[] = [];
+
+  await runTransaction(base, async (transaction) => {
+    const instantane = await transaction.get(utilisateur);
+    const donnees = instantane.data();
+    const jour = clefDuJour(new Date());
+
+    /*
+     * L'assiduité d'abord : le record et les jours actifs de la semaine en
+     * dépendent, et **le jour du jour n'y est pas encore compté** au moment où
+     * l'on entre dans la transaction. Juger « cinq jours actifs cette semaine »
+     * sur l'assiduité d'avant accorderait le palier un jour trop tard.
+     */
+    const assiduite = apresUneSerie(enAssiduite(donnees?.assiduite), jour);
+
+    const atteints = paliersAtteints({
+      ...bilan.catalogue,
+      recordJours: assiduite.record,
+      joursActifsCetteSemaine: assiduite.semaine.length,
+    });
+
+    const avant = enRecompenses(donnees?.recompenses);
+    const apres = avecNouvelles(
+      avant,
+      bilan.parfaite ? [...atteints, 'serie-parfaite'] : atteints,
+      jour,
+    );
+    /* Une transaction peut être rejouée : la liste se recalcule à chaque
+       passage plutôt que de s'accumuler. */
+    nouvelles = Object.keys(apres).filter((id) => !avant[id]);
+
+    transaction.update(utilisateur, {
+      etoiles: increment(etoiles),
+      seriesTerminees: increment(1),
+      assiduite,
+      recompenses: apres,
+      vuLe: serverTimestamp(),
+    });
   });
+
+  return nouvelles;
 }

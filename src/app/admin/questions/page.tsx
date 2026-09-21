@@ -21,7 +21,9 @@ import { Icone } from '@/composants/ds/Icone';
 import {
   LIBELLES_STATUT,
   LIBELLES_TYPE,
+  TONS_STATUT,
   TYPES_QUESTION,
+  nomDeSignature,
   type TypeQuestion,
 } from '@/lib/questions/modele';
 import { chargerFormations, type Formation } from '@/lib/formations/depot';
@@ -29,6 +31,7 @@ import {
   chargerPageQuestions,
   chargerToutesLesQuestions,
   compterQuestions,
+  compterQuestionsServies,
   dupliquerQuestion,
   PLAFOND_RECHERCHE,
   type FiltresQuestions,
@@ -50,12 +53,13 @@ import { sansAccentNiCasse } from '@/lib/texte';
  * dans un texte, et quelques centaines de questions se filtrent sans délai.
  */
 
-type FiltreStatut = 'tout' | 'publiee' | 'brouillon';
+type FiltreStatut = 'tout' | 'publiee' | 'aRelire' | 'brouillon';
 
 const ONGLETS_STATUT = [
   { valeur: 'tout' as const, libelle: 'Tout' },
   { valeur: 'publiee' as const, libelle: 'Publiées' },
   { valeur: 'brouillon' as const, libelle: 'Brouillons' },
+  { valeur: 'aRelire' as const, libelle: 'À relire' },
 ];
 
 /**
@@ -110,7 +114,7 @@ export default function PageBanque() {
   /** Totaux exacts, obtenus par agrégat sans lire les documents. */
   const [total, setTotal] = useState(0);
   const [totalBanque, setTotalBanque] = useState(0);
-  const [totalPubliees, setTotalPubliees] = useState(0);
+  const [totalServies, setTotalServies] = useState(0);
   const [plafondAtteint, setPlafondAtteint] = useState(false);
   const curseur = useRef<QueryDocumentSnapshot | null>(null);
   const [rechargements, setRechargements] = useState(0);
@@ -180,7 +184,10 @@ export default function PageBanque() {
       // L'en-tête décrit la banque, pas le filtre en cours ni la page chargée :
       // compter les lignes à l'écran donnerait un chiffre faux.
       poser(compterQuestions({}), setTotalBanque);
-      poser(compterQuestions({ statut: 'publiee' }), setTotalPubliees);
+      /* Ce que l'en-tête annonce : ce qui **sort** aux commerciaux, publiées et
+         à relire. Compter les seules publiées donnerait un chiffre exact et une
+         phrase fausse. */
+      poser(compterQuestionsServies(), setTotalServies);
 
       try {
         if (enRecherche) {
@@ -330,7 +337,7 @@ export default function PageBanque() {
     return `/admin/questions/${identifiant}?retour=${encodeURIComponent(retour.toString())}`;
   };
 
-  const publiees = totalPubliees;
+  const servies = totalServies;
 
   async function dupliquer(question: Question) {
     const utilisateur = authentification().currentUser;
@@ -338,7 +345,11 @@ export default function PageBanque() {
 
     setDuplicationEnCours(question.id);
     try {
-      const identifiant = await dupliquerQuestion(question, utilisateur.uid);
+      const identifiant = await dupliquerQuestion(
+        question,
+        utilisateur.uid,
+        nomDeSignature(utilisateur),
+      );
       router.push(`/admin/questions/${identifiant}`);
     } catch {
       // Un échec d'écriture, pas de lecture : la banque affichée reste valable,
@@ -358,7 +369,7 @@ export default function PageBanque() {
         sous={
           chargement
             ? 'Chargement de la banque.'
-            : `${totalBanque} question${totalBanque > 1 ? 's' : ''}, dont ${publiees} publiée${publiees > 1 ? 's' : ''}. Seules les questions publiées entrent dans les séries.`
+            : `${totalBanque} question${totalBanque > 1 ? 's' : ''}, dont ${servies} ${servies > 1 ? 'servies' : 'servie'} aux commerciaux. Un brouillon n’entre dans aucune série ; une question à relire, si.`
         }
         actions={
           <>
@@ -544,7 +555,7 @@ export default function PageBanque() {
                 }}
               >
                 <span className="colonne-fixe" style={{ width: 82, flex: 'none' }}>
-                  <EtiquetteStatut ton={question.statut === 'publiee' ? 'publiee' : 'brouillon'}>
+                  <EtiquetteStatut ton={TONS_STATUT[question.statut] ?? 'brouillon'}>
                     {LIBELLES_STATUT[question.statut] ?? question.statut}
                   </EtiquetteStatut>
                 </span>

@@ -89,11 +89,14 @@ questions/{questionId}
   options : map<string, string>   // { identifiant: libellé }
   ordreOptions : string[]          // les mêmes identifiants, dans l'ordre d'affichage
   bonnesReponses : string[]
-  explication : string             // obligatoire, non vide
+  explication : string             // obligatoire, non vide — le pourquoi
+  argumentaire : string            // facultatif — ce qu'on en dit au téléphone
+  explicationAuteur : string       // recopié par qui écrit ; users/{uid} est fermé
+  explicationMajLe : timestamp     // bouge seulement si l'un des deux textes bouge
   formationIds : string[]          // au moins un
   theme : string
   difficulte : 1 | 2 | 3
-  statut : 'brouillon' | 'publiee'
+  statut : 'brouillon' | 'aRelire' | 'publiee'   // les deux derniers sortent
   sourceFiche : string?            // facultatif : fiche d'argumentaire d'origine
   sourceVersion : string?          // facultatif : version de cette fiche
   creeeLe, modifieeLe : timestamp
@@ -103,6 +106,8 @@ users/{uid}
   email, nom, photoURL : string
   role : 'commercial' | 'admin'    // affichage seulement, jamais autorisation
   etoiles, seriesTerminees : number
+  assiduite : { dernierJour: 'AAAA-MM-JJ', serie, record, semaine[≤7] }
+  recompenses : { <palier> : 'AAAA-MM-JJ' }   // ensemble fermé, ≤ 24 entrées
   creeLe, vuLe : timestamp
 
 users/{uid}/reponses/{reponseId}   // source de vérité, une par tentative
@@ -605,9 +610,44 @@ Les règles ne se contentent pas de dire qui écrit, elles disent quoi. C'est la
 - **Questions.** Explication et énoncé non vides, type parmi `vf`/`qcm`/`scenario`, `formationIds` non vide et sans doublon, difficulté dans 1-3, statut parmi `brouillon`/`publiee`. Le contexte est obligatoire pour une mise en situation et interdit ailleurs. `bonnesReponses` désigne des options existantes, `ordreOptions` décrit exactement les clés de la map. L'auteur ne peut être que celui qui écrit, et `creeePar` comme `creeeLe` ne sont plus modifiables ensuite. `sourceFiche` et `sourceVersion` sont facultatifs : absents ou vides, ils passent ; renseignés, ils doivent être des chaînes bornées.
 - **Réponses, individuelles et en session.** Le verdict n'est pas déclaratif : les règles relisent la question par `get()` et recalculent `correcte` en comparant les ensembles. Une réponse partielle à un QCM multiple est fausse, et une réponse exacte déclarée fausse est refusée aussi — elle fausserait `questionStats` autant que l'inverse. La question doit exister et être publiée, et aucune option choisie ne peut sortir de la map des options.
 - **Progression.** `etoiles` ne peut que monter, de 0 à 3 par écriture ; `seriesTerminees` de 0 à 1. Le client ne touche à rien d'autre sur son document.
-- **Sessions.** Code, liste de questions sans doublon, index courant compris dans cette liste, statut parmi `attente`/`encours`/`terminee`.
+- **États par question.** `majLe` est la date de dernière vue — écrite à chaque réponse, bornée au passé, et c'est elle que « À revoir » affiche. Aucune collection par jour n'existe : la date vit sur le document de la question, qui existe déjà.
+- **Assiduité.** `record` ne redescend jamais ; `serie` repart à 1 ou avance d'un seul cran, et ne dépasse pas `record` ; `semaine` compte de une à sept entrées. **C'est cette dernière borne qui empêche le champ de grossir** — elle vit dans les règles, pas seulement dans le code qui écrit.
+- **Récompenses.** Rien ne s'y retire, rien ne s'y réécrit : une récompense obtenue est un fait du passé, et c'est la garantie qui justifie de la stocker plutôt que de la dériver. Plafond de 24 entrées. Les identifiants ne sont pas figés dans les règles, pour qu'un palier ajouté ne demande pas un déploiement de règles.
+- **Sessions.** Code, liste de questions sans doublon, index courant compris dans cette liste, statut parmi `attente`/`encours`/`terminee`, et `verrouillee` — la porte de la salle.
+- **La porte de la salle.** `verrouillee` ne s'''interpose qu'''à la **création** d'''un marqueur de présence : verrouiller ferme la porte aux nouveaux venus, et à rien d'''autre. Le vote continue, les présents restent présents, leur nom reste modifiable, une reconnexion passe — un onglet rechargé n'''est pas une arrivée. C'''est aussi pour cela que `rejoindre` ne réécrit jamais `rejointLe` sur un marqueur existant : les règles le refusent, et un refus ici ressemblerait à une panne.
 - **Horodatages.** Aucun document ne peut être daté dans le futur.
 - **Formations.** Mêmes contrôles, mais ils ne couvrent que l'écriture manuelle : la synchronisation Airtable passe par le SDK Admin, hors règles, et doit donc les rejouer dans son propre code (voir section 6).
+
+**Un champ ajouté à `hasAll` fige en silence tout ce qui ne le porte pas — sa migration passe donc AVANT le déploiement des règles, jamais après.**
+
+`hasOnly` et `hasAll` se lisent sur l'état d'après fusion. Un document qui ne
+porte pas le nouveau champ ne se met donc plus à jour **du tout** : pas
+seulement pour ce champ, pour rien. L'écriture est refusée, le client reçoit un
+`permission-denied`, et à l'écran cela ressemble exactement à une panne.
+
+**Constaté au lot 15.** `verrouillee` est entré dans `champsSession()`, et les
+quinze séances composées avant lui ont cessé d'être pilotables — ni lancer, ni
+mettre en pause, ni arrêter. L'audit a montré que ce n'était pas le premier
+champ dans ce cas : douze de ces séances manquaient déjà de champs rendus
+obligatoires au lot 11, et étaient figées depuis, sans que personne l'ait vu.
+
+**L'ordre à tenir, à partir de la mise en service :**
+
+1. écrire le script de migration et le faire tourner à blanc ;
+2. l'exécuter sur la base, *avant* toute publication de règles ;
+3. déployer les règles ;
+4. vérifier avec `npm run regles:verifier` que le jeu publié est bien celui du
+   dépôt.
+
+Un champ ajouté sans migration est une panne différée : elle ne se déclenche
+qu'au premier utilisateur qui touche un vieux document, et le message ne dit
+pas ce qui manque. `scripts/completer-sessions.ts` est le modèle — essai à
+blanc par défaut, une seule valeur écrite, et **il nomme ce qu'il ne sait pas
+réparer**, ce qui est précisément ce qui a révélé les douze autres.
+
+Avant la mise en service, cette discipline ne s'applique pas : la base ne
+contient que de la recette, `npm run recette:nettoyer` est écrit pour elle, et
+aucune décision de modèle ne doit être prise pour la préserver.
 
 **Ce que les règles ne savent pas vérifier.** Elles ne parcourent ni les valeurs d'une map, ni les éléments d'une liste. Conséquence directe : **rien ne garantit côté règles que chaque libellé d'option est une chaîne non vide et de longueur raisonnable.** Une question dont une option porte un libellé vide, un nombre, ou un texte de dix mille caractères passera les règles. Ce contrôle appartient à la validation serveur de l'import (lot 4) et à l'éditeur (lot 3), qui doivent refuser la ligne et la signaler. La même limite vaut pour la longueur individuelle des identifiants à l'intérieur des listes : les règles n'en bornent que le cumul.
 
@@ -684,6 +724,112 @@ Le mode « revoir mes questions ratées » ne tire que parmi les questions dont 
 ### Étoiles
 
 Attribuées en fin de série complète : trois à partir de 90 % de réussite, deux à partir de 70 %, une à partir de 50 %, aucune en dessous. Total cumulé sur le document utilisateur. Une série abandonnée ne rapporte rien, mais les réponses déjà données sont conservées.
+
+**Le taux se mesure sur dix questions, pas sur la longueur du tirage.** Un rattrapage ne tire que les questions ratées : quand il n'en reste qu'une, la série en compte une, et un pourcentage sur une question ne vaut que 0 ou 100. Une seule bonne réponse paierait alors trois étoiles, autant que dix. Un rattrapage de huit, parfait, vaut donc 80 % et deux étoiles, et l'écran de fin annonce le dénominateur quand le tirage est court.
+
+**Une question retravaillée depuis « À revoir » ne crédite rien** — ni étoile, ni série terminée, ni jour d'assiduité, ni récompense. Sa réponse, elle, compte : l'état avance, la question sort de la liste si elle est juste, et la statistique agrégée la reçoit.
+
+### Assiduité : la semaine, la série de jours, le record
+
+Trois nombres et sept clés de jour, dans un champ `assiduite` du document
+utilisateur. **Pas de collection par jour** : un document par utilisateur et par
+jour ferait mille documents par commercial sur trois ans, et surtout une requête
+de sept documents à chaque ouverture de l'accueil pour afficher sept pastilles.
+Le champ est de taille constante — la semaine est purgée à l'écriture et bornée
+à sept entrées par les règles.
+
+**La série compte en jours ouvrés.** Vendredi puis lundi, elle tient ; vendredi
+puis mardi, elle repart. La maquette neutralise samedi et dimanche — « rien à
+rattraper un dimanche » — et on ne peut pas à la fois ne rien demander le
+week-end et le compter comme une absence. Une première version comparait au jour
+calendaire précédent : le record plafonnait à cinq pour qui travaille du lundi au
+vendredi, ce qui rendait la récompense « dix jours d'affilée » inatteignable.
+
+**La série affichée est dérivée, pas lue.** Personne n'écrit le jour où l'on ne
+joue pas : le nombre en base vaut « la série *au* dernier jour actif », et
+l'écran la ramène à zéro dès que ce jour n'est ni aujourd'hui ni hier. Stocker
+un zéro qui ne s'écrit jamais aurait demandé une tâche planifiée pour une
+pastille. La semaine suit la même règle, filtrée à la lecture comme à
+l'écriture.
+
+**Le jour se calcule à Paris**, jamais en UTC ni dans le fuseau de l'appareil :
+sinon la frontière du jour bouge d'un commercial à l'autre et « hier » cesse
+d'être la même chose pour tout le monde.
+
+**Limite assumée : c'est l'horloge du navigateur qui décide du jour.** Un
+commercial peut donc se fabriquer une série en avançant sa montre. L'enjeu est
+une pastille d'assiduité, et l'alternative — horodatage serveur plus un
+déclencheur Cloud — coûterait une fonction pour une décoration. Les règles
+tiennent quand même les deux garanties qui comptent : le record ne redescend
+jamais, et la série ne saute pas de palier — elle repart à un ou avance d'un
+seul cran.
+
+### Les trois statuts d'une question
+
+`brouillon`, `aRelire`, `publiee`. **« À relire » se place à côté de
+« publiée », pas entre le brouillon et elle** : il dit « cette question demande
+du travail », pas « elle ne sort plus ». Les deux derniers sortent aux
+commerciaux — `STATUTS_SERVIS`.
+
+Trois raisons, et la première suffirait :
+
+1. **Le signal qui met une question à relire est un taux d'échec**, donc des
+   réponses. La retirer figerait la statistique au moment du marquage, et l'on
+   perdrait le seul moyen de savoir si la réécriture a servi.
+2. **Une question mal formulée reste une question vraie.** Sa bonne réponse ne
+   devient pas fausse parce que l'énoncé est confus ; la retirer punirait le
+   commercial du retard de Noémie.
+3. **Il existe déjà un état pour « ne sort plus » : le brouillon.** Un
+   troisième statut qui ne sortirait pas serait un second brouillon.
+
+Le corollaire est écrit dans l'éditeur : une question *fausse* se remet en
+brouillon, et elle sort immédiatement.
+
+**Ce que le troisième statut a changé ailleurs**, et qui ne se voyait pas :
+les règles recalculent le verdict depuis la question et **refusaient toute
+réponse à une question non publiée**. Sans les y autoriser, une question à
+relire aurait continué de sortir et chaque réponse aurait été rejetée. Les
+lectures qui servent le parcours — tirage navigateur, référentiel serveur,
+composition d'une séance, compteur de navigation, statistiques — filtrent
+désormais sur les statuts servis, jamais sur `publiee` seul.
+
+**Le marquage est manuel, et le signal automatique.** L'écran des statistiques
+classe par taux d'échec et pose sur chaque ligne un bouton « Marquer à relire » :
+la décision se prend là où le signal existe. Il n'est **pas** écrit par une
+fonction automatique — `questionStats` est un cumul depuis la mise en service,
+sans fenêtre glissante : une question qui aurait franchi le seuil une fois
+resterait marquée pour toujours, et se remarquerait toute seule après chaque
+réécriture.
+
+### L'explication, l'argumentaire et leur signature
+
+Deux textes, et ce ne sont pas deux façons de dire la même chose. **L'explication
+dit pourquoi la réponse est juste ; l'argumentaire dit quoi en faire au
+téléphone.** C'est l'objectif métier de l'outil : le commercial ne vient pas
+seulement vérifier qu'il avait raison, il vient chercher la phrase qu'il redira
+à l'appel suivant.
+
+**L'argumentaire est facultatif, et la raison n'est pas la transition.** Une
+question de fait — « les assistants dentaires ont-ils un RPPS » — n'a pas
+d'angle de vente ; en exiger un produirait du remplissage, et le remplissage
+apprend au commercial à sauter la carte. Quand il est vide, la carte ne s'affiche
+pas : ni cadre creux, ni texte d'attente. L'éditeur le signale comme une
+suggestion — pastille creuse, pas alerte rouge — et non comme un blocage.
+
+**La signature est recopiée par celle qui écrit** : `explicationAuteur` est
+inscrit sur la question au moment de l'enregistrement. `users/{uid}` est fermé
+sans exception administrateur, une question n'a donc pas le droit d'y chercher un
+nom. C'est le motif déjà retenu pour l'animatrice d'une séance et pour les
+marqueurs de présence.
+
+**`explicationMajLe` n'est pas `modifieeLe`, et c'est tout l'intérêt.**
+`modifieeLe` suit chaque enregistrement — c'est ce qui classe la banque par
+récence. Mais l'écran du commercial annonce « mise à jour le… » *à côté de
+l'explication* : si une correction de virgule faisait avancer cette date-là, elle
+n'apprendrait plus rien. Elle n'est donc écrite que lorsque le texte diffère
+réellement — comparaison insensible aux espaces de bord et aux espaces répétés —
+et **les règles le vérifient** : une écriture qui ferait avancer la date sans
+toucher au texte est refusée.
 
 ### Validation
 
@@ -876,6 +1022,9 @@ Un lot, une branche, une PR, une validation. On ne passe pas au suivant sans que
 6. **Cloud Function d'agrégation et statistiques.**
 7. **Session collective temps réel.**
 8. **Finition** — états vides, erreurs, chargements, navigation clavier, mobile.
+9. **Accès à la séance** — les quatre écrans 10a, 10b, 06 et 06b, qui remplacent le formulaire de jonction : ce que la séance annonce d'elle-même, et qui est déjà dans la salle.
+10. **Salle d'attente de la séance** — l'écran projeté entre l'ouverture de la salle et la première question : le code à dicter, les présents qui arrivent, la pause et l'arrêt.
+11. **Préparer une séance** — la reprise complète de `/admin/session` : composition en trois étapes, séances prêtes, historique et détail d'une séance passée.
 
 ### La vérification en intégration continue
 
@@ -1207,9 +1356,106 @@ Les écarts annoncés lot après lot restent justes — ils étaient mesurés de
 cohérente entre eux. **La valeur absolue, elle, était fausse d'un facteur trois.**
 
 **À partir de maintenant, toute mesure de poids se fait sur un écran
-authentifié, avec une banque réaliste, et dit lequel.** Le harnais est dans le
-bac à sable : `COOKIE_SESSION` posé en variable d'environnement, `mesure-cdp.mjs`
-l'envoie en en-tête.
+authentifié, avec une banque réaliste, et dit lequel.**
+
+### Comment on mesure un écran authentifié sans partager de secret
+
+**Le harnais ne demande plus le cookie de session, et ne le demandera plus.**
+Un cookie de session Médéré vaut quatorze jours d'accès complet, rôle
+administrateur compris : il n'a rien à faire dans une transcription, un
+journal, ou une variable d'environnement qu'on relit. La règle est dans
+`CLAUDE.md`.
+
+La voie retenue, au lot 10, tient en trois pièces :
+
+1. **Un compte jetable.** Un script crée `mesure-jetable@medere.fr` par le SDK
+   Admin, sans mot de passe, avec ou sans le custom claim administrateur selon
+   l'écran à mesurer.
+2. **Un cookie qui ne quitte pas la machine.** Custom token → jeton d'identité
+   par Identity Toolkit → `createSessionCookie`, durée cinq minutes — le
+   minimum accepté. Il est écrit dans un fichier hors du dépôt, en 0600, et
+   **rien ne l'imprime** : le script ne sort que l'adresse du compte et le
+   chemin du fichier. `mesure-cdp.mjs` lit `FICHIER_COOKIE`, plus
+   `COOKIE_SESSION`.
+3. **Un ménage explicite.** `--supprimer` efface le compte et le fichier.
+   `npm run recette:nettoyer` ne touche pas aux comptes Firebase
+   Authentication — c'est délibéré, y toucher ferait perdre le rôle
+   administrateur —, donc ce ménage-là se fait à la main, et se vérifie.
+
+Un détail qui coûte dix minutes si on ne le sait pas : la clé publique du
+navigateur est **restreinte par référent**, ce qui est la bonne configuration.
+L'appel serveur à Identity Toolkit doit donc porter un `Referer` de
+l'application, comme le navigateur le ferait. Ce n'est pas un contournement :
+cette clé est déjà publique dans le HTML de chaque page.
+
+### Lot 10 — ce que pèsent les écrans authentifiés
+
+Même harnais qu'au lot 8, mêmes conditions (Pixel 7 émulé, 9 Mbps, 85 ms,
+processeur bridé ×4, cache vide), build de production servi en local, session
+valable.
+
+| | lot 8 · accueil | lot 10 · accueil | lot 10 · `/session` | lot 10 · `/animer` |
+| --- | --- | --- | --- | --- |
+| tiers Google | 390,9 ko | 388,5 ko | 388,5 ko | 391,4 ko |
+| scripts de l'application | 372,8 ko | **374,1 ko** | 377,0 ko | 373,4 ko |
+| polices | 118,3 ko | 118,3 ko | 118,3 ko | 118,3 ko |
+| styles | — | 4,5 ko | 4,5 ko | 4,5 ko |
+| document | 16,5 ko | 7,3 ko | 5,4 ko | 3,8 ko |
+| **total transféré** | **903,9 ko** | **897,0 ko** | **896,0 ko** | **891,7 ko** |
+
+**La seule ligne qui se compare vraiment est celle des scripts, et elle se
+dégrade de 1,3 ko sur l'accueil.** C'est le prix d'un écran neuf, d'une route
+de plus, de trois champs de modèle et d'un pictogramme — et on le dit, parce
+qu'une régression annoncée est un arbitrage et une régression tue se découvre
+six lots plus tard.
+
+**Deux lignes ne se comparent pas, et il faut le savoir avant de s'en
+réjouir :**
+
+- **Le document passe de 16,5 à 7,3 ko, et ce n'est pas une optimisation.** Le
+  référentiel des questions publiées voyage dans le HTML ; le lot 8 mesurait
+  sur une banque de 150 questions, la base de recette n'en publie que 14. À
+  banque égale, cette ligne serait celle du lot 8. **Ne pas lire ce chiffre
+  comme un gain.**
+- **Les tiers Google varient de ±3 ko d'une mesure à l'autre** sans que rien
+  n'ait changé de notre côté : c'est reCAPTCHA Enterprise, et ce n'est pas
+  notre variable.
+
+### Lot 11 — la composition, et le solde sur un écran comparable
+
+Même harnais, mêmes conditions, build de production, compte jetable.
+
+| | lot 10 · accueil | **lot 11 · accueil** | lot 11 · séances | lot 11 · composer |
+| --- | --- | --- | --- | --- |
+| tiers Google | 388,5 ko | 390,9 ko | 390,9 ko | 390,9 ko |
+| scripts de l'application | 374,1 ko | **374,2 ko** | 379,6 ko | 380,4 ko |
+| polices | 118,3 ko | 118,3 ko | 118,3 ko | 118,3 ko |
+| styles | 4,5 ko | 5,9 ko | 5,9 ko | 5,9 ko |
+| document | 7,3 ko | 7,3 ko | 7,5 ko | 7,5 ko |
+| **total transféré** | **897,0 ko** | **900,4 ko** | **909,0 ko** | **910,5 ko** |
+
+**Sur l'écran comparable — l'accueil authentifié — les scripts passent de 374,1
+à 374,2 ko : le lot ne coûte rien au parcours commercial.** C'est le chiffre qui
+compte, parce que c'est le même écran d'un lot à l'autre. Trois routes, une
+banque filtrable, un panneau de composition et un module de bilan sont entrés
+dans le back-office sans toucher ce que porte un téléphone de commercial : ces
+écrans sont sur d'autres routes, et leur code ne voyage pas jusqu'ici.
+
+Les deux écrans neufs pèsent 379,6 et 380,4 ko de scripts. Ils n'ont pas
+d'antécédent à comparer — ils n'existaient pas sous cette forme — et ils ne sont
+vus que par Noémie, sur un ordinateur.
+
+**Les styles montent de 4,5 à 5,9 ko**, soit +1,4 ko sur tous les écrans :
+c'est `systeme.css`, qui porte désormais l'échelle `AIR` et les trois
+dispositions de la page 7. Annoncé parce que c'est une dégradation, même petite,
+et qu'elle touche le parcours commercial.
+
+**Ce que la mesure de `/animer` ne dit pas.** Le navigateur de mesure porte la
+session côté serveur, pas côté navigateur : `GardeNavigateur` y remplace donc
+le contenu par l'avis d'expiration. Le chiffre est celui des ressources de la
+route — toutes chargées avant l'hydratation, salle d'attente comprise —, pas
+celui de l'écran en train de rendre. Pour le rendu lui-même, la recette s'est
+faite dans le navigateur authentifié de Déthié.
 
 **Deux postes dominent, et aucun n'est ce que ce projet a optimisé jusqu'ici :**
 les 390,9 ko de reCAPTCHA Enterprise, imposés par App Check et non négociables
@@ -1217,6 +1463,271 @@ sans revenir sur cette décision ; et les 118,3 ko de polices, six faces
 préchargées. Tous deux sont `immutable` ou mis en cache par le tiers : ils se
 paient à la première visite, pas le jeudi suivant. **Candidat pour le lot 9 :
 mesurer la seconde visite, qui est le vrai régime d'usage.**
+
+### Fin du tour de maquette — ce que pèsent les écrans, et ce qu'ils coûtent au clic
+
+Même harnais qu'aux lots 8, 10 et 11, mêmes conditions : Pixel 7 émulé, 9 Mbps,
+85 ms de latence, processeur bridé ×4, cache vide, **build de production servi
+en local**, compte jetable et cookie de cinq minutes lu dans un fichier — jamais
+imprimé, compte et fichier supprimés après.
+
+| | lot 11 · accueil | **fin de tour · accueil** | à revoir | formations |
+| --- | --- | --- | --- | --- |
+| tiers Google | 390,9 ko | 389,2 ko | 389,2 ko | 389,2 ko |
+| scripts de l'application | 374,2 ko | **379,5 ko** | 375,2 ko | 378,9 ko |
+| polices | 118,3 ko | 118,3 ko | 118,3 ko | 118,3 ko |
+| styles | 5,9 ko | **7,4 ko** | 7,4 ko | 7,4 ko |
+| document | 7,3 ko | 7,4 ko | 7,4 ko | 5,5 ko |
+| préchargements et favicon | — | 4,4 ko | 4,3 ko | 7,4 ko |
+| **total transféré** | **900,4 ko** | **906,2 ko** | **901,9 ko** | **906,7 ko** |
+
+**Sur l'écran comparable — l'accueil authentifié — les scripts passent de 374,2
+à 379,5 ko : +5,3 ko, et c'est une dégradation qu'on annonce.** Le tour a
+ajouté à cet écran l'objectif du jour et sa semaine, les neuf récompenses, le
+podium des prix à trois marches, et le module de révision. Une régression
+annoncée est un arbitrage ; une régression tue se découvre six lots plus tard.
+
+**Les styles montent de 5,9 à 7,4 ko, soit +1,5 ko sur tous les écrans.** C'est
+`systeme.css` : l'échelle des quatre densités de la salle d'attente, le verrou,
+le sélecteur de tri, la colonne « Vu … », le bandeau des brouillons. Même
+raison de le dire.
+
+**La ligne « préchargements et favicon » n'est pas un coût nouveau, c'est une
+ligne nouvelle.** Les tableaux précédents n'en avaient pas, et leurs cinq lignes
+ne totalisaient pas leur propre total — il manquait 3,8 ko à l'accueil du lot 11,
+qui sont exactement ces charges RSC de préchargement des liens voisins. Elles
+étaient dans le total, pas dans le tableau. **Un chiffre qu'on ne sait pas
+rattacher à une ligne ne vaut rien** : celle-ci existe maintenant.
+
+**Ce qui ne se compare pas.** Les tiers Google varient de ±3 ko d'une mesure à
+l'autre sans que rien ne change chez nous — c'est reCAPTCHA Enterprise. Et le
+document reste à 7,4 ko sur une banque de seize questions : à banque réaliste il
+grossirait, comme au lot 8. Ne pas lire ce chiffre comme stable.
+
+### Le délai entre le clic et le premier affichage
+
+Navigation réelle, accueil → « À revoir », mêmes conditions, quatre mesures :
+
+| | mesures | médiane |
+| --- | --- | --- |
+| clic → première image | 61, 64, 72, 93 ms | **~68 ms** |
+
+C'est la frontière de chargement qui fait ce travail : sans `loading.tsx`, le
+clic resterait figé le temps de l'aller-retour serveur — mesuré à 425 ms au lot
+qui les a posées. La règle tient.
+
+### Ce que ce harnais ne sait pas mesurer, et qu'il faut savoir
+
+**Le délai jusqu'au contenu n'est pas atteignable ainsi, et il ne l'a jamais
+été.** Le harnais pose le cookie de session du serveur ; il ne signe pas le SDK
+Firebase du navigateur. Les écrans du parcours détectent alors qu'aucun
+utilisateur n'est connecté côté client et affichent « Votre session a expiré
+dans ce navigateur » — par conception. Le squelette de chargement ne cède donc
+jamais la place aux données.
+
+Conséquence sur ce qui précède : **les poids restent justes et comparables** —
+le JavaScript est téléchargé quel que soit l'état du SDK — et le délai de
+première image aussi. Mais **aucun lot n'a mesuré le clic-jusqu'au-contenu sur
+ces écrans**, ni celui-ci. Le dire plutôt que de laisser croire que « 68 ms »
+désigne l'écran rempli.
+
+Ce qu'il faudrait pour l'obtenir : injecter l'état d'authentification du SDK
+dans l'IndexedDB du profil de mesure, avant le premier script de la page. C'est
+faisable et ce n'est pas anodin — cela revient à fabriquer une session
+navigateur complète. À trancher si le chiffre est voulu.
+
+### Le délai entre le clic et la donnée — la mesure qui manquait
+
+**Aucun lot ne l'avait faite, et c'est la seule qui dise si l'outil est
+utilisable.** Les précédentes pesaient les écrans et chronométraient la
+première image — le squelette de `loading.tsx`, 68 ms. Un commercial ne juge
+pas le poids d'une page : il juge ce qu'il attend entre son clic et la donnée.
+
+#### Ce qu'il a fallu construire
+
+Le cookie de session authentifie le **serveur** : il suffit à rendre le HTML,
+donc à peser le JavaScript. Les données, elles, sont lues par le SDK Firebase
+**dans le navigateur**. Sans session côté client, l'écran affiche « Votre
+session a expiré dans ce navigateur » et le squelette ne cède jamais la place.
+
+`session-mesure.temp.mjs` fabrique donc une session complète : jeton sur mesure
+signé par le SDK Admin, échangé contre une vraie paire de jetons par Identity
+Toolkit, déposée dans l'IndexedDB du profil de mesure sous la clé que le SDK
+ira chercher — `firebase:authUser:<clé>:medere-quiz`. **Rien n'est falsifié** :
+c'est exactement ce que produit une connexion. Même discipline que le cookie —
+compte jetable, fichier en 0600, rien d'imprimé, ménage vérifié.
+
+**Deux obstacles, tous deux mesurés plutôt que devinés :**
+
+- **App Check refusait tout.** reCAPTCHA Enterprise ne sait pas attester un
+  `localhost` : Firestore répondait 403 et l'écran restait à « Chargement en
+  cours ». Le navigateur de mesure pose donc `FIREBASE_APPCHECK_DEBUG_TOKEN` —
+  le drapeau que le SDK relit lui-même. **Aucune ligne du produit n'est
+  modifiée pour la mesure.**
+- **Le port comptait.** Sur 3210, l'échange App Check renvoyait 403 ; sur 3000,
+  il passe. La clé d'API publique est restreinte par référent, et seul
+  `localhost:3000` y figure. Le build de production est donc servi sur 3000.
+
+Conditions : Pixel 7 émulé, 9 Mbps, 85 ms, processeur bridé ×4, cache vide,
+build de production, banque de 16 questions dont 14 servies.
+
+#### Parcours commercial — trois échantillons, médiane
+
+| Geste | mesures | médiane |
+|---|---|---|
+| **accueil, chargement direct, cache vide** | 8 134 / 8 569 / 9 310 | **8 569 ms** |
+| **accueil → série, première question** | 1 672 / 3 225 / 2 603 | **2 603 ms** |
+| question → correction | 697 / 735 / 1 597 | **735 ms** |
+| correction → question suivante | 29 / 31 / 25 | **29 ms** |
+| question → correction (2e) | 237 / 207 / 470 | **237 ms** |
+| correction → question suivante (2e) | 35 / 24 / 42 | **35 ms** |
+
+**Une fois la série ouverte, l'outil est instantané** : 25 à 40 ms pour passer
+à la question suivante, moins de 300 ms pour une correction après la première.
+Le coût est **à l'entrée**.
+
+#### Pourquoi l'accueil met huit secondes
+
+Journal du protocole, relevé sur un chargement froid (11 356 ms sur cet
+échantillon) — les entrées `performance` du navigateur ignorent les requêtes
+tierces faute de `Timing-Allow-Origin`, piège déjà payé une fois sur le poids :
+
+| | départ | fin |
+|---|---|---|
+| scripts de l'application | 1 911 ms | 3 218 ms |
+| reCAPTCHA | 3 105 ms | 5 881 ms |
+| App Check | 3 228 ms | 3 229 ms |
+| **Firestore** | **8 012 ms** | 10 540 ms |
+
+La page est peinte à 796 ms (FCP), le DOM prêt à 634 ms, les scripts chargés à
+3,2 s. **Et la première requête Firestore ne part qu'à 8 secondes.** Entre les
+deux : reCAPTCHA, qui coûte à lui seul près de trois secondes sur un téléphone
+bridé, et derrière lequel toutes les lectures attendent — App Check garde
+chaque requête tant qu'il n'a pas son jeton.
+
+**Ce n'est pas un problème de poids.** C'est une chaîne sérielle : scripts,
+puis attestation, puis données. Et la mesure est **optimiste** : elle utilise le
+jeton de débogage ; en production, reCAPTCHA doit en plus s'exécuter.
+
+#### Parcours d'administration — un échantillon, valeur indicative
+
+| Geste | délai | requêtes Firestore |
+|---|---|---|
+| **banque, chargement direct, cache vide** | **8 156 ms** | 14 |
+| éditeur → retour à la banque | **1 462 ms** | 9 |
+| banque → import en masse | **1 370 ms** | 2 |
+| import → statistiques | **1 314 ms** | 4 |
+| statistiques → formations | **1 050 ms** | 56 |
+| **formations → séances** | **24 978 ms** | 3 |
+| séances → banque | **1 327 ms** | 10 |
+| séances → composition | **3 051 ms** | 4 |
+
+#### Les vingt-cinq secondes, et leur cause
+
+**Contrôle, mesuré :** le même écran de séances atteint **sans passer par les
+formations** met **1 824 ms**. Après les formations, **24 978 ms**. Treize fois
+plus.
+
+La cause est dans le lot 17 : l'écran des formations lance **une agrégation par
+formation visible**, soixante sur la première page, par vagues de vingt-quatre.
+**Quitter l'écran n'annule rien** — les requêtes déjà émises continuent, et
+l'écran suivant attend derrière elles. L'effet garde bien un drapeau `vivant`
+pour ne pas écrire dans un composant démonté, mais un drapeau n'annule pas une
+requête HTTP.
+
+C'est exactement le genre de défaut que cette mesure devait trouver : invisible
+à la lecture, invisible aux tests, et vécu comme un écran gelé.
+
+#### Ce qui n'est pas mesuré, et pourquoi
+
+- **Le parcours de séance** — rejoindre, voter, révélation, question suivante.
+  L'écran d'accès est atteint et annonce la séance ouverte, mais le harnais ne
+  pilote pas encore la saisie du code de façon fiable, et la révélation comme
+  le passage à la question suivante sont poussés par l'animatrice : les
+  mesurer demande deux navigateurs synchronisés. **Dû.**
+- **banque → éditeur d'une question.** L'écran s'ouvre — « Modifier une
+  question », l'étiquette de statut et les formations rattachées sont à
+  l'écran — mais aucun témoin choisi n'était à la fois stable et issu des
+  données. **Dû.**
+
+### Décision du 21 septembre 2026 — les lectures privées passent au serveur
+
+**C'est une décision explicite, prise avec ses deux chiffres, et non quelque
+chose qui est arrivé.**
+
+Au **lot 8**, le même déplacement avait été refusé. La raison était juste : la
+confidentialité des scores était garantie par la base, le SDK Admin contourne
+toutes les règles, et l'estimation du gain était de **300 ms**. On n'échange pas
+une garantie de base contre un tiers de seconde.
+
+Le **21 septembre 2026**, la mesure qui manquait depuis le début du projet a été
+faite — écran authentifié, vraie session de navigateur, build de production,
+Pixel 7 émulé, 9 Mbps, processeur bridé ×4, cache vide. Le délai entre le clic
+et la donnée à l'écran, sur l'accueil, est de **8,6 secondes** de médiane. Le
+chronogramme le décompose : scripts jusqu'à 3,2 s, attestation reCAPTCHA
+jusqu'à 5,9 s, **première requête Firestore à 8,0 s** — chaque lecture attend le
+jeton App Check, et l'application stricte est active (vérifié : sans
+attestation, Firestore répond `permission-denied`).
+
+**300 ms se refusent. 8,6 secondes se rediscutent** : un outil que personne
+n'ouvre entre deux appels ne protège rien.
+
+#### Ce qui change
+
+`src/lib/serveur/donnees-privees.ts` lit `users/{uid}` et `users/{uid}/etats`
+avec le SDK Admin, pendant le rendu du HTML. Ces lectures ne passent plus par
+les règles Firestore.
+
+#### Ce qui ne change pas, et qui compte le plus
+
+**Les écritures restent au navigateur, sous les règles.** `etoiles` ne peut que
+monter, de 0 à 3 par écriture ; un verdict est recalculé par la base ; une
+réponse est signée par son auteur ; `users/{uid}` reste fermé en lecture à tout
+le monde, administrateur compris, pour le SDK client. C'est là qu'un score se
+forge, et rien de cela ne bouge.
+
+#### Ce qui borne la perte, et qui s'exécute
+
+La garantie n'est plus donnée par la base : elle est donnée par un fichier. Ce
+qui rend cela tenable n'est pas une promesse de relecture, ce sont trois
+propriétés vérifiées à chaque exécution par
+`tests/serveur/donnees-privees.test.ts` :
+
+1. **`server-only`** — le module ne peut pas être empaqueté pour le navigateur.
+2. **Aucune fonction exportée ne prend d'argument.** Pas d'uid, pas
+   d'identifiant. L'uid vient d'`exigerSession()`, qui vérifie le cookie : on
+   ne peut pas *nommer* quelqu'un d'autre, faute d'endroit où le dire.
+3. **Aucun chemin hors de `users/{uid}`**, et `users` n'est jamais interrogée
+   en collection — seulement réduite à un document par l'uid de la session.
+
+Si ces tests deviennent gênants un jour, c'est le signe qu'on rouvre la
+question. Elle se retranche alors, elle ne se contourne pas.
+
+#### Ce que la mesure a montré ensuite, et qui est le vrai sujet
+
+**Le déplacement seul ne suffit pas, et il faut le dire.** Une fois les données
+rendues au serveur, la page servie ne les porte toujours pas : `fetch` de la
+page, 30 947 octets, **aucune trace du contenu**. La cause est ailleurs et elle
+est nette — `GardeNavigateur` retient les enfants tant que `onAuthStateChanged`
+n'a pas répondu. Tant que cette garde attend le SDK du navigateur, aucun écran
+authentifié ne peut peindre ses données avant elle, quelle que soit leur
+provenance.
+
+| | avant | après |
+|---|---|---|
+| accueil, clic → donnée, médiane | 6 610 ms | **4 658 ms** |
+
+Deux secondes gagnées, et le reste tient à la garde. La suite est donc une
+décision de produit : **la coquille peut-elle rendre ses enfants sur la foi du
+cookie déjà vérifié**, et ne corriger que si le SDK répond « personne » ? Le
+serveur sait qui est là ; le SDK n'est nécessaire qu'aux écritures, qui
+viennent plus tard. L'écran « Votre session a expiré dans ce navigateur » reste
+nécessaire — il deviendrait une correction, au lieu d'être une attente.
+
+Cela ne se fait pas en marge d'une optimisation : les écrans non semés — « À
+revoir », la série — lisent encore `currentUser` et retomberaient sur leur état
+« anonyme » si on les rendait trop tôt. Il faut donc semer ces écrans aussi,
+puis lever la garde, et mesurer.
 
 ### Les premiers tests d'écran
 

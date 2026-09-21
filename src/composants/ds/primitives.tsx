@@ -135,6 +135,12 @@ export function Bouton({
   style,
   ...reste
 }: ProprietesBouton) {
+  /*
+   * `className` passe par `reste` : la primitive ne le traite pas elle-même,
+   * mais un écran doit pouvoir cibler un bouton depuis une règle de média —
+   * une action qui change de place entre le bureau et le téléphone ne se
+   * décide pas en style en ligne.
+   */
   const [survol, setSurvol] = useState(false);
   const [appui, setAppui] = useState(false);
 
@@ -581,16 +587,27 @@ export function Onglets<T extends string>({
   items,
   valeur,
   onChange,
+  libelle,
   style,
 }: {
   items: { valeur: T; libelle: string }[];
   valeur: T;
   onChange: (valeur: T) => void;
+  /**
+   * Ce que ce groupe d'onglets commande.
+   *
+   * **Obligatoire dès qu'un écran en porte deux.** La composition d'une séance
+   * en a deux — les étapes, et les filtres de la banque — et un lecteur d'écran
+   * qui annonce « liste d'onglets » deux fois sans les distinguer ne dit rien
+   * d'utile.
+   */
+  libelle?: string;
   style?: CSSProperties;
 }) {
   return (
     <div
       role="tablist"
+      aria-label={libelle}
       style={{
         display: 'inline-flex',
         gap: 'var(--space-1)',
@@ -640,9 +657,21 @@ export function Onglets<T extends string>({
 
 /* ------------------------------------------------------- micro-typographie */
 
-export function Meta({ children, style }: { children: ReactNode; style?: CSSProperties }) {
+export function Meta({
+  children,
+  className,
+  style,
+}: {
+  children: ReactNode;
+  /** Pour les règles de média : une bascule de mise en page n'est pas un style en ligne. */
+  className?: string;
+  style?: CSSProperties;
+}) {
   return (
-    <span style={{ fontSize: 'var(--body-sm-size)', color: 'var(--text-secondary)', ...style }}>
+    <span
+      className={className}
+      style={{ fontSize: 'var(--body-sm-size)', color: 'var(--text-secondary)', ...style }}
+    >
       {children}
     </span>
   );

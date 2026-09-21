@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { question, rang, rendre, session } from './aide';
 import type { Question } from '@/lib/questions/lecture';
 import type { Rang, Session } from '@/lib/session/depot';
+import { fausseAuth } from '../aide/faux';
 
 /**
  * 10a · Session collective, côté commercial — ce que l'écran montre.
@@ -39,7 +40,7 @@ const repondreEnSession = vi.fn<() => Promise<void>>();
 const rejoindre = vi.fn<() => Promise<void>>();
 const chercherSessionParCode = vi.fn<() => Promise<Session | null>>();
 
-vi.mock('@/lib/session/depot', async (original) => {
+vi.mock(import('@/lib/session/depot'), async (original) => {
   const vrai = await original<typeof import('@/lib/session/depot')>();
 
   const abonner = (poser: (rappel: never) => void) => (..._args: unknown[]) => {
@@ -74,13 +75,8 @@ vi.mock('@/lib/session/depot', async (original) => {
  * Le vrai module démarre App Check, qui n'a rien à faire dans un test d'écran
  * — et qui ne démarrerait pas, faute de navigateur attesté.
  */
-vi.mock('@/lib/firebase/client', () => ({
-  authentification: () => ({
-    onAuthStateChanged: (rappel: (u: unknown) => void) => {
-      rappel({ uid: 'uid-jordan', displayName: 'Jordan Bakary' });
-      return () => {};
-    },
-  }),
+vi.mock(import('@/lib/firebase/client'), () => ({
+  authentification: () => fausseAuth({ uid: 'uid-jordan', displayName: 'Jordan Bakary' }),
 }));
 
 const { SessionParticipant } = await import('@/composants/session/SessionParticipant');
