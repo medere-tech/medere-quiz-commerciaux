@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { question } from './aide';
 import type { Question } from '@/lib/questions/lecture';
+import { fausseAuth, fausseIntention, fausseRequete, fauxRouteur } from '../aide/faux';
 
 /**
  * 02, 03 et 04 · La série, de la première question au décompte final.
@@ -24,41 +25,61 @@ import type { Question } from '@/lib/questions/lecture';
 
 /* ------------------------------------------------ le monde autour de l'écran */
 
-const enregistrerReponse = vi.fn<() => Promise<void>>();
-const crediterSerie = vi.fn<() => Promise<void>>();
+const enregistrerReponse =
+  vi.fn<typeof import('@/lib/serie/depot').enregistrerReponse>();
+const crediterSerie = vi.fn<typeof import('@/lib/serie/depot').crediterSerie>();
+
+/**
+ * Une progression neuve, **de la forme complète**.
+ *
+ * Elle en portait deux champs sur quatre : `assiduite` et `recompenses`
+ * manquaient. Le jour où l'écran les aurait lus, le test aurait vu `undefined`
+ * et serait passé quand même — un test qui passe sur un défaut est pire qu'un
+ * test absent. Le typage du faux l'interdit désormais.
+ */
+function progressionVide(): import('@/lib/serie/depot').Progression {
+  return {
+    etoiles: 0,
+    seriesTerminees: 0,
+    assiduite: { dernierJour: '', serie: 0, record: 0, semaine: [] },
+    recompenses: {},
+  };
+}
 const pousser = vi.fn();
 
-vi.mock('@/lib/serie/depot', async (original) => {
-  const vrai = await original<typeof import('@/lib/serie/depot')>();
+/*
+ * **Le faux est typé sur le vrai module.** `vi.mock(import('…'))` — la forme à
+ * promesse plutôt qu'à chaîne — fait exiger à TypeScript un `Partial` du module
+ * remplacé : une fonction qui ne rendrait pas la bonne forme ne compile pas.
+ * C'est ce qui manquait, et un faux commode avait déjà coûté un filtre cassé.
+ * Voir `CLAUDE.md`.
+ */
+vi.mock(import('@/lib/serie/depot'), async (original) => {
+  const vrai = await original();
   return {
     ...vrai,
-    enregistrerReponse: (...a: unknown[]) => enregistrerReponse(...(a as [])),
-    crediterSerie: (...a: unknown[]) => crediterSerie(...(a as [])),
+    enregistrerReponse,
+    crediterSerie,
     // Une Map, comme le vrai dépôt : `etatsDesQuestions` fait `.get()` dessus.
     chargerMesEtats: async () => new Map(),
-    chargerProgression: async () => ({ etoiles: 0, seriesTerminees: 0 }),
+    chargerProgression: async () => progressionVide(),
   };
 });
 
-vi.mock('@/lib/firebase/client', () => ({
-  authentification: () => ({
-    currentUser: { uid: 'uid-jordan', displayName: 'Jordan' },
-    onAuthStateChanged: (rappel: (u: unknown) => void) => {
-      rappel({ uid: 'uid-jordan', displayName: 'Jordan' });
-      return () => {};
-    },
-  }),
+vi.mock(import('@/lib/firebase/client'), () => ({
+  authentification: () => fausseAuth({ uid: 'uid-jordan', displayName: 'Jordan' }),
 }));
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: pousser, prefetch: () => {} }),
-  useSearchParams: () => new URLSearchParams(),
+/* L'adresse est tenue par le test : c'est elle qui porte le mode. */
+let adresse = fausseRequete();
+
+vi.mock(import('next/navigation'), () => ({
+  useRouter: () => fauxRouteur({ push: pousser }),
+  usePathname: () => '/serie',
+  useSearchParams: () => adresse,
 }));
 
-vi.mock('@/lib/navigation/intention', () => ({
-  usePrechargementCertain: () => {},
-  useIntentionDeNavigation: () => ({}),
-}));
+vi.mock(import('@/lib/navigation/intention'), () => fausseIntention());
 
 const { Serie } = await import('@/composants/parcours/Serie');
 
@@ -116,8 +137,12 @@ function optionsAffichees(): string[] {
 }
 
 beforeEach(() => {
+  adresse = fausseRequete();
   enregistrerReponse.mockResolvedValue(undefined);
-  crediterSerie.mockResolvedValue(undefined);
+  /* Le vrai `crediterSerie` rend les récompenses **nouvellement** obtenues, et
+     la fin de série les annonce. Le faux rendait `undefined` : l'écran aurait
+     appelé `.includes` dessus le jour où une récompense serait tombée. */
+  crediterSerie.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -287,6 +312,87 @@ describe('quitter une série', () => {
 });
 
 /* ============================================================ état vide */
+
+/* ============================================== « Retravailler » une question */
+
+/**
+ * Une question retravaillée depuis « À revoir ».
+ *
+ * **Ce que ces tests gardent est une décision de produit, pas un détail.** Une
+ * révision ne crédite rien — ni étoile, ni série terminée, ni jour d'assiduité.
+ * Sans cette règle, le bouton serait une machine à étoiles : une question juste
+ * vaut cent pour cent, et dix clics vaudraient dix séries. Et la réponse, elle,
+ * doit compter : c'est tout l'intérêt de retravailler.
+ */
+describe('retravailler une question', () => {
+  async function ouvrirLaRevision(id = 'q3'): Promise<void> {
+    adresse = fausseRequete(`question=${id}`);
+    const { render } = await import('@testing-library/react');
+    await act(async () => {
+      render(<Serie referentiel={referentiel(banque())} />);
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: /valider/i })).toBeTruthy());
+  }
+
+  it('pose la question nommée, et elle seule', async () => {
+    await ouvrirLaRevision('q7');
+    expect(enonceAffiche()).toContain('numéro 7');
+    // Une seule question : la correction mène directement au résultat.
+    fireEvent.click(screen.getByText('Alpha 7'));
+    fireEvent.click(screen.getByRole('button', { name: /valider/i }));
+    expect(await screen.findByRole('button', { name: /^Terminer$/ })).toBeTruthy();
+  });
+
+  it('enregistre la réponse', async () => {
+    await ouvrirLaRevision('q7');
+    fireEvent.click(screen.getByText('Alpha 7'));
+    fireEvent.click(screen.getByText('Charlie 7'));
+    fireEvent.click(screen.getByRole('button', { name: /valider/i }));
+
+    await waitFor(() => expect(enregistrerReponse).toHaveBeenCalledTimes(1));
+    expect(enregistrerReponse.mock.calls[0]).toEqual(
+      expect.arrayContaining([expect.arrayContaining(['a', 'c']), true]),
+    );
+  });
+
+  /* **Le test qui porte la décision.** */
+  it('ne crédite ni étoile, ni série, ni jour d’assiduité', async () => {
+    await ouvrirLaRevision('q7');
+    fireEvent.click(screen.getByText('Alpha 7'));
+    fireEvent.click(screen.getByText('Charlie 7'));
+    fireEvent.click(screen.getByRole('button', { name: /valider/i }));
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Terminer$/ }));
+
+    await waitFor(() => expect(screen.getByText('Révision enregistrée')).toBeTruthy());
+    expect(crediterSerie).not.toHaveBeenCalled();
+  });
+
+  it('dit pourquoi rien n’est crédité, et renvoie à la liste', async () => {
+    await ouvrirLaRevision('q7');
+    fireEvent.click(screen.getByText('Alpha 7'));
+    fireEvent.click(screen.getByText('Charlie 7'));
+    fireEvent.click(screen.getByRole('button', { name: /valider/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Terminer$/ }));
+
+    expect(await screen.findByText(/ne compte pas comme une série/i)).toBeTruthy();
+    expect(
+      screen.getByRole('link', { name: /revenir à mes questions à revoir/i }),
+    ).toBeTruthy();
+  });
+
+  /* Une adresse se modifie à la main, et une question peut être dépubliée
+     entre l'ouverture de la liste et le clic. */
+  it('ne montre pas un écran vide sur un identifiant inconnu', async () => {
+    adresse = fausseRequete('question=q-inventee');
+    const { render } = await import('@testing-library/react');
+    await act(async () => {
+      render(<Serie referentiel={referentiel(banque())} />);
+    });
+
+    expect(await screen.findByText(/n’est plus disponible/i)).toBeTruthy();
+  });
+});
 
 describe('sans question à poser', () => {
   it('invite au lieu de constater', async () => {

@@ -21,6 +21,23 @@ import type {
 export type Question = BrouillonQuestion & {
   id: string;
   creeePar: string;
+  /**
+   * Qui a écrit l'explication, et quand elle a changé pour la dernière fois.
+   *
+   * **Deux champs distincts de `modifieeLe`, et c'est tout l'intérêt.**
+   * `modifieeLe` bouge à chaque enregistrement — une virgule corrigée le met à
+   * jour comme une réécriture. L'écran du commercial annonce « mise à jour
+   * le… » *à côté de l'explication* : cette date doit dire quand
+   * l'**explication** a changé, pas quand le document a été touché. Elle n'est
+   * donc écrite que lorsque le texte diffère réellement, et les règles le
+   * vérifient.
+   *
+   * Le nom est **recopié par celle qui écrit**, comme celui de l'animatrice sur
+   * une séance : `users/{uid}` est fermé sans exception administrateur, on ne
+   * peut pas aller le chercher depuis une question.
+   */
+  explicationAuteur: string;
+  explicationMajLe: Date | null;
   modifieeLe: Date | null;
   creeeLe: Date | null;
 };
@@ -45,7 +62,16 @@ export type Question = BrouillonQuestion & {
  */
 export type QuestionListee = Omit<
   Question,
-  'options' | 'ordreOptions' | 'bonnesReponses' | 'explication' | 'contexte' | 'sourceFiche' | 'sourceVersion'
+  | 'options'
+  | 'ordreOptions'
+  | 'bonnesReponses'
+  | 'explication'
+  | 'argumentaire'
+  | 'explicationAuteur'
+  | 'explicationMajLe'
+  | 'contexte'
+  | 'sourceFiche'
+  | 'sourceVersion'
 >;
 
 /**
@@ -97,6 +123,9 @@ export function enQuestion(identifiant: string, donnees: Record<string, unknown>
     ordreOptions: listeDeTextes(donnees.ordreOptions),
     bonnesReponses: listeDeTextes(donnees.bonnesReponses),
     explication: texte(donnees.explication),
+    argumentaire: texte(donnees.argumentaire),
+    explicationAuteur: texte(donnees.explicationAuteur),
+    explicationMajLe: enDate(donnees.explicationMajLe),
     formationIds: listeDeTextes(donnees.formationIds),
     theme: texte(donnees.theme),
     difficulte: (typeof donnees.difficulte === 'number' ? donnees.difficulte : 1) as Difficulte,

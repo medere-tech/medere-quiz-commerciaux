@@ -8,6 +8,7 @@ import {
   type Question,
   type QuestionListee,
 } from '@/lib/questions/lecture';
+import { STATUTS_SERVIS } from '@/lib/questions/modele';
 import { exigerSession, lireSession } from '@/lib/auth/session-serveur';
 import { firestoreAdmin } from '@/lib/firebase/admin';
 import { FieldPath } from 'firebase-admin/firestore';
@@ -119,7 +120,10 @@ async function lire(avecLeContenu: boolean): Promise<Referentiel | ReferentielCo
    * qu'on renvoie au navigateur. La facture ne bouge pas — Firestore compte
    * les documents lus, pas les octets — mais le temps de lecture, si.
    */
-  const requete = base.collection('questions').where('statut', '==', 'publiee');
+  const requete = base
+    .collection('questions')
+    // « À relire » sort comme « publiée ». Voir `STATUTS_SERVIS`.
+    .where('statut', 'in', [...STATUTS_SERVIS]);
   const instantane = await (avecLeContenu ? requete : requete.select(...CHAMPS_LISTE)).get();
 
   const questions = instantane.docs.map((document) =>

@@ -148,7 +148,7 @@ export function parFormation(
 export type Resume = {
   reponses: number;
   tauxEchecMoyen: number;
-  questionsPubliees: number;
+  questionsServies: number;
   jamaisTentees: number;
 };
 
@@ -162,14 +162,14 @@ export type Resume = {
  * deux chiffres que `questionStats` porte réellement.
  */
 export function resumer(questions: Question[], stats: StatsQuestion[]): Resume {
-  const publiees = new Set(questions.map((question) => question.id));
+  const servies = new Set(questions.map((question) => question.id));
 
   let reponses = 0;
   let echecs = 0;
   let tentees = 0;
 
   for (const stat of stats) {
-    if (!publiees.has(stat.questionId)) continue;
+    if (!servies.has(stat.questionId)) continue;
     reponses += stat.tentatives;
     echecs += stat.echecs;
     if (stat.tentatives > 0) tentees += 1;
@@ -178,7 +178,7 @@ export function resumer(questions: Question[], stats: StatsQuestion[]): Resume {
   return {
     reponses,
     tauxEchecMoyen: tauxEchec(echecs, reponses),
-    questionsPubliees: publiees.size,
-    jamaisTentees: publiees.size - tentees,
+    questionsServies: servies.size,
+    jamaisTentees: servies.size - tentees,
   };
 }

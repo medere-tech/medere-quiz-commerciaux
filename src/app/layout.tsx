@@ -41,6 +41,35 @@ export default function RacineLayout({ children }: { children: ReactNode }) {
         <link rel="preconnect" href="https://www.google.com" />
         <link rel="preconnect" href="https://www.gstatic.com" />
         {/*
+         * **Et les trois autres hôtes de la même chaîne.** Le chronogramme d'un
+         * chargement froid la donne en entier : `enterprise.js` à 1,6 s, l'échange
+         * App Check à 1,8 s, la version gstatic à 1,9 s, puis Firestore à 4,4 s.
+         * Chacun de ces hôtes paie son DNS, son TCP et son TLS **au moment où
+         * l'écran attend la donnée**. Les ouvrir pendant l'arrivée du HTML ne
+         * change ni ce qui est demandé, ni ce qui est attesté.
+         */}
+        <link rel="preconnect" href="https://content-firebaseappcheck.googleapis.com" />
+        <link rel="preconnect" href="https://firestore.googleapis.com" />
+        <link rel="preconnect" href="https://identitytoolkit.googleapis.com" />
+        {/*
+         * Le script de reCAPTCHA, demandé tel quel.
+         *
+         * C'est la **première** requête de la chaîne d'attestation, et elle ne
+         * part aujourd'hui qu'une fois le JavaScript de l'application exécuté :
+         * tout ce qui suit — la version gstatic, l'ancre, l'échange — s'empile
+         * derrière elle. Le préchargement la fait descendre en parallèle des
+         * paquets de l'application plutôt qu'après.
+         *
+         * L'adresse doit être **identique** à celle que le SDK demandera, sans
+         * quoi le navigateur téléchargerait deux fois : `render=explicit` est
+         * ce que `ReCaptchaEnterpriseProvider` émet, relevé au protocole.
+         */}
+        <link
+          rel="preload"
+          as="script"
+          href="https://www.google.com/recaptcha/enterprise.js?render=explicit"
+        />
+        {/*
          * Les pannes qu'aucune frontière React n'attrape — gestionnaires,
          * effets, promesses rejetées. Montée ici pour valoir sur tous les
          * écrans, connexion comprise. Elle ne rend rien.

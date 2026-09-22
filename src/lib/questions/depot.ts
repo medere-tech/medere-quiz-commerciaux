@@ -23,7 +23,13 @@ import {
 import { baseDeDonnees } from '@/lib/firebase/firestore';
 import { enQuestion, type Question } from '@/lib/questions/lecture';
 import { normaliserEnonce } from '@/lib/texte';
-import type { QuestionAEcrire, StatutQuestion, TypeQuestion } from '@/lib/questions/modele';
+import {
+  explicationAChange,
+  STATUTS_SERVIS,
+  type QuestionAEcrire,
+  type StatutQuestion,
+  type TypeQuestion,
+} from '@/lib/questions/modele';
 
 export type { Question } from '@/lib/questions/lecture';
 
@@ -213,6 +219,51 @@ export async function chargerQuestionsParStatut(statut: StatutQuestion): Promise
 }
 
 /**
+ * Les questions qui sortent aux commerciaux — publiées et à relire.
+ *
+ * C'est la population dont parlent les statistiques : un brouillon n'a jamais
+ * été posé, il n'a pas de taux d'échec, et l'y faire figurer ferait un
+ * dénominateur faux.
+ */
+export async function chargerQuestionsServies(): Promise<Question[]> {
+  const instantane = await getDocs(
+    query(collection(baseDeDonnees(), 'questions'), where('statut', 'in', [...STATUTS_SERVIS])),
+  );
+
+  return instantane.docs.map((document) => enQuestion(document.id, document.data()));
+}
+
+/**
+ * Marquer une question à relire, ou la republier telle quelle.
+ *
+ * **Une écriture d'un seul champ, et elle ne retire rien aux commerciaux.**
+ * C'est ce qui rend le geste sans conséquence : Noémie peut marquer librement
+ * depuis l'écran des statistiques, la question continue de sortir. Pour la
+ * retirer, il y a le brouillon — c'est un autre geste, et il se voit.
+ *
+ * `modifieeLe` avance : la banque classe par récence, et un marquage est une
+ * modification. La date de l'explication, elle, ne bouge pas — le texte n'a
+ * pas changé.
+ */
+export async function marquerStatut(
+  identifiant: string,
+  statut: StatutQuestion,
+): Promise<void> {
+  await updateDoc(doc(baseDeDonnees(), 'questions', identifiant), {
+    statut,
+    modifieeLe: serverTimestamp(),
+  });
+}
+
+/** Combien de questions sortent aux commerciaux — publiées et à relire. */
+export async function compterQuestionsServies(): Promise<number> {
+  const agregat = await getCountFromServer(
+    query(collection(baseDeDonnees(), 'questions'), where('statut', 'in', [...STATUTS_SERVIS])),
+  );
+  return agregat.data().count;
+}
+
+/**
  * Compte les questions d'un filtre sans les lire. L'agrégat se facture une
  * lecture par millier de documents : le pied de liste peut donc annoncer un
  * total exact sans rapatrier la banque pour le calculer.
@@ -232,6 +283,109 @@ export async function compterQuestions(filtres: FiltresQuestions): Promise<numbe
   return agregat.data().count;
 }
 
+/**
+ * Combien de questions servies chaque formation porte.
+ *
+ * **Une agrégation par formation, et c'est le moins cher des chemins
+ * possibles.** `getCountFromServer` coûte une unité de lecture par requête,
+ * quel que soit le nombre de questions comptées : soixante formations valent
+ * soixante unités. L'alternative — lire toutes les questions et compter en
+ * mémoire — en coûterait deux cents et téléchargerait l'énoncé, l'explication
+ * et l'argumentaire de chacune sur un écran qui ne les affiche pas. C'est
+ * exactement la règle de `CLAUDE.md` : ce qu'un écran ne peint pas, il ne doit
+ * pas le télécharger.
+ *
+ * **Le parallélisme est borné, mais pas trop** — et la borne a été mesurée,
+ * pas devinée. Par vagues de huit, les soixante chiffres d'une page mettaient
+ * **huit secondes** à se poser ; par vagues de vingt-quatre, deux et demie.
+ * Firestore répond en HTTP/2, qui multiplexe sur une seule connexion : la
+ * limite de six requêtes par hôte du HTTP/1.1, qui justifiait la prudence, ne
+ * s'applique pas.
+ *
+ * **La file s'arrête quand l'écran part, et c'est une correction de
+ * régression.** Sans le signal, les soixante requêtes survivaient au
+ * démontage : l'écran suivant attendait derrière elles. **Mesuré : 24 978 ms
+ * pour atteindre les séances depuis les formations, contre 1 824 ms sans y
+ * passer — treize fois.** Un drapeau `vivant` empêche d'écrire dans un
+ * composant démonté ; il n'empêche pas une requête de partir. Le signal, lui,
+ * arrête l'émission — c'est ce que la borne de parallélisme rend possible :
+ * une vague en vol au plus, jamais soixante.
+ *
+ * Le SDK Firestore n'accepte pas de signal d'abandon sur `getCountFromServer` :
+ * ce qui est déjà parti ne s'annule pas. C'est pourquoi la vague est petite.
+ *
+ * Une formation dont le comptage échoue n'entre pas dans la carte rendue : un
+ * chiffre qu'on ne sait pas calculer ne s'affiche pas — ni zéro, ni tiret.
+ */
+const COMPTAGES_SIMULTANES = 24;
+
+export async function compterServiesParFormation(
+  formationIds: string[],
+  signal?: AbortSignal,
+): Promise<Map<string, number>> {
+  const comptes = new Map<string, number>();
+
+  for (let debut = 0; debut < formationIds.length; debut += COMPTAGES_SIMULTANES) {
+    if (signal?.aborted) break;
+    const vague = formationIds.slice(debut, debut + COMPTAGES_SIMULTANES);
+    await Promise.all(
+      vague.map(async (identifiant) => {
+        if (signal?.aborted) return;
+        try {
+          const agregat = await getCountFromServer(
+            query(
+              collection(baseDeDonnees(), 'questions'),
+              where('statut', 'in', [...STATUTS_SERVIS]),
+              where('formationIds', 'array-contains', identifiant),
+            ),
+          );
+          comptes.set(identifiant, agregat.data().count);
+        } catch (panne) {
+          /* Un compteur de carte n'est pas une panne d'écran : on le
+             journalise et la carte s'affiche sans son chiffre. */
+          console.error(`Comptage impossible pour la formation ${identifiant}`, panne);
+        }
+      }),
+    );
+  }
+
+  return comptes;
+}
+
+/**
+ * Les brouillons, comptés par formation et au total.
+ *
+ * **Une seule requête ici, et non une agrégation par formation.** Le
+ * raisonnement est l'inverse du précédent, et c'est la population qui le
+ * décide : les brouillons sont le petit bout de la banque — ce qui n'est pas
+ * encore sorti. Les lire une fois coûte moins que soixante agrégations, et
+ * donne en prime **quelles** formations en portent, ce qu'un compte global ne
+ * dirait pas.
+ *
+ * Si les brouillons devenaient nombreux au point que cette lecture pèse, c'est
+ * qu'il y aurait un autre problème : une banque à moitié publiée.
+ */
+export async function compterBrouillonsParFormation(): Promise<{
+  parFormation: Map<string, number>;
+  total: number;
+}> {
+  const instantane = await getDocs(
+    query(collection(baseDeDonnees(), 'questions'), where('statut', '==', 'brouillon')),
+  );
+
+  const parFormation = new Map<string, number>();
+  for (const document of instantane.docs) {
+    const donnees = document.data();
+    const identifiants = Array.isArray(donnees.formationIds) ? donnees.formationIds : [];
+    for (const identifiant of identifiants) {
+      if (typeof identifiant !== 'string') continue;
+      parFormation.set(identifiant, (parFormation.get(identifiant) ?? 0) + 1);
+    }
+  }
+
+  return { parFormation, total: instantane.size };
+}
+
 export async function chargerQuestion(identifiant: string): Promise<Question | null> {
   const document = await getDoc(doc(baseDeDonnees(), 'questions', identifiant));
   return document.exists() ? enQuestion(document.id, document.data()) : null;
@@ -240,12 +394,24 @@ export async function chargerQuestion(identifiant: string): Promise<Question | n
 export async function creerQuestion(
   question: QuestionAEcrire,
   auteur: string,
+  /**
+   * Le nom sous lequel l'explication est signée.
+   *
+   * **Recopié par celle qui écrit, jamais lu ailleurs.** `users/{uid}` est
+   * fermé sans exception administrateur : aller y chercher le nom depuis une
+   * question serait refusé par les règles. C'est le motif déjà retenu pour
+   * l'animatrice d'une séance et pour les marqueurs de présence — chacun
+   * publie son propre nom, personne ne lit les données privées d'un autre.
+   */
+  auteurNom: string,
 ): Promise<string> {
   const reference = await addDoc(collection(baseDeDonnees(), 'questions'), {
     ...question,
     // Champ dérivé, jamais saisi : c'est lui que la détection de doublons
     // interroge, Firestore ne sachant comparer que des chaînes exactes.
     enonceNormalise: normaliserEnonce(question.enonce),
+    explicationAuteur: auteurNom,
+    explicationMajLe: serverTimestamp(),
     creeePar: auteur,
     creeeLe: serverTimestamp(),
     modifieeLe: serverTimestamp(),
@@ -256,11 +422,32 @@ export async function creerQuestion(
 export async function enregistrerQuestion(
   identifiant: string,
   question: QuestionAEcrire,
+  signature: {
+    /** L'explication et l'argumentaire tels qu'ils étaient avant cette saisie. */
+    precedente: { explication: string; argumentaire: string };
+    /** Le nom de qui enregistre, recopié si le texte a changé. */
+    auteurNom: string;
+  },
 ): Promise<void> {
+  /*
+   * **La date de l'explication ne bouge que si l'explication bouge.**
+   *
+   * `modifieeLe` suit chaque enregistrement — c'est ce qui classe la banque
+   * par récence, et c'est juste. Mais l'écran du commercial annonce « mise à
+   * jour le… » à côté de l'explication : une correction de faute de frappe qui
+   * ferait avancer cette date-là n'apprendrait rien à personne. Les deux
+   * champs de signature restent donc hors de l'écriture quand rien n'a changé,
+   * et gardent leur valeur.
+   */
+  const signee = explicationAChange(signature.precedente, question)
+    ? { explicationAuteur: signature.auteurNom, explicationMajLe: serverTimestamp() }
+    : {};
+
   // `sourceFiche` et `sourceVersion` sont facultatifs : quand ils sont vidés,
   // il faut les effacer du document, pas les laisser à leur ancienne valeur.
   await updateDoc(doc(baseDeDonnees(), 'questions', identifiant), {
     ...question,
+    ...signee,
     enonceNormalise: normaliserEnonce(question.enonce),
     sourceFiche: question.sourceFiche ?? '',
     sourceVersion: question.sourceVersion ?? '',
@@ -275,6 +462,7 @@ export async function enregistrerQuestion(
 export async function dupliquerQuestion(
   question: Question,
   auteur: string,
+  auteurNom: string,
 ): Promise<string> {
   const copie: QuestionAEcrire = {
     type: question.type,
@@ -284,6 +472,7 @@ export async function dupliquerQuestion(
     ordreOptions: question.ordreOptions,
     bonnesReponses: question.bonnesReponses,
     explication: question.explication,
+    argumentaire: question.argumentaire,
     formationIds: question.formationIds,
     theme: question.theme,
     difficulte: question.difficulte,
@@ -293,7 +482,7 @@ export async function dupliquerQuestion(
   if (question.sourceFiche) copie.sourceFiche = question.sourceFiche;
   if (question.sourceVersion) copie.sourceVersion = question.sourceVersion;
 
-  return creerQuestion(copie, auteur);
+  return creerQuestion(copie, auteur, auteurNom);
 }
 
 export async function supprimerQuestion(identifiant: string): Promise<void> {

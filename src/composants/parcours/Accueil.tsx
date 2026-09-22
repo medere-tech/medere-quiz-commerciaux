@@ -7,8 +7,15 @@ import { Bouton, Carte, Meta, TitreSection } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { FormeFormation, Jauge } from '@/composants/ds/parcours';
-import { useDonneesParcours, type Referentiel } from '@/composants/parcours/donnees';
+import {
+  useDonneesParcours,
+  type ParcoursSeme,
+  type Referentiel,
+} from '@/composants/parcours/donnees';
 import { BandeauSeance } from '@/composants/session/BandeauSeance';
+import { ObjectifDuJour } from '@/composants/parcours/ObjectifDuJour';
+import { MesRecompenses } from '@/composants/parcours/MesRecompenses';
+import { mesurerCatalogue } from '@/lib/serie/recompenses';
 import { MesPrix } from '@/composants/session/MesPrix';
 import { identiteVisuelle } from '@/lib/formations/depot';
 import { avancementParFormation, maitrise } from '@/lib/serie/maitrise';
@@ -22,26 +29,46 @@ import { LIBELLE_PONDERATION, TAILLE_SERIE } from '@/lib/serie/tirage';
  * qu'on a raté. Le reste — maîtrise, étoiles, avancement — répond à la seule
  * question que le commercial se pose en ouvrant : où j'en suis.
  *
- * **Ce que la maquette montre et qui n'est pas construit ici :** la carte
- * « Session collective » (lot 7), le bandeau « Objectif du jour » avec sa
- * série de jours d'affilée, et le panneau « Récompenses ». Les deux derniers
- * relèvent d'écrans en attente au tri des maquettes, et aucun ne peut être
- * calculé : le modèle ne garde ni historique quotidien ni récompenses.
+ * **Ce que la maquette montre et qui n'est pas encore construit ici :** le
+ * panneau « Récompenses » de la colonne de droite. Le reste y est — la carte
+ * de séance à droite du titre, l'objectif du jour et la régularité.
  */
 const ROUTE_SERIE: Route = '/serie';
 const ROUTE_A_REVOIR: Route = '/a-revoir';
 
-export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: Referentiel }) {
-  const chargement = useDonneesParcours(referentiel);
+export function Accueil({
+  prenom,
+  referentiel,
+  parcours,
+}: {
+  prenom: string;
+  referentiel: Referentiel;
+  /** Semé par le serveur : l'écran s'affiche rempli, sans lecture cliente. */
+  parcours?: ParcoursSeme;
+}) {
+  const chargement = useDonneesParcours(referentiel, parcours);
 
   const calculs = useMemo(() => {
     if (chargement.etat !== 'pret') return null;
     const { questions, formations, etats } = chargement.donnees;
 
+    const avancements = avancementParFormation(formations, questions, etats);
+    const scenarios = new Set(
+      questions.filter((question) => question.type === 'scenario').map((question) => question.id),
+    );
+
     return {
       globale: maitrise(etats),
       ratees: etats.filter((etat) => etat.derniereRatee).length,
-      avancements: avancementParFormation(formations, questions, etats),
+      avancements,
+      mesures: {
+        ...mesurerCatalogue(
+          avancements,
+          etats.filter((etat) => scenarios.has(etat.id)),
+        ),
+        recordJours: chargement.donnees.progression.assiduite.record,
+        joursActifsCetteSemaine: chargement.donnees.progression.assiduite.semaine.length,
+      },
     };
   }, [chargement]);
 
@@ -76,11 +103,51 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
   }
 
   const { progression, questions } = chargement.donnees;
-  const { globale, ratees, avancements } = calculs!;
+  const { globale, ratees, avancements, mesures } = calculs!;
   const disponibles = questions.length;
+
+  /*
+   * Les deux gestes de l'écran, écrits une fois. Ils s'affichent sous le titre
+   * au bureau et dans le pied fixe sur téléphone — deux emplacements, jamais
+   * deux libellés.
+   */
+  const actions = (
+    <>
+      <Bouton
+        taille="lg"
+        disabled={disponibles === 0}
+        iconeGauche={<Icone nom="play" taille={16} />}
+        href={ROUTE_SERIE}
+      >
+        {disponibles >= TAILLE_SERIE
+          ? `Lancer une série de ${TAILLE_SERIE}`
+          : `Lancer une série de ${disponibles}`}
+      </Bouton>
+      <Bouton
+        taille="lg"
+        variante="secondaire"
+        disabled={ratees === 0}
+        iconeGauche={<Icone nom="refresh" taille={16} />}
+        href={ROUTE_A_REVOIR}
+      >
+        {ratees === 0
+          ? 'Aucune question à revoir'
+          : ratees === 1
+            ? 'Revoir ma question ratée'
+            : `Revoir mes ${ratees} questions ratées`}
+      </Bouton>
+    </>
+  );
 
   return (
     <div className="page-admin">
+      {/*
+       * La maquette pose le titre et la carte de séance sur une même ligne :
+       * le bloc de texte à gauche, une colonne de 232 px à droite. Le jeudi,
+       * la séance est la première chose à voir — et elle ne doit pas coûter un
+       * défilement. Sous 900 px, la carte passe sous le texte.
+       */}
+      <div className="accueil-entete">
       <div style={{ maxWidth: 660 }}>
         <h1
           style={{
@@ -165,7 +232,11 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
           {libelleSeuilsEtoiles()} {LIBELLE_PONDERATION}
         </p>
 
+        {/* Sur téléphone, ces deux boutons descendent dans le pied fixe : la
+            maquette les y place, et l'accueil fait deux mille pixels de haut
+            à 375. `action-doublee` les masque ici, pas ailleurs. */}
         <div
+          className="action-doublee"
           style={{
             marginTop: 'var(--space-6)',
             display: 'flex',
@@ -173,34 +244,23 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
             flexWrap: 'wrap',
           }}
         >
-          <Bouton
-            taille="lg"
-            disabled={disponibles === 0}
-            iconeGauche={<Icone nom="play" taille={16} />}
-            href={ROUTE_SERIE}
-          >
-            {disponibles >= TAILLE_SERIE
-              ? `Lancer une série de ${TAILLE_SERIE}`
-              : `Lancer une série de ${disponibles}`}
-          </Bouton>
-          <Bouton
-            taille="lg"
-            variante="secondaire"
-            disabled={ratees === 0}
-            iconeGauche={<Icone nom="refresh" taille={16} />}
-            href={ROUTE_A_REVOIR}
-          >
-            {ratees === 0
-              ? 'Aucune question à revoir'
-              : ratees === 1
-                ? 'Revoir ma question ratée'
-                : `Revoir mes ${ratees} questions ratées`}
-          </Bouton>
+          {actions}
         </div>
       </div>
 
-      {/* Le jeudi, c'est la première chose à voir en ouvrant l'application. */}
-      <BandeauSeance />
+        <div className="accueil-seance">
+          <BandeauSeance />
+        </div>
+      </div>
+
+      {/*
+       * L'objectif du jour et la régularité.
+       *
+       * Posé juste sous le titre, comme la maquette : c'est la première chose
+       * qu'on lit après avoir su où l'on en est, et la seule qui donne une
+       * raison de revenir demain.
+       */}
+      <ObjectifDuJour assiduite={progression.assiduite} />
 
       {/*
        * Les prix des séances collectives, à côté des étoiles.
@@ -209,7 +269,7 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
        * n'apparaît qu'à partir de la première séance jouée : un cadre vide
        * intitulé « Vos prix » ne promet rien à personne.
        */}
-      <MesPrix uid={chargement.donnees.uid} nom={prenom} />
+      <MesPrix uid={chargement.donnees.uid} />
 
       {disponibles === 0 ? (
         <EtatVide
@@ -218,7 +278,8 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
           texte="L’entraînement s’ouvrira dès que des questions seront publiées. Rien à faire de votre côté."
         />
       ) : (
-        <div>
+        <div className="accueil-colonnes">
+          <div>
           <TitreSection
             indice={`${avancements.length} formation${avancements.length > 1 ? 's' : ''} ${avancements.length > 1 ? 'ont' : 'a'} au moins une question`}
           >
@@ -241,7 +302,7 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
                   rayon="var(--radius-lg)"
                   rembourrage="16px 20px"
                   elevation="petite"
-                  className="ligne-tableau"
+                  className="ligne-tableau ligne-formation"
                   style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-5)' }}
                 >
                   <span className="colonne-fixe" style={{ flex: 'none' }}>
@@ -263,7 +324,7 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
                       {formation.cibles.join(', ') || 'Public non précisé'}
                     </Meta>
                   </span>
-                  <span className="colonne-fixe" style={{ flex: 'none', width: 132 }}>
+                  <span className="colonne-fixe colonne-jauge" style={{ flex: 'none', width: 132 }}>
                     <Jauge valeur={part.pourcentage} ton={identite.couleur} hauteur={5} />
                   </span>
                   <span
@@ -279,7 +340,10 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
                   >
                     {part.pourcentage} %
                   </span>
-                  <span className="colonne-fixe" style={{ flex: 'none', width: 104, textAlign: 'right' }}>
+                  <span
+                    className="colonne-fixe colonne-compte"
+                    style={{ flex: 'none', width: 104, textAlign: 'right' }}
+                  >
                     <Meta style={{ fontSize: 12 }}>
                       {part.total} question{part.total > 1 ? 's' : ''}
                     </Meta>
@@ -288,8 +352,21 @@ export function Accueil({ prenom, referentiel }: { prenom: string; referentiel: 
               );
             })}
           </div>
+          </div>
+
+          {/*
+            * Les récompenses, dans la colonne de droite — la place que la
+            * maquette leur donne. Elles sont loin des prix, qui restent en
+            * pleine largeur plus haut : deux blocs de médaillons teintés côte à
+            * côte se confondraient, quelle que soit la légende.
+            */}
+          <MesRecompenses carte={chargement.donnees.progression.recompenses} mesures={mesures} />
         </div>
       )}
+
+      {/* Le pied fixe du téléphone. Il ne rend que sous 700 px — la feuille de
+          style s'en charge — et porte exactement les deux mêmes gestes. */}
+      <div className="pied-mobile">{actions}</div>
     </div>
   );
 }

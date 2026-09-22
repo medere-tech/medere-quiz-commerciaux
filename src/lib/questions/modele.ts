@@ -13,8 +13,36 @@
 export const TYPES_QUESTION = ['vf', 'qcm', 'scenario'] as const;
 export type TypeQuestion = (typeof TYPES_QUESTION)[number];
 
-export const STATUTS_QUESTION = ['brouillon', 'publiee'] as const;
+export const STATUTS_QUESTION = ['brouillon', 'aRelire', 'publiee'] as const;
 export type StatutQuestion = (typeof STATUTS_QUESTION)[number];
+
+/**
+ * Les statuts qui sortent aux commerciaux.
+ *
+ * **« À relire » est servi, et c'est la décision du lot.** Le statut se place
+ * *à côté* de « publiée », pas entre le brouillon et elle : il dit « cette
+ * question demande du travail », pas « cette question ne sort plus ».
+ *
+ * Trois raisons, et la première suffirait :
+ *
+ * 1. **Le signal qui la met à relire est un taux d'échec** — donc des réponses.
+ *    La retirer figerait la statistique au moment du marquage, et l'on
+ *    perdrait le seul moyen de savoir si la réécriture a servi.
+ * 2. **Une question mal formulée reste une question vraie.** Sa bonne réponse
+ *    ne devient pas fausse parce que l'énoncé est confus ; la retirer punit le
+ *    commercial du retard de Noémie.
+ * 3. **Il existe déjà un état pour « ne sort plus » : le brouillon.** Un
+ *    troisième statut qui ne sortirait pas serait un second brouillon.
+ *
+ * Le corollaire est dit à l'écran : une question *fausse* se remet en
+ * brouillon, d'un clic, et elle sort immédiatement.
+ */
+export const STATUTS_SERVIS: readonly StatutQuestion[] = ['publiee', 'aRelire'];
+
+/** Cette question sort-elle aux commerciaux ? */
+export function estServie(statut: StatutQuestion): boolean {
+  return STATUTS_SERVIS.includes(statut);
+}
 
 export const DIFFICULTES = [1, 2, 3] as const;
 export type Difficulte = (typeof DIFFICULTES)[number];
@@ -68,7 +96,22 @@ export function libelleAttendu(question: {
 
 export const LIBELLES_STATUT: Record<StatutQuestion, string> = {
   brouillon: 'Brouillon',
+  aRelire: 'À relire',
   publiee: 'Publiée',
+};
+
+/**
+ * La teinte d'étiquette de chaque statut.
+ *
+ * Elle vit ici, à côté de la liste, pour qu'un statut ajouté ne puisse pas
+ * arriver à l'écran sans teinte — le type l'exige. « À relire » prend le jaune
+ * d'attention de la maquette : ni le vert d'une question en service, ni le gris
+ * d'un brouillon.
+ */
+export const TONS_STATUT: Record<StatutQuestion, 'brouillon' | 'attention' | 'publiee'> = {
+  brouillon: 'brouillon',
+  aRelire: 'attention',
+  publiee: 'publiee',
 };
 
 export const LIBELLES_DIFFICULTE: Record<Difficulte, string> = {
@@ -87,6 +130,10 @@ export const LIBELLES_DIFFICULTE: Record<Difficulte, string> = {
 export const PLAFONDS = {
   enonce: 500,
   explication: 1000,
+  argumentaire: 600,
+  /* Le nom sous lequel l'autrice signe son explication. Même borne que le nom
+     d'affichage d'une séance : il s'affiche en bout de ligne, pas en titre. */
+  explicationAuteur: 60,
   contexte: 1000,
   theme: 60,
   sourceFiche: 200,
@@ -112,6 +159,16 @@ export type BrouillonQuestion = {
   ordreOptions: string[];
   bonnesReponses: string[];
   explication: string;
+  /**
+   * L'angle de vente, distinct du pourquoi.
+   *
+   * L'explication dit pourquoi la réponse est juste ; l'argumentaire dit quoi
+   * en faire au téléphone. **Facultatif, et ce n'est pas une facilité** : une
+   * question de fait — « les assistants dentaires ont-ils un RPPS » — n'a pas
+   * d'angle de vente, et en exiger un produirait du remplissage. Le
+   * remplissage est pire que l'absence : on apprend à sauter la carte.
+   */
+  argumentaire: string;
   formationIds: string[];
   theme: string;
   difficulte: Difficulte;
@@ -129,6 +186,7 @@ export type QuestionAEcrire = {
   ordreOptions: string[];
   bonnesReponses: string[];
   explication: string;
+  argumentaire: string;
   formationIds: string[];
   theme: string;
   difficulte: Difficulte;
@@ -147,6 +205,7 @@ export function brouillonVierge(): BrouillonQuestion {
     ordreOptions: ['vrai', 'faux'],
     bonnesReponses: [],
     explication: '',
+    argumentaire: '',
     formationIds: [],
     theme: '',
     difficulte: 1,
@@ -159,4 +218,50 @@ export function brouillonVierge(): BrouillonQuestion {
 /** Le contexte n'a de sens que pour une mise en situation. */
 export function accepteUnContexte(type: TypeQuestion): boolean {
   return type === 'scenario';
+}
+
+/**
+ * L'explication ou l'argumentaire ont-ils vraiment changé ?
+ *
+ * **C'est ce qui décide si la date affichée bouge.** `modifieeLe` suit chaque
+ * enregistrement : une virgule corrigée la met à jour comme une réécriture. Or
+ * l'écran du commercial annonce « mise à jour le… » *à côté de l'explication* —
+ * cette date-là doit dire quand l'explication a changé, sinon elle n'apprend
+ * rien et elle ment un peu.
+ *
+ * La comparaison ignore les espaces de bord et les espaces répétés : une
+ * espace ajoutée en fin de ligne n'est pas une mise à jour. Elle ne fait rien
+ * d'autre — une reformulation, même minime, en est une, et il n'appartient pas
+ * au code de juger de l'ampleur d'une réécriture.
+ */
+export function explicationAChange(
+  avant: { explication: string; argumentaire: string },
+  apres: { explication: string; argumentaire: string },
+): boolean {
+  const net = (valeur: string) => valeur.trim().replace(/\s+/g, ' ');
+  return (
+    net(avant.explication) !== net(apres.explication) ||
+    net(avant.argumentaire) !== net(apres.argumentaire)
+  );
+}
+
+/**
+ * Le nom sous lequel une explication est signée.
+ *
+ * **Recopié depuis la session, jamais lu depuis `users/{uid}`** : ce document
+ * est fermé sans exception administrateur, et une question n'a pas le droit
+ * d'aller y chercher un nom. C'est le motif déjà retenu pour l'animatrice
+ * d'une séance — chacun publie le sien.
+ *
+ * Sans nom d'affichage, la partie locale de l'adresse fait l'affaire : mieux
+ * vaut « noemie » qu'une signature vide. Borné, parce qu'il s'affiche en bout
+ * de ligne sous une explication.
+ */
+export function nomDeSignature(utilisateur: {
+  displayName?: string | null;
+  email?: string | null;
+}): string {
+  const nom = (utilisateur.displayName ?? '').trim();
+  const secours = (utilisateur.email ?? '').split('@')[0]?.trim() ?? '';
+  return (nom || secours).slice(0, PLAFONDS.explicationAuteur);
 }

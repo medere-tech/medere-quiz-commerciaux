@@ -15,12 +15,23 @@ import {
   Jauge,
   OptionReponse,
   ProgressionSerie,
+  Argumentaire,
+  SignatureExplication,
   Verdict,
 } from '@/composants/ds/parcours';
-import { useDonneesParcours, type Referentiel } from '@/composants/parcours/donnees';
+import {
+  useDonneesParcours,
+  type ParcoursSeme,
+  type Referentiel,
+} from '@/composants/parcours/donnees';
+import { Collage } from '@/composants/session/Collage';
+import { Picto } from '@/composants/ds/Picto';
+import { Marque } from '@/composants/ds/Coquille';
 import type { Question } from '@/lib/questions/depot';
 import { libelleAttendu } from '@/lib/questions/modele';
 import { crediterSerie, enregistrerReponse } from '@/lib/serie/depot';
+import { mesurerCatalogue, RECOMPENSES } from '@/lib/serie/recompenses';
+import { avancementParFormation } from '@/lib/serie/maitrise';
 import {
   LIBELLE_PONDERATION,
   TAILLE_SERIE,
@@ -33,6 +44,7 @@ import {
   corriger,
   etoilesGagnees,
   libelleSeuilsEtoiles,
+  tirageCourt,
   type Correction,
 } from '@/lib/serie/verdict';
 
@@ -81,19 +93,43 @@ type Passage = {
  * question. Le compte y sera lorsque la banque aura grossi ; le seuil est
  * calculé au README.
  */
-export function Serie({ referentiel }: { referentiel: Referentiel<Question> }) {
+export function Serie({
+  referentiel,
+  parcours,
+}: {
+  referentiel: Referentiel<Question>;
+  /** Semé par le serveur : la première question est tirée sans lecture cliente. */
+  parcours?: ParcoursSeme;
+}) {
   const routeur = useRouter();
   // D'une serie, on revient toujours a l'accueil : autant le charger pendant
   // que le commercial repond, quand le reseau ne fait rien.
   usePrechargementCertain(ROUTE_ACCUEIL);
   const requete = useSearchParams();
   const rattrapage = requete.get('mode') === 'rattrapage';
+  /*
+   * **« Retravailler » : une question, et rien d'autre.**
+   *
+   * C'est ce que le bouton promet sur sa ligne — retravailler *cette*
+   * question, pas jouer une série. L'écran est le même : question, correction,
+   * explication. Ce qui change est ce qui vient après, et c'est délibéré :
+   * **une révision ne crédite rien**. Ni étoile, ni série terminée, ni jour
+   * d'assiduité, ni récompense. La réponse, elle, compte pleinement : l'état
+   * est écrit, la question sort de « à revoir » si elle est juste, et la
+   * statistique agrégée la reçoit.
+   *
+   * Sans cette règle, le bouton serait une machine à étoiles : une question
+   * juste vaut 100 %, et dix clics vaudraient dix séries.
+   */
+  const revision = requete.get('question') ?? null;
 
-  const chargement = useDonneesParcours(referentiel);
+  const chargement = useDonneesParcours(referentiel, parcours);
 
   // Tirée une fois, conservée : c'est elle qui rend la série reproductible.
   const [graine, setGraine] = useState(graineNeuve);
   const [confirmerQuitter, setConfirmerQuitter] = useState(false);
+  /* Les paliers franchis par cette série. Annoncés une fois, à la fin. */
+  const [nouvellesRecompenses, setNouvellesRecompenses] = useState<string[]>([]);
   const [position, setPosition] = useState(0);
   const [etape, setEtape] = useState<Etape>('question');
   const [choisies, setChoisies] = useState<string[]>([]);
@@ -116,12 +152,20 @@ export function Serie({ referentiel }: { referentiel: Referentiel<Question> }) {
    */
   const ordre = useMemo(() => {
     if (chargement.etat !== 'pret') return null;
+    /* Une révision ne tire rien : la question est nommée dans l'adresse. Elle
+       doit exister et être servie — un identifiant inventé ne doit pas ouvrir
+       un écran vide, mais l'état « rien à revoir ». */
+    if (revision !== null) {
+      return chargement.donnees.questions.some((question) => question.id === revision)
+        ? [revision]
+        : [];
+    }
     const hasard = generateurAleatoire(graine);
     const etats = chargement.donnees.etats;
     return rattrapage
       ? tirerRattrapage(etats, TAILLE_SERIE, hasard)
       : tirerSerie(etats, TAILLE_SERIE, hasard);
-  }, [chargement, graine, rattrapage]);
+  }, [chargement, graine, rattrapage, revision]);
 
   /** Repartir pour une série : tout est remis à zéro, y compris le crédit. */
   const recommencer = useCallback(
@@ -199,13 +243,44 @@ export function Serie({ referentiel }: { referentiel: Referentiel<Question> }) {
       setEtape('fin');
 
       // Le crédit n'a lieu qu'ici, une seule fois : c'est la fin de série qui
-      // rapporte, pas la dernière réponse.
-      if (!creditee.current && chargement.etat === 'pret') {
+      // rapporte, pas la dernière réponse. Et une révision ne rapporte rien —
+      // voir `revision` plus haut.
+      if (revision === null && !creditee.current && chargement.etat === 'pret') {
         creditee.current = true;
         const justes = [...passages].filter((passage) => passage.correction.correcte).length;
         const etoiles = etoilesGagnees(justes, ordre.length);
+
+        /*
+         * **Les états sont rafraîchis en mémoire, pas relus.**
+         *
+         * Ceux que la page a chargés datent de son ouverture : ils ignorent
+         * les dix réponses qui viennent d'être données. Les relire coûterait
+         * une lecture de collection à chaque fin de série ; les corriger avec
+         * ce qu'on vient de faire donne le même résultat, gratuitement.
+         */
+        const { etats, questions, formations } = chargement.donnees;
+        const verdicts = new Map(
+          passages.map((passage) => [passage.question.id, passage.correction.correcte]),
+        );
+        const apres = etats.map((etat) =>
+          verdicts.has(etat.id)
+            ? { ...etat, dejaVue: true, derniereRatee: !verdicts.get(etat.id) }
+            : etat,
+        );
+
+        const scenarios = new Set(
+          questions.filter((question) => question.type === 'scenario').map((q) => q.id),
+        );
+
         try {
-          await crediterSerie(chargement.donnees.uid, etoiles);
+          const gagnees = await crediterSerie(chargement.donnees.uid, etoiles, {
+            parfaite: justes === ordre.length,
+            catalogue: mesurerCatalogue(
+              avancementParFormation(formations, questions, apres),
+              apres.filter((etat) => scenarios.has(etat.id)),
+            ),
+          });
+          setNouvellesRecompenses(gagnees);
         } catch {
           setErreurEcriture('Vos étoiles n’ont pas pu être enregistrées. Vos réponses, si.');
         }
@@ -216,7 +291,7 @@ export function Serie({ referentiel }: { referentiel: Referentiel<Question> }) {
     setPosition((precedente) => precedente + 1);
     setChoisies([]);
     setEtape('question');
-  }, [chargement, etape, ordre, passages, position]);
+  }, [chargement, etape, ordre, passages, position, revision]);
 
   /**
    * Clavier : chiffres pour cocher, V et F pour un vrai ou faux, Entrée pour
@@ -299,11 +374,19 @@ export function Serie({ referentiel }: { referentiel: Referentiel<Question> }) {
       <div style={{ padding: 'clamp(20px, 3.2vw, 36px) clamp(16px, 3.2vw, 40px)' }}>
         <EtatVide
           icone="layers"
-          titre={rattrapage ? 'Rien à rattraper' : 'Aucune question disponible'}
+          titre={
+            revision !== null
+              ? 'Cette question n’est plus disponible'
+              : rattrapage
+                ? 'Rien à rattraper'
+                : 'Aucune question disponible'
+          }
           texte={
-            rattrapage
-              ? 'Toutes vos dernières tentatives sont justes. Lancez une série ordinaire pour continuer.'
-              : 'Aucune question n’est publiée pour l’instant. L’entraînement s’ouvrira dès qu’il y en aura.'
+            revision !== null
+              ? 'Elle a pu être retirée depuis l’ouverture de votre liste. Les autres vous attendent.'
+              : rattrapage
+                ? 'Toutes vos dernières tentatives sont justes. Lancez une série ordinaire pour continuer.'
+                : 'Aucune question n’est publiée pour l’instant. L’entraînement s’ouvrira dès qu’il y en aura.'
           }
           actions={
             <Bouton variante="secondaire" href={ROUTE_ACCUEIL}>
@@ -323,10 +406,16 @@ export function Serie({ referentiel }: { referentiel: Referentiel<Question> }) {
         resultats={resultats}
         terminee={etape === 'fin'}
         confirmation={confirmerQuitter}
+        revision={revision !== null}
         onQuitter={() => {
-          // Rien n'est encore engagé tant qu'aucune réponse n'est validée :
-          // on ne demande à confirmer que ce qui coûte quelque chose.
-          if (etape === 'fin' || passages.length === 0) routeur.push(ROUTE_ACCUEIL);
+          /*
+           * Rien n'est encore engagé tant qu'aucune réponse n'est validée :
+           * on ne demande à confirmer que ce qui coûte quelque chose. Et une
+           * révision ne coûte rien — elle ne crédite rien : on sort sans
+           * question, vers la liste d'où l'on vient.
+           */
+          const sortie = revision !== null ? ('/a-revoir' as Route) : ROUTE_ACCUEIL;
+          if (revision !== null || etape === 'fin' || passages.length === 0) routeur.push(sortie);
           else setConfirmerQuitter(true);
         }}
         onConfirmer={() => routeur.push(ROUTE_ACCUEIL)}
@@ -344,7 +433,12 @@ export function Serie({ referentiel }: { referentiel: Referentiel<Question> }) {
       >
         <div style={{ width: 780, maxWidth: '100%' }}>
           {etape === 'fin' ? (
-            <FinDeSerie passages={passages} total={ordre.length} />
+            <FinDeSerie
+              passages={passages}
+              total={ordre.length}
+              nouvelles={nouvellesRecompenses}
+              revision={revision !== null}
+            />
           ) : question ? (
             etape === 'question' ? (
               <VueQuestion question={question} choisies={choisies} onBasculer={basculer} />
@@ -368,9 +462,9 @@ export function Serie({ referentiel }: { referentiel: Referentiel<Question> }) {
         enregistrement={enregistrement}
         derniere={position + 1 >= ordre.length}
         passages={passages}
+        revision={revision !== null}
         onValider={() => void valider()}
         onSuivante={() => void suivante()}
-        onAccueil={() => routeur.push(ROUTE_ACCUEIL)}
         onRecommencer={recommencer}
       />
     </div>
@@ -385,6 +479,7 @@ function EnteteSerie({
   resultats,
   terminee,
   confirmation,
+  revision,
   onQuitter,
   onConfirmer,
   onAnnuler,
@@ -394,14 +489,28 @@ function EnteteSerie({
   resultats: Record<number, 'ok' | 'ko'>;
   terminee: boolean;
   confirmation: boolean;
+  /** Une question retravaillée : ni série à quitter, ni avancement à suivre. */
+  revision: boolean;
   onQuitter: () => void;
   onConfirmer: () => void;
   onAnnuler: () => void;
 }) {
   return (
+    /*
+     * **La barre ne part jamais.**
+     *
+     * La maquette en fait un cadre de hauteur fixe : l'avancement de la série
+     * reste sous les yeux du début à la fin. Sur une page réelle, à 375 px,
+     * une question longue fait défiler — et la barre partait avec. `sticky`
+     * rend le cadre dessiné : le conteneur de défilement est la fenêtre, la
+     * page n'a pas de zone propre, la barre tient.
+     */
     <header
       style={{
         flex: 'none',
+        position: 'sticky',
+        top: 0,
+        zIndex: 2,
         background: 'var(--surface-card)',
         padding: 'clamp(10px, 2vw, 14px) clamp(16px, 3.2vw, 32px)',
         display: 'flex',
@@ -410,6 +519,12 @@ function EnteteSerie({
         flexWrap: 'wrap',
       }}
     >
+      {/* La marque, comme dans la maquette bureau. Le téléphone s'en passe :
+          la maquette mobile ne la dessine pas, et la place y manque. */}
+      <span className="serie-marque" style={{ flex: 'none' }}>
+        <Marque contexte="Entraînement" taille={26} />
+      </span>
+
       <span
         style={{
           flex: 'none',
@@ -418,7 +533,11 @@ function EnteteSerie({
           color: 'var(--text-heading)',
         }}
       >
-        {terminee ? (
+        {/* **Un « sur 1 » n'apprend rien, et une jauge d'un cran non plus.**
+            Une question retravaillée n'a pas d'avancement : elle se nomme. */}
+        {revision ? (
+          'Question à revoir'
+        ) : terminee ? (
           'Série terminée'
         ) : (
           <>
@@ -428,9 +547,11 @@ function EnteteSerie({
         )}
       </span>
 
-      <span style={{ flex: '1 1 200px', minWidth: 160, maxWidth: 420 }}>
-        <ProgressionSerie total={total} courante={position} resultats={resultats} />
-      </span>
+      {!revision && (
+        <span style={{ flex: '1 1 200px', minWidth: 160, maxWidth: 420 }}>
+          <ProgressionSerie total={total} courante={position} resultats={resultats} />
+        </span>
+      )}
 
       {confirmation ? (
         /* Abandonner coûte les étoiles de la série. Le dire au moment du
@@ -473,7 +594,7 @@ function EnteteSerie({
           }}
         >
           <Icone nom="close" taille={16} />
-          {terminee ? 'Retour à l’accueil' : 'Quitter la série'}
+          {revision ? 'Revenir à ma liste' : terminee ? 'Retour à l’accueil' : 'Quitter la série'}
         </button>
       )}
     </header>
@@ -534,8 +655,12 @@ function VueQuestion({
           margin: 'var(--space-5) 0 0',
           fontFamily: 'var(--font-display)',
           fontWeight: 400,
+          /* La maquette mobile pose l'énoncé à 26 px : c'est le texte qu'on
+             lit, et 24 le rendait plus petit qu'une option de réponse à deux
+             lignes. La mise en situation reste un cran en dessous, son contexte
+             étant déjà affiché au-dessus. */
           fontSize:
-            question.type === 'scenario' ? 'clamp(21px, 3.2vw, 28px)' : 'clamp(24px, 4vw, 34px)',
+            question.type === 'scenario' ? 'clamp(23px, 3.2vw, 28px)' : 'clamp(26px, 4vw, 34px)',
           lineHeight: 1.16,
           color: 'var(--text-heading)',
           textWrap: 'pretty',
@@ -585,7 +710,10 @@ function VueCorrection({ passage }: { passage: Passage }) {
   const { question, correction } = passage;
 
   return (
-    <div className="grille-deux-colonnes" style={{ gridTemplateColumns: 'minmax(0, 1fr) 300px' }}>
+    <div
+      className="grille-deux-colonnes correction-grille"
+      style={{ gridTemplateColumns: 'minmax(0, 1fr) 300px' }}
+    >
       <div>
         <EnTeteQuestion question={question} />
 
@@ -594,7 +722,10 @@ function VueCorrection({ passage }: { passage: Passage }) {
             margin: 'var(--space-4) 0 0',
             fontFamily: 'var(--font-display)',
             fontWeight: 400,
-            fontSize: 'clamp(20px, 3.2vw, 30px)',
+            /* Plus petit que sur l'écran de question : à la correction, c'est
+               le verdict qu'on lit d'abord, et la maquette mobile le dit en
+               posant l'énoncé à 19 px. */
+            fontSize: 'clamp(19px, 3.2vw, 30px)',
             lineHeight: 1.18,
             color: 'var(--text-heading)',
             textWrap: 'pretty',
@@ -637,13 +768,28 @@ function VueCorrection({ passage }: { passage: Passage }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      <div
+        className="correction-verdict"
+        style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}
+      >
         {/* L'explication s'affiche même quand la réponse est juste : c'est
             l'argument que le commercial reprendra au téléphone, pas une
             consolation. */}
         <Verdict ton={correction.correcte ? 'ok' : 'ko'} titre={correction.titre} compact>
           {question.explication}
         </Verdict>
+
+        {/* L'angle de vente, quand il y en a un. Vide, la carte ne paraît pas :
+            une question de fait n'a pas d'argumentaire, et une carte creuse
+            apprend à sauter la carte. */}
+        {question.argumentaire.trim().length > 0 && (
+          <Argumentaire>{question.argumentaire}</Argumentaire>
+        )}
+
+        <SignatureExplication
+          auteur={question.explicationAuteur}
+          majLe={question.explicationMajLe}
+        />
 
         {!correction.correcte && (
           <Meta style={{ fontSize: 12 }}>
@@ -658,17 +804,58 @@ function VueCorrection({ passage }: { passage: Passage }) {
 
 /* ------------------------------------------------------------ fin de série */
 
-function FinDeSerie({ passages, total }: { passages: Passage[]; total: number }) {
+function FinDeSerie({
+  passages,
+  total,
+  nouvelles,
+  revision,
+}: {
+  passages: Passage[];
+  total: number;
+  /** Identifiants des récompenses gagnées par cette série. */
+  nouvelles: string[];
+  /** Une question retravaillée depuis « À revoir » : rien n'est crédité. */
+  revision: boolean;
+}) {
   const justes = passages.filter((passage) => passage.correction.correcte).length;
-  const etoiles = etoilesGagnees(justes, total);
+  const etoiles = revision ? 0 : etoilesGagnees(justes, total);
   const pourcentage = total === 0 ? 0 : Math.round((justes / total) * 100);
+  /* Une clé que le code ne connaît plus ne rend rien, plutôt que de faire
+     tomber l'écran de fin de série. */
+  const gagnees = RECOMPENSES.filter((recompense) => nouvelles.includes(recompense.id));
 
   return (
     <div className="grille-deux-colonnes" style={{ gridTemplateColumns: '286px minmax(0, 1fr)' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-        <Carte rayon="var(--radius-xl)" rembourrage="24px 24px 22px">
-          <Meta>Série terminée</Meta>
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 6 }}>
+        <Carte
+          rayon="var(--radius-xl)"
+          rembourrage="24px 24px 22px"
+          style={{ position: 'relative', overflow: 'hidden' }}
+        >
+          {/*
+            * Les deux formes de la maquette, débordant du coin haut droit.
+            * C'est le seul décor du parcours : la fin de série est le moment
+            * où l'on relève la tête, et le seul où la marque a le droit de se
+            * montrer sans gêner la lecture.
+            */}
+          <Collage
+            formes={[
+              { fichier: 'forme-3-17BEBB.svg', taille: 118, x: 196, y: -60, rotation: -14 },
+              { fichier: 'forme-5-FECA45.svg', taille: 74, x: 252, y: 30, rotation: 24 },
+            ]}
+          />
+          <Meta style={{ position: 'relative' }}>
+            {revision ? 'Question retravaillée' : 'Série terminée'}
+          </Meta>
+          <span
+            style={{
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 6,
+              marginTop: 6,
+            }}
+          >
             <span
               style={{
                 fontFamily: 'var(--font-display)',
@@ -690,12 +877,13 @@ function FinDeSerie({ passages, total }: { passages: Passage[]; total: number })
             </span>
           </span>
 
-          <div style={{ marginTop: 'var(--space-5)' }}>
+          <div style={{ position: 'relative', marginTop: 'var(--space-5)' }}>
             <Jauge valeur={pourcentage} />
           </div>
 
           <div
             style={{
+              position: 'relative',
               marginTop: 'var(--space-5)',
               display: 'flex',
               alignItems: 'center',
@@ -703,19 +891,22 @@ function FinDeSerie({ passages, total }: { passages: Passage[]; total: number })
             }}
           >
             <Icone
-              nom="award"
+              nom={revision ? 'refresh' : 'award'}
               taille={20}
               couleur={etoiles > 0 ? 'var(--accent-highlight)' : 'var(--neutral-40)'}
             />
             <span style={{ fontSize: 'var(--body-md-size)', color: 'var(--text-body)' }}>
-              {etoiles > 0
-                ? `${etoiles} étoile${etoiles > 1 ? 's' : ''} gagnée${etoiles > 1 ? 's' : ''}`
-                : 'Aucune étoile cette fois'}
+              {revision
+                ? 'Révision enregistrée'
+                : etoiles > 0
+                  ? `${etoiles} étoile${etoiles > 1 ? 's' : ''} gagnée${etoiles > 1 ? 's' : ''}`
+                  : 'Aucune étoile cette fois'}
             </span>
           </div>
 
           <p
             style={{
+              position: 'relative',
               margin: '14px 0 0',
               fontSize: 'var(--body-sm-size)',
               lineHeight: 1.55,
@@ -723,17 +914,91 @@ function FinDeSerie({ passages, total }: { passages: Passage[]; total: number })
               textWrap: 'pretty',
             }}
           >
-            {justes === total
-              ? 'Série sans faute.'
-              : `${total - justes} question${total - justes > 1 ? 's' : ''} à retravailler.`}{' '}
-            {LIBELLE_PONDERATION}
+            {revision
+              ? justes === total
+                ? 'Votre réponse est juste : cette question sort de vos questions à revoir.'
+                : 'Toujours ratée : elle reste dans vos questions à revoir et reviendra en priorité.'
+              : `${
+                  justes === total
+                    ? 'Série sans faute.'
+                    : `${total - justes} question${total - justes > 1 ? 's' : ''} à retravailler.`
+                } ${LIBELLE_PONDERATION}`}
           </p>
 
-          {/* Le barème s'affiche là où les étoiles se gagnent. */}
+          {/*
+            * **Un zéro sans explication passe pour une panne.**
+            *
+            * Deux cas le produisent, et chacun mérite sa phrase. Une révision
+            * ne compte pas comme une série : c'est le prix de pouvoir
+            * retravailler une question à la demande sans fabriquer des étoiles
+            * à la chaîne. Un tirage court — un rattrapage où il ne restait que
+            * trois questions — vaut ce qu'il pèse sur dix, et peut donc valoir
+            * zéro en étant parfait.
+            */}
           <Meta style={{ display: 'block', marginTop: 10, fontSize: 12 }}>
-            {libelleSeuilsEtoiles()}
+            {revision
+              ? 'Une question retravaillée ne compte pas comme une série : ni étoile, ni jour d’assiduité. Votre réponse, elle, compte.'
+              : tirageCourt(total)
+                ? `Les étoiles se comptent sur une série de dix. Celle-ci en comptait ${total}. ${libelleSeuilsEtoiles()}`
+                : libelleSeuilsEtoiles()}
           </Meta>
         </Carte>
+
+        {/*
+          * Les paliers franchis par cette série, annoncés là où on les a
+          * gagnés. La maquette les pose sous le score, avec leur étiquette
+          * « nouveau » — c'est la seule fois où ils se voient au moment même.
+          */}
+        {gagnees.length > 0 && (
+          <Carte rayon="var(--radius-lg)" rembourrage="16px 18px" elevation="petite">
+            <TitreSection>
+              {gagnees.length === 1 ? 'Récompense obtenue' : 'Récompenses obtenues'}
+            </TitreSection>
+            <div
+              style={{
+                marginTop: 12,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              {gagnees.map((recompense) => (
+                <span
+                  key={recompense.id}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                >
+                  <span
+                    style={{
+                      width: 34,
+                      height: 34,
+                      flex: 'none',
+                      borderRadius: 999,
+                      background: recompense.teinte,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Picto nom={recompense.picto} taille={22} />
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: 'var(--body-sm-size)',
+                      lineHeight: 1.35,
+                      color: 'var(--text-body)',
+                      textWrap: 'pretty',
+                    }}
+                  >
+                    {recompense.libelle}
+                  </span>
+                  <EtiquetteStatut ton="publiee">Nouveau</EtiquetteStatut>
+                </span>
+              ))}
+            </div>
+          </Carte>
+        )}
       </div>
 
       <div>
@@ -815,9 +1080,9 @@ function BarreActions({
   enregistrement,
   derniere,
   passages,
+  revision,
   onValider,
   onSuivante,
-  onAccueil,
   onRecommencer,
 }: {
   etape: Etape;
@@ -826,9 +1091,10 @@ function BarreActions({
   enregistrement: boolean;
   derniere: boolean;
   passages: Passage[];
+  /** Une question retravaillée : on revient à la liste, on n'enchaîne pas. */
+  revision: boolean;
   onValider: () => void;
   onSuivante: () => void;
-  onAccueil: () => void;
   onRecommencer: (mode: 'ordinaire' | 'rattrapage') => void;
 }) {
   const multiple = (question?.bonnesReponses.length ?? 0) > 1;
@@ -845,6 +1111,7 @@ function BarreActions({
       }}
     >
       <div
+        className="serie-actions"
         style={{
           width: 780,
           maxWidth: '100%',
@@ -865,7 +1132,10 @@ function BarreActions({
               {enregistrement ? 'Enregistrement…' : 'Valider ma réponse'}
             </Bouton>
             {choisies.length === 0 ? (
-              <Meta>
+              /* La consigne vit déjà sous l'énoncé, et le bouton désactivé dit
+                 le reste. Sur téléphone, la répéter ici volait la pleine
+                 largeur au geste : la maquette mobile ne la dessine pas. */
+              <Meta className="serie-indication">
                 {multiple ? 'Cochez au moins une réponse.' : 'Choisissez une réponse pour continuer.'}
               </Meta>
             ) : (
@@ -894,7 +1164,7 @@ function BarreActions({
         {etape === 'correction' && (
           <>
             <Bouton taille="lg" onClick={onSuivante}>
-              {derniere ? 'Voir mon résultat' : 'Question suivante'}
+              {revision ? 'Terminer' : derniere ? 'Voir mon résultat' : 'Question suivante'}
             </Bouton>
             <span
               className="aide-clavier"
@@ -908,10 +1178,22 @@ function BarreActions({
 
         {etape === 'fin' && (
           <>
-            <Bouton taille="lg" onClick={() => onRecommencer('ordinaire')}>
-              Nouvelle série
-            </Bouton>
-            {passages.some((passage) => !passage.correction.correcte) && (
+            {/*
+              * **On revient d'où l'on vient.** Une question retravaillée se
+              * lance depuis « À revoir », et c'est là qu'il reste du travail :
+              * proposer « Nouvelle série » enverrait ailleurs quelqu'un qui
+              * est venu pour une liste.
+              */}
+            {revision ? (
+              <Bouton taille="lg" href={'/a-revoir' as Route}>
+                Revenir à mes questions à revoir
+              </Bouton>
+            ) : (
+              <Bouton taille="lg" onClick={() => onRecommencer('ordinaire')}>
+                Nouvelle série
+              </Bouton>
+            )}
+            {!revision && passages.some((passage) => !passage.correction.correcte) && (
               <Bouton
                 taille="lg"
                 variante="secondaire"
@@ -920,9 +1202,10 @@ function BarreActions({
                 Revoir mes erreurs
               </Bouton>
             )}
-            <Bouton variante="fantome" onClick={onAccueil}>
-              Retour à l’accueil
-            </Bouton>
+            {/* « Retour à l'accueil » vivait ici en plus du lien de l'en-tête,
+                qui porte exactement ce libellé une fois la série finie. Un même
+                geste à deux endroits du même écran n'en fait pas un plus
+                accessible. */}
           </>
         )}
       </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { Route } from 'next';
 import type { QueryDocumentSnapshot } from 'firebase/firestore';
 
 import {
@@ -24,9 +25,15 @@ import {
   type Formation,
   type RapportSynchronisation,
 } from '@/lib/formations/depot';
+import {
+  compterBrouillonsParFormation,
+  compterServiesParFormation,
+} from '@/lib/questions/depot';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
 import { ChargerPlus } from '@/composants/admin/ChargerPlus';
+import { Collage } from '@/composants/session/Collage';
+import { Picto } from '@/composants/ds/Picto';
 
 /**
  * 11 · Formations.
@@ -356,6 +363,21 @@ export default function PageFormations() {
   const [ecarts, setEcarts] = useState<Ecarts>();
   const [erreurSync, setErreurSync] = useState<string>();
 
+  /*
+   * **Ce que la banque dit de chaque formation.**
+   *
+   * Deux chiffres, et un seul des trois que la maquette dessine. Le nombre de
+   * questions servies et le nombre de brouillons se calculent ; la « maîtrise
+   * équipe », non — elle demanderait les scores de chacun, que les règles
+   * ferment sans exception administrateur. Voir `docs/design-imports.md`.
+   *
+   * Vides tant qu'ils ne sont pas arrivés : un compteur qu'on ne sait pas
+   * calculer ne s'affiche pas, ni en zéro ni en tiret.
+   */
+  const [servies, setServies] = useState<Map<string, number>>(new Map());
+  const [brouillons, setBrouillons] = useState<Map<string, number>>(new Map());
+  const [brouillonsTotal, setBrouillonsTotal] = useState<number | null>(null);
+
   function charger() {
     setRechargements((precedents) => precedents + 1);
   }
@@ -522,6 +544,77 @@ export default function PageFormations() {
 
   const actives = totalActives;
 
+  /*
+   * **Les comptages suivent les cartes affichées, pas le référentiel entier.**
+   * Une agrégation par formation visible, par vagues, et rien pour celles qui
+   * sont restées derrière « voir plus ». La clé est la liste des identifiants :
+   * elle ne change qu'au chargement d'une page de plus ou au changement de
+   * filtre, jamais au fil d'une recherche déjà en mémoire.
+   */
+  /*
+   * **On ne compte que ce qu'on ne sait pas encore**, et c'est ce qui rend
+   * l'effet sûr à relancer. `visibles` change à chaque frappe de recherche —
+   * elle filtre une liste déjà en mémoire — et recompter les mêmes formations
+   * à chaque lettre referait soixante agrégations pour un résultat identique.
+   * Le compte d'une formation ne bouge pas pendant qu'on la cherche.
+   */
+  const aCompter = visibles
+    .map((formation) => formation.id)
+    .filter((identifiant) => !servies.has(identifiant));
+  const clefACompter = aCompter.join(',');
+
+  useEffect(() => {
+    if (clefACompter === '') return;
+    /*
+     * **Un signal, pas un drapeau.** Un drapeau `vivant` empêche d'écrire dans
+     * un composant démonté ; il n'empêche pas les requêtes suivantes de
+     * partir. Les soixante agrégations survivaient donc à l'écran, et la
+     * navigation suivante attendait derrière : **24 978 ms mesurées pour
+     * atteindre les séances depuis cet écran, contre 1 824 ms sans y passer.**
+     */
+    const controleur = new AbortController();
+
+    void compterServiesParFormation(clefACompter.split(','), controleur.signal).then(
+      (comptes) => {
+        /* Fusion plutôt que remplacement : « voir plus » ne doit pas faire
+           disparaître les chiffres déjà posés sur les cartes du dessus. */
+        if (!controleur.signal.aborted) {
+          setServies((precedents) => new Map([...precedents, ...comptes]));
+        }
+      },
+    );
+
+    return () => controleur.abort();
+  }, [clefACompter]);
+
+  /* Une synchronisation Airtable change la banque autant que le référentiel :
+     les comptes repartent de zéro, sans quoi l'écran garderait les anciens. */
+  const [comptesPour, setComptesPour] = useState(rechargements);
+  if (comptesPour !== rechargements) {
+    setComptesPour(rechargements);
+    setServies(new Map());
+  }
+
+  /* Les brouillons, eux, se lisent une fois pour toute la banque : ils sont le
+     petit bout de la collection, et le bandeau parle de leur total. */
+  useEffect(() => {
+    let vivant = true;
+
+    compterBrouillonsParFormation()
+      .then(({ parFormation, total: combien }) => {
+        if (!vivant) return;
+        setBrouillons(parFormation);
+        setBrouillonsTotal(combien);
+      })
+      .catch((panne: unknown) => {
+        console.error('Comptage des brouillons indisponible', panne);
+      });
+
+    return () => {
+      vivant = false;
+    };
+  }, [rechargements]);
+
   return (
     <div className="page-admin">
       <TitrePage
@@ -656,15 +749,30 @@ export default function PageFormations() {
         >
           {visibles.map((formation) => {
             const identite = identiteVisuelle(formation);
+            const combienServies = servies.get(formation.id);
+            const combienBrouillons = brouillons.get(formation.id) ?? 0;
             return (
               <Carte
                 key={formation.id}
                 rayon="var(--radius-xl)"
                 rembourrage="20px 22px"
-                style={{ opacity: formation.actif ? 1 : 0.72 }}
+                style={{ opacity: formation.actif ? 1 : 0.72, position: 'relative', overflow: 'hidden' }}
               >
+                {/*
+                 * La forme de la formation, en grand, débordant du coin haut
+                 * droit : c'est le décor que la maquette pose sur chaque carte.
+                 * Même fichier que la pastille de 34 px, même teinte — une
+                 * carte ne porte jamais deux formes différentes.
+                 */}
+                <Collage
+                  formes={[
+                    { fichier: identite.fichier, taille: 170, x: 250, y: -56, rotation: 14, opacite: 0.85 },
+                  ]}
+                />
+
                 <span
                   style={{
+                    position: 'relative',
                     display: 'flex',
                     alignItems: 'flex-start',
                     justifyContent: 'space-between',
@@ -687,6 +795,7 @@ export default function PageFormations() {
 
                 <span
                   style={{
+                    position: 'relative',
                     display: 'block',
                     marginTop: 14,
                     fontSize: 'var(--heading-sm-size)',
@@ -701,6 +810,7 @@ export default function PageFormations() {
 
                 <span
                   style={{
+                    position: 'relative',
                     display: 'block',
                     marginTop: 6,
                     fontSize: 'var(--body-sm-size)',
@@ -710,8 +820,72 @@ export default function PageFormations() {
                   {formation.cibles.length > 0 ? formation.cibles.join(', ') : 'Public non renseigné'}
                 </span>
 
+                {/*
+                  * **Les deux chiffres de la maquette qui se calculent.**
+                  *
+                  * Elle en dessine deux — « 24 questions » et « 92 % maîtrise
+                  * équipe ». Le premier se compte ; le second demanderait les
+                  * scores de chaque commercial, que les règles ferment sans
+                  * exception administrateur. Le nombre de brouillons prend sa
+                  * place : c'est le chiffre sur lequel Noémie peut agir, et il
+                  * mène au geste — publier.
+                  *
+                  * Rien ne s'affiche tant que le compte n'est pas arrivé. Un
+                  * zéro posé par défaut se lirait « cette formation n'a aucune
+                  * question », ce qui est une tout autre nouvelle.
+                  */}
+                {combienServies !== undefined && (
+                  <div
+                    style={{
+                      position: 'relative',
+                      marginTop: 18,
+                      display: 'flex',
+                      alignItems: 'flex-end',
+                      gap: 'var(--space-5)',
+                    }}
+                  >
+                    <span>
+                      <span
+                        style={{
+                          display: 'block',
+                          fontFamily: 'var(--font-display)',
+                          fontSize: 24,
+                          lineHeight: 1,
+                          color: 'var(--text-heading)',
+                        }}
+                      >
+                        {combienServies}
+                      </span>
+                      <Meta style={{ fontSize: 12 }}>
+                        question{combienServies > 1 ? 's' : ''} servie
+                        {combienServies > 1 ? 's' : ''}
+                      </Meta>
+                    </span>
+
+                    {combienBrouillons > 0 && (
+                      <span>
+                        <span
+                          style={{
+                            display: 'block',
+                            fontFamily: 'var(--font-display)',
+                            fontSize: 24,
+                            lineHeight: 1,
+                            color: 'var(--neutral-70)',
+                          }}
+                        >
+                          {combienBrouillons}
+                        </span>
+                        <Meta style={{ fontSize: 12 }}>
+                          en brouillon
+                        </Meta>
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 <div
                   style={{
+                    position: 'relative',
                     marginTop: 16,
                     display: 'flex',
                     alignItems: 'center',
@@ -739,6 +913,66 @@ export default function PageFormations() {
             );
           })}
         </div>
+      )}
+
+      {/*
+        * **Le bandeau des brouillons, en pied d'écran comme la maquette le
+        * pose.**
+        *
+        * Elle l'ouvre sur un taux de maîtrise — « n'a que 18 % de maîtrise » —
+        * qui ne se calcule pas ici. Le bandeau garde donc sa seconde moitié,
+        * qui est la seule actionnable : des questions écrites n'entrent pas
+        * dans les séries tant qu'elles sont en brouillon, et le geste est à un
+        * clic.
+        *
+        * Il ne paraît pas quand il n'y a rien à publier : un bandeau qui
+        * annonce zéro est un bandeau qu'on apprend à ne plus lire.
+        */}
+      {!chargement && brouillonsTotal !== null && brouillonsTotal > 0 && (
+        <Carte
+          rayon="var(--radius-lg)"
+          rembourrage="18px 22px"
+          elevation="petite"
+          className="formations-brouillons"
+        >
+          <Picto nom="calendrier" taille={36} />
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span
+              style={{
+                display: 'block',
+                fontSize: 'var(--body-md-size)',
+                fontWeight: 600,
+                color: 'var(--text-heading)',
+                textWrap: 'pretty',
+              }}
+            >
+              {brouillonsTotal === 1
+                ? 'Une question est encore en brouillon'
+                : `${brouillonsTotal} questions sont encore en brouillon`}
+            </span>
+            <span
+              style={{
+                display: 'block',
+                marginTop: 4,
+                fontSize: 'var(--body-sm-size)',
+                lineHeight: 1.5,
+                color: 'var(--neutral-70)',
+                textWrap: 'pretty',
+              }}
+            >
+              {brouillonsTotal === 1 ? 'Publiez-la' : 'Publiez-les'} pour{' '}
+              {brouillonsTotal === 1 ? "qu'elle entre" : "qu'elles entrent"} dans les séries et
+              dans les séances du jeudi.
+            </span>
+          </span>
+          <Bouton
+            variante="secondaire"
+            href={'/admin/questions?statut=brouillon' as Route}
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            Voir les brouillons
+          </Bouton>
+        </Carte>
       )}
 
       {!chargement && (

@@ -41,7 +41,7 @@ import {
  * part, noté aux candidats du lot 8.
  */
 
-vi.mock('@/lib/firebase/firestore', () => ({ baseDeDonnees: () => baseCourante() }));
+vi.mock(import('@/lib/firebase/firestore'), () => ({ baseDeDonnees: () => baseCourante() }));
 
 const {
   abandonner,
@@ -343,11 +343,27 @@ describe('creerSession', () => {
     poserBase(connecte(env, NOEMIE));
   });
 
+  /**
+   * Ce que la séance annonce d'elle-même.
+   *
+   * Le titre et le nom de l'animatrice sont obligatoires côté règles : une
+   * séance anonyme s'afficherait sans nom sur un écran projeté. La description
+   * reste facultative.
+   */
+  const ANNONCE = {
+    titre: 'Objections sur les classes virtuelles',
+    description: 'Les quatre questions les plus ratées du mois.',
+    animateurNom: 'Noémie',
+  };
+
   it('écrit une séance complète, ouverte, avec un code lisible', async () => {
-    const id = await creerSession(NOEMIE.uid, ['q-vf', 'q-qcm'], 45);
+    const id = await creerSession(NOEMIE.uid, ['q-vf', 'q-qcm'], 45, 'encours', ANNONCE);
 
     const seance = await relire(`sessions/${id}`);
     expect(seance).toMatchObject({
+      titre: 'Objections sur les classes virtuelles',
+      description: 'Les quatre questions les plus ratées du mois.',
+      animateurNom: 'Noémie',
       questionIds: ['q-vf', 'q-qcm'],
       indexCourant: 0,
       revelee: false,
@@ -358,23 +374,48 @@ describe('creerSession', () => {
       dureeQuestionSecondes: 45,
     });
     expect(millisecondes(seance?.questionOuverteLe)).toBeTypeOf('number');
+    // Ouverte d'emblée : l'heure d'ouverture est posée.
+    expect(millisecondes(seance?.ouverteLe)).toBeTypeOf('number');
     // Ni O ni 0, ni I ni 1 : le code est lu à voix haute puis saisi à la main.
     expect(seance?.code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/);
   });
 
+  /*
+   * **Une séance préparée n'a pas encore d'heure d'ouverture.** C'est ce qui
+   * distingue `ouverteLe` de `creeeLe` : composée le mardi, lancée le jeudi.
+   * `lancerSeance` posera la seconde date.
+   */
   it('écrit une séance préparée, qui ne se rejoint pas encore', async () => {
-    const id = await creerSession(NOEMIE.uid, ['q-vf'], 0, 'attente');
+    const id = await creerSession(NOEMIE.uid, ['q-vf'], 0, 'attente', ANNONCE);
 
-    expect(await relire(`sessions/${id}`)).toMatchObject({ statut: 'attente' });
+    const seance = await relire(`sessions/${id}`);
+    expect(seance).toMatchObject({ statut: 'attente', ouverteLe: null });
+  });
+
+  it('nettoie le titre collé depuis un tableur plutôt que de se faire refuser', async () => {
+    const id = await creerSession(NOEMIE.uid, ['q-vf'], 45, 'encours', {
+      ...ANNONCE,
+      titre: '  Objections\tsur les classes  ',
+    });
+
+    expect(await relire(`sessions/${id}`)).toMatchObject({
+      titre: 'Objectionssur les classes',
+    });
+  });
+
+  it('REFUS — une séance sans titre : elle s’afficherait sans nom', async () => {
+    await assertFails(
+      creerSession(NOEMIE.uid, ['q-vf'], 45, 'encours', { ...ANNONCE, titre: '' }),
+    );
   });
 
   it("REFUS — créer une séance au nom d'une autre animatrice", async () => {
-    await assertFails(creerSession(AUTRE_ADMIN.uid, ['q-vf'], 45));
+    await assertFails(creerSession(AUTRE_ADMIN.uid, ['q-vf'], 45, 'encours', ANNONCE));
   });
 
   it('REFUS — un commercial crée une séance', async () => {
     poserBase(connecte(env, JORDAN));
-    await assertFails(creerSession(JORDAN.uid, ['q-vf'], 45));
+    await assertFails(creerSession(JORDAN.uid, ['q-vf'], 45, 'encours', ANNONCE));
   });
 });
 
@@ -387,17 +428,20 @@ describe('rejoindre', () => {
   });
 
   it('pose le marqueur de présence et mémorise le nom pour la prochaine fois', async () => {
-    await assertSucceeds(rejoindre('s1', JORDAN.uid, '  Jordan B.  ', 'orange'));
+    await assertSucceeds(rejoindre('s1', JORDAN.uid, '  Jordan B.  ', 'orange', 'visio'));
 
     // Le marqueur porte le nom et la teinte : l'animatrice dessine la salle
     // sans lire les données privées de personne.
     expect(await relire(`sessions/s1/participants/${JORDAN.uid}`)).toMatchObject({
       nom: 'Jordan B.',
       avatar: 'orange',
+      // La séance est hybride : le lieu est déclaré par son porteur.
+      presence: 'visio',
     });
     expect(await relire(`users/${JORDAN.uid}`)).toMatchObject({
       nomSession: 'Jordan B.',
       avatar: 'orange',
+      presence: 'visio',
     });
   });
 
@@ -406,7 +450,7 @@ describe('rejoindre', () => {
       await setDoc(doc(contexte.firestore(), 'sessions/s1'), session({ statut: 'terminee' }));
     });
 
-    await assertFails(rejoindre('s1', JORDAN.uid, 'Jordan B.', 'orange'));
+    await assertFails(rejoindre('s1', JORDAN.uid, 'Jordan B.', 'orange', 'salle'));
 
     expect(await relire(`sessions/s1/participants/${JORDAN.uid}`)).toBeNull();
     // Le nom mémorisé ne bouge pas non plus : le lot est indivisible.
@@ -414,11 +458,54 @@ describe('rejoindre', () => {
   });
 
   it('REFUS — se déclarer présent sous un autre uid', async () => {
-    await assertFails(rejoindre('s1', SOPHIE.uid, 'Sophie', 'violet'));
+    await assertFails(rejoindre('s1', SOPHIE.uid, 'Sophie', 'violet', 'salle'));
   });
 
   it('REFUS — une teinte hors palette', async () => {
-    await assertFails(rejoindre('s1', JORDAN.uid, 'Jordan B.', 'fuchsia'));
+    await assertFails(rejoindre('s1', JORDAN.uid, 'Jordan B.', 'fuchsia', 'salle'));
+  });
+
+  /*
+   * **Revenir n'est pas arriver.** Onglet rechargé, téléphone reverrouillé :
+   * on repasse par l'écran d'accès, et le marqueur existe déjà. Les règles
+   * refusent de faire bouger `rejointLe` — c'est ce qui empêche quiconque de
+   * réécrire son heure d'arrivée —, si bien qu'écrire l'horodatage à chaque
+   * passage faisait de la reconnexion un refus de permission. L'écran
+   * annonçait « la recherche n'a pas abouti » à quelqu'un qui était dans la
+   * pièce.
+   */
+  it('laisse revenir sans réécrire l’heure d’arrivée', async () => {
+    await assertSucceeds(rejoindre('s1', JORDAN.uid, 'Jordan B.', 'orange', 'salle'));
+    const premiere = (await relire(`sessions/s1/participants/${JORDAN.uid}`))?.rejointLe;
+
+    await assertSucceeds(rejoindre('s1', JORDAN.uid, 'Jordan B.', 'rose', 'visio'));
+
+    const apres = await relire(`sessions/s1/participants/${JORDAN.uid}`);
+    expect(apres).toMatchObject({ avatar: 'rose', presence: 'visio' });
+    expect(apres?.rejointLe).toStrictEqual(premiere);
+  });
+
+  /* Le verrou ferme la porte aux nouveaux venus, et à eux seuls. */
+  it('REFUS — entrer quand l’accès est verrouillé', async () => {
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await setDoc(doc(contexte.firestore(), 'sessions/s1'), session({ verrouillee: true }));
+    });
+
+    await assertFails(rejoindre('s1', JORDAN.uid, 'Jordan B.', 'orange', 'salle'));
+    expect(await relire(`sessions/s1/participants/${JORDAN.uid}`)).toBeNull();
+  });
+
+  it('laisse revenir un présent même quand l’accès est verrouillé', async () => {
+    await assertSucceeds(rejoindre('s1', JORDAN.uid, 'Jordan B.', 'orange', 'salle'));
+
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await setDoc(doc(contexte.firestore(), 'sessions/s1'), session({ verrouillee: true }));
+    });
+
+    await assertSucceeds(rejoindre('s1', JORDAN.uid, 'Jordan B.', 'orange', 'visio'));
+    expect(await relire(`sessions/s1/participants/${JORDAN.uid}`)).toMatchObject({
+      presence: 'visio',
+    });
   });
 });
 

@@ -125,13 +125,30 @@ describe('etoilesGagnees', () => {
     expect(etoilesGagnees(0, 10)).toBe(0);
   });
 
-  it('raisonne en taux, donc vaut aussi pour une série courte', () => {
-    expect(etoilesGagnees(3, 3)).toBe(3);
-    // Deux sur trois font 66,7 % : sous le seuil de 70 %, donc une seule
-    // étoile. Une série courte n'est pas plus indulgente qu'une longue.
-    expect(etoilesGagnees(2, 3)).toBe(1);
-    expect(etoilesGagnees(1, 3)).toBe(0);
-    expect(etoilesGagnees(4, 5)).toBe(2);
+  /*
+   * **Le dénominateur est une série pleine, et c'est la correction d'un défaut
+   * qui tournait déjà.**
+   *
+   * Un rattrapage ne tire que les questions ratées. Quand il n'en reste
+   * qu'une, la série en compte une — et un pourcentage sur une question ne
+   * vaut que 0 ou 100. Une seule bonne réponse payait donc trois étoiles,
+   * autant que dix, et rien n'empêchait de recommencer. Le test précédent
+   * verrouillait ce comportement sous le nom de « raisonner en taux » : il
+   * raisonnait en taux sur un dénominateur qui rétrécissait.
+   */
+  it('mesure sur dix questions, quelle que soit la longueur du tirage', () => {
+    // Le cas qui payait trois étoiles pour une question.
+    expect(etoilesGagnees(1, 1)).toBe(0);
+    expect(etoilesGagnees(3, 3)).toBe(0);
+    // Un rattrapage de huit, parfait : du travail réel, payé au prorata.
+    expect(etoilesGagnees(8, 8)).toBe(2);
+    expect(etoilesGagnees(9, 9)).toBe(3);
+  });
+
+  it('ne récompense jamais plus qu’une série pleine au même score', () => {
+    for (let total = 1; total <= 10; total += 1) {
+      expect(etoilesGagnees(total, total)).toBeLessThanOrEqual(etoilesGagnees(10, 10));
+    }
   });
 
   it('ne divise pas par zéro', () => {

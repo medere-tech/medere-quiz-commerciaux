@@ -3,9 +3,11 @@
 import type { Route } from 'next';
 import { useEffect, useState } from 'react';
 
-import { Bouton, Carte, EtiquetteStatut, Meta } from '@/composants/ds/primitives';
+import { Bouton, Carte } from '@/composants/ds/primitives';
 import { Icone } from '@/composants/ds/Icone';
+import { Picto } from '@/composants/ds/Picto';
 import { seanceOuverte, type Session } from '@/lib/session/depot';
+import { titreDeSeance } from '@/lib/session/seance';
 
 /**
  * « Une séance est ouverte » — sur l'accueil du commercial.
@@ -48,34 +50,52 @@ export function BandeauSeance() {
 
   return (
     <Carte
-      rayon="var(--radius-lg)"
-      rembourrage="16px 20px"
+      rayon="var(--radius-xl)"
+      rembourrage="20px 22px"
       elevation="carte"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--space-4)',
-        flexWrap: 'wrap',
-      }}
+      style={{ background: 'var(--surface-inverse)' }}
     >
-      <EtiquetteStatut ton="publiee">En direct</EtiquetteStatut>
-      <span style={{ flex: 1, minWidth: 180 }}>
-        <span
-          style={{
-            display: 'block',
-            fontSize: 'var(--body-md-size)',
-            fontWeight: 600,
-            color: 'var(--text-heading)',
-          }}
-        >
-          Une séance est ouverte
+      <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Picto nom="professions" taille={28} ton="blanc" />
+        <span style={{ fontSize: 'var(--body-sm-size)', color: 'rgba(255, 255, 255, 0.7)' }}>
+          Séance collective
         </span>
-        <Meta style={{ fontSize: 12 }}>
-          Question {seance.indexCourant + 1} sur {seance.questionIds.length} · code {seance.code}
-        </Meta>
       </span>
-      <Bouton href={'/session' as Route} iconeGauche={<Icone nom="users" taille={15} />}>
-        Rejoindre
+
+      <span
+        style={{
+          display: 'block',
+          marginTop: 10,
+          fontFamily: 'var(--font-display)',
+          fontSize: 22,
+          lineHeight: 1.2,
+          color: '#fff',
+          textWrap: 'pretty',
+        }}
+      >
+        {titreDeSeance(seance)}
+      </span>
+
+      <p
+        style={{
+          margin: '8px 0 16px',
+          fontSize: 'var(--body-sm-size)',
+          lineHeight: 1.5,
+          color: 'rgba(255, 255, 255, 0.72)',
+          textWrap: 'pretty',
+        }}
+      >
+        Question {seance.indexCourant + 1} sur {seance.questionIds.length}, code {seance.code}.
+      </p>
+
+      <Bouton
+        taille="sm"
+        variante="secondaire"
+        pleineLargeur
+        href={'/session' as Route}
+        iconeGauche={<Icone nom="users" taille={15} />}
+      >
+        Rejoindre la séance
       </Bouton>
     </Carte>
   );

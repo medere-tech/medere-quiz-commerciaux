@@ -216,11 +216,70 @@ export const classerSessionTerminee = onDocumentUpdated(
       etabliLe: new Date(),
     });
 
+    /*
+     * Ce que la séance laisse d'elle-même, sur son propre document.
+     *
+     * **Pourquoi ici et pas dans un second déclencheur.** C'est la même
+     * transition — `encours` vers close — et deux déclencheurs sur le même
+     * événement, c'est une course : celui qui écrirait le second pourrait
+     * partir avant que le premier ait fini, et l'un des deux documents
+     * manquerait sans que rien ne le signale.
+     *
+     * **Pourquoi sur la séance et pas seulement dans le bilan.** La liste des
+     * séances passées affiche la date, la durée et le nombre de présents pour
+     * chaque ligne. Les lire dans le bilan coûterait une lecture par séance
+     * affichée ; sur le document de séance, elles arrivent avec la liste,
+     * qui est déjà chargée.
+     *
+     * `presentsFinal` fige le compte : la liste nominative des participants
+     * s'éteint avec la séance pour tout le monde sauf l'animatrice, et un
+     * nombre n'est pas une liste.
+     */
+    lot.update(session, {
+      termineeLe: new Date(),
+      presentsFinal: identites.size,
+    });
+
+    /*
+     * **Une séance abandonnée efface ses réponses.**
+     *
+     * Elles ne servaient qu'au classement, et il n'y en aura pas. Elles sont
+     * déjà invisibles de tous une fois la séance close — la règle `list` est
+     * conditionnée à `encours` ou `pause` — mais invisible n'est pas effacé, et
+     * une séance qu'on abandonne ne doit rien laisser de nominatif derrière
+     * elle.
+     *
+     * **Uniquement à l'abandon, jamais à une fin normale.** Une séance terminée
+     * garde ses réponses : le classement s'écrit juste en dessous, et l'on ne
+     * retire pas le sol sous ses propres pieds.
+     *
+     * **La progression individuelle, elle, ne bouge pas.** `users/{uid}/reponses`
+     * et `users/{uid}/etats` restent intacts : ces réponses étaient réelles,
+     * elles comptent dans la progression de chacun et dans les questions à
+     * revoir. C'est la décision du lot 7, et l'écran du participant la promet en
+     * toutes lettres. On ne pourrait d'ailleurs pas l'annuler proprement — les
+     * compteurs d'états ne redescendent pas, et `questionStats` a déjà agrégé.
+     *
+     * **L'ordre compte, et le lot le garantit.** Le bilan est calculé depuis
+     * `lues`, déjà en mémoire, et écrit dans le même lot que ces suppressions :
+     * ou les deux ont lieu, ou aucune. Il n'existe aucune fenêtre où les
+     * réponses seraient parties sans que le bilan soit écrit. Le bilan est
+     * anonyme — deux compteurs par question —, il survit donc sans rien porter
+     * de nominatif.
+     */
+    if (!classe) {
+      for (const document of reponses.docs) lot.delete(document.ref);
+    }
+
     const rangs = classe ? classer(lues, identites) : [];
 
     if (rangs.length === 0) {
       await lot.commit();
-      logger.info('Séance close sans classement', { classe, reponses: lues.length });
+      logger.info('Séance close sans classement', {
+        classe,
+        reponses: lues.length,
+        reponsesEffacees: classe ? 0 : reponses.size,
+      });
       return;
     }
 
@@ -228,6 +287,17 @@ export const classerSessionTerminee = onDocumentUpdated(
       rangs,
       etabliLe: new Date(),
     });
+
+    /*
+     * Le jour où le prix est posé, au format des récompenses : `AAAA-MM-JJ`
+     * en heure de Paris, comme partout ailleurs dans l'assiduité.
+     */
+    const jour = new Intl.DateTimeFormat('fr-CA', {
+      timeZone: 'Europe/Paris',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
 
     for (const rang of rangs) {
       lot.set(base.collection('users').doc(rang.uid).collection('prix').doc(sessionId), {
@@ -238,6 +308,37 @@ export const classerSessionTerminee = onDocumentUpdated(
         participants: rangs.length,
         obtenuLe: new Date(),
       });
+
+    }
+
+    /*
+     * **« Première séance collective », dans le même lot que les prix.**
+     *
+     * C'est la seule récompense que l'accueil ne peut pas juger : il ne sait
+     * pas qu'on a participé à une séance sans lire les réponses de séance, qui
+     * ne lui appartiennent pas. Elle s'accorde donc là où le fait est constaté,
+     * et **sans second déclencheur** — deux fonctions sur le même évènement
+     * seraient une course.
+     *
+     * **On relit avant d'écrire, et c'est le point.** `mergeFields` écrase la
+     * valeur si la clé existe déjà : « première séance » afficherait alors la
+     * date de la *dernière*. Le SDK Admin passe outre les règles, mais il doit
+     * respecter la garantie qu'elles posent — une récompense ne se réécrit pas.
+     * Le coût est d'une lecture par participant classé, une fois par séance.
+     */
+    const porteurs = await base.getAll(
+      ...rangs.map((rang) => base.collection('users').doc(rang.uid)),
+    );
+
+    for (const porteur of porteurs) {
+      const carte = porteur.get('recompenses') as Record<string, unknown> | undefined;
+      if (carte && typeof carte['premiere-seance'] === 'string') continue;
+
+      lot.set(
+        porteur.ref,
+        { recompenses: { 'premiere-seance': jour } },
+        { mergeFields: ['recompenses.premiere-seance'] },
+      );
     }
 
     await lot.commit();

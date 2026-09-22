@@ -9,6 +9,7 @@ import { EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
 import { PanneauAnimatrice } from '@/composants/session/PanneauAnimatrice';
 import { RevelationClassement } from '@/composants/session/RevelationClassement';
+import { SalleDAttente } from '@/composants/session/SalleDAttente';
 import { SceneProjetee } from '@/composants/session/SceneProjetee';
 import { authentification } from '@/lib/firebase/client';
 import type { Question } from '@/lib/questions/depot';
@@ -19,6 +20,7 @@ import {
   ecouterReponses,
   ecouterSession,
   abandonner,
+  demarrer,
   maSessionEnCours,
   mettreEnPause,
   questionSuivante,
@@ -26,6 +28,7 @@ import {
   rouvrirLeVote,
   revelerReponse,
   terminerSession,
+  verrouillerAcces,
   type Participant,
   type Rang,
   type ReponseSession,
@@ -188,7 +191,7 @@ export function SessionAnimateur() {
         <EtatVide
           icone="alert"
           titre="Séance interrompue"
-          texte="Aucun classement n’a été établi. Les réponses déjà données restent dans la progression de chacun."
+          texte="Aucun classement n’a été établi et les réponses de la séance sont effacées. La progression de chacun est conservée : ce qui a été répondu reste dans les questions à revoir."
           actions={
             <Bouton variante="secondaire" href={'/admin/session' as Route}>
               Préparer une nouvelle séance
@@ -240,6 +243,33 @@ export function SessionAnimateur() {
           </Bouton>
         </div>
       </div>
+    );
+  }
+
+  /* --------------------------------------------- la salle d'attente (page 6) */
+
+  /*
+   * **Entre « lancer » et « poser la première question ».**
+   *
+   * La séance est ouverte — le code vaut, les présents arrivent — mais rien
+   * n'a encore été posé. C'est l'écran de la page 6, et il dure les deux
+   * minutes pendant lesquelles Noémie dicte le code et attend la salle.
+   *
+   * La pause avant démarrage passe aussi par ici : suspendre une salle qui se
+   * remplit est un geste légitime, et la maquette le dessine.
+   */
+  if (!session.demarree) {
+    return (
+      <SalleDAttente
+        session={session}
+        participants={participants}
+        onDemarrer={() => void demarrer(session.id)}
+        onPause={() => void mettreEnPause(session.id)}
+        onReprendre={() => void reprendre(session.id)}
+        onTerminer={() => void terminerSession(session.id)}
+        onAbandonner={() => void abandonner(session.id)}
+        onVerrouiller={(ferme) => void verrouillerAcces(session.id, ferme)}
+      />
     );
   }
 

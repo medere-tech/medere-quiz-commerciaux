@@ -35,6 +35,15 @@ export const TRACES = {
   presentation: 'M3.5 4.5h17M5 4.5v10h14v-10M12 14.5v3M8.5 20.5l3.5-3 3.5 3',
   logout: 'M10 4.5H5.5v15H10M15 8l4 4-4 4M9 12h10',
   copy: 'M8.5 8.5h11v11h-11zM15.5 8.5V4.5h-11v11h4',
+  /*
+   * Poignée de déplacement.
+   *
+   * **C'est le tracé du design**, `drag` dans `ui.jsx` : deux barres
+   * horizontales. Une version à six points avait été inventée ici, au motif
+   * que le jeu livré ne définissait pas l'icône — il la définit. Vérifier la
+   * source avant de tracer coûte moins qu'une icône en trop dans le jeu.
+   */
+  deplacer: 'M8 9.5h8M8 14.5h8',
 } as const;
 
 export type NomIcone = keyof typeof TRACES;

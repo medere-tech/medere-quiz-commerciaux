@@ -193,7 +193,7 @@ describe('resumer', () => {
     expect(resumer(questions, stats)).toEqual({
       reponses: 20,
       tauxEchecMoyen: 40,
-      questionsPubliees: 2,
+      questionsServies: 2,
       jamaisTentees: 0,
     });
   });

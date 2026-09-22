@@ -40,7 +40,13 @@ const VERS_LE_BACK_OFFICE: Bascule = {
 
 const NAVIGATION_COMMERCIAL: Entree[] = [
   { libelle: 'Accueil', icone: 'home', chemin: '/', route: '/' },
-  { libelle: 'À revoir', icone: 'refresh', chemin: '/a-revoir', route: '/a-revoir' },
+  {
+    libelle: 'À revoir',
+    icone: 'refresh',
+    chemin: '/a-revoir',
+    route: '/a-revoir',
+    compteur: 'ratees',
+  },
   { libelle: 'Session du jeudi', icone: 'users', chemin: '/session', route: '/session' },
 ];
 
@@ -64,7 +70,9 @@ export default async function DispositionParcours({ children }: { children: Reac
       bascule={session.admin ? VERS_LE_BACK_OFFICE : undefined}
       barreReduite={barreReduite}
     >
-      <GardeNavigateur renouveler={session.renouvellementConseille}>{children}</GardeNavigateur>
+      <GardeNavigateur renouveler={session.renouvellementConseille} surLaFoiDuCookie>
+        {children}
+      </GardeNavigateur>
     </Coquille>
   );
 }
