@@ -7,7 +7,7 @@ import { aileron, dmSerifText } from '@/styles/polices';
 import { SondeErreurs } from '@/composants/journal/SondeErreurs';
 
 export const metadata: Metadata = {
-  title: 'Entraînement commerciaux — Médéré',
+  title: 'Quiz Médéré',
   description: 'Entraînement au catalogue de formations Médéré.',
 };
 

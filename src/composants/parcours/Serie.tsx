@@ -522,7 +522,7 @@ function EnteteSerie({
       {/* La marque, comme dans la maquette bureau. Le téléphone s'en passe :
           la maquette mobile ne la dessine pas, et la place y manque. */}
       <span className="serie-marque" style={{ flex: 'none' }}>
-        <Marque contexte="Entraînement" taille={26} />
+        <Marque contexte="Quiz Médéré" taille={26} />
       </span>
 
       <span

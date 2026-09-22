@@ -82,7 +82,7 @@ export function SalleDAttente({
       <Collage formes={DECOR_LARGE} style={{ zIndex: 0 }} />
 
       <header className="salle-attente-entete">
-        <Marque contexte="Entraînement" taille={38} tailleLibelle="var(--sa-meta-l)" />
+        <Marque contexte="Quiz Médéré" taille={38} tailleLibelle="var(--sa-meta-l)" />
         <span className="salle-attente-identite">
           <EtiquetteStatut ton={enPause ? 'attention' : 'publiee'}>
             {enPause ? 'En pause' : 'Séance ouverte'}

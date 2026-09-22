@@ -193,6 +193,7 @@ export function Marque({
         <MarqueMedere hauteur={Math.round(taille * 0.55)} />
       </span>
       <span
+        className="marque-libelle"
         style={{
           fontSize: tailleLibelle,
           fontWeight: 600,
@@ -453,6 +454,7 @@ export function Coquille({
         aria-label={`Sections de l'espace ${contexte}`}
       >
         <div
+          className="coquille-marque"
           style={{
             display: 'flex',
             alignItems: 'center',

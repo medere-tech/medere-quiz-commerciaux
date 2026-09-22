@@ -82,7 +82,7 @@ export function Connexion({ motif }: { motif: 'anonyme' | 'domaine' }) {
         </span>
 
         <span style={{ position: 'relative' }}>
-          <Marque contexte="Médéré · Entraînement commercial" taille={34} tailleLibelle="var(--body-md-size)" fond="encre" />
+          <Marque contexte="Quiz Médéré" taille={34} tailleLibelle="var(--body-md-size)" fond="encre" />
         </span>
 
         <div className="connexion-promesse-marque">

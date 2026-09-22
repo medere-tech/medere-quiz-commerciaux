@@ -65,7 +65,7 @@ export default async function DispositionParcours({ children }: { children: Reac
       // Noémie parcourt les mêmes écrans que les commerciaux, mais elle n'en
       // est pas une : la pastille dit qui l'on est, pas où l'on se trouve.
       role={session.admin ? 'Responsable pédagogique' : 'Commercial'}
-      contexte="Entraînement"
+      contexte="Quiz Médéré"
       entrees={NAVIGATION_COMMERCIAL}
       bascule={session.admin ? VERS_LE_BACK_OFFICE : undefined}
       barreReduite={barreReduite}

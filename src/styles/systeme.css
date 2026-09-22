@@ -327,8 +327,60 @@ a:hover {
   min-width: 0;
 }
 
+/*
+ * Barre repliée : tous les libellés partent — entrées, bascule, identité.
+ * C'est cette règle qui tient les 68 pixels.
+ */
 .coquille-nav[data-reduite='reduite'] .coquille-libelle {
   display: none;
+}
+
+/*
+ * **Sauf la marque, qui garde son pavé.**
+ *
+ * Une barre repliée sans marque perd son ancrage — on ne sait plus dans quel
+ * outil on se trouve. Le pavé seul le dit, et il tient dans les 68 pixels à
+ * une condition : que la ligne passe en colonne. En ligne, le pavé de 30 px et
+ * le chevron de repli se disputent 32 px de contenu — 68 moins les 10 de la
+ * barre puis les 8 de la ligne, de chaque côté — et débordent.
+ *
+ * **L'exception est nommée, elle ne supprime pas la règle.** Retirer purement
+ * la règle ci-dessus a rendu visibles les quatre autres usages de
+ * `.coquille-libelle` : mesuré à 68 px, le bloc d'identité sortait de 126 px.
+ * On remonte donc d'un cran de spécificité sur la seule ligne de marque.
+ *
+ * Bornée au-dessus de 900 px : sous ce seuil la barre est un tiroir, où la
+ * place ne manque pas et où la marque reste entière.
+ */
+@media (min-width: 901px) {
+  .coquille-nav[data-reduite='reduite'] .coquille-marque {
+    flex-direction: column;
+  }
+
+  .coquille-nav[data-reduite='reduite'] .coquille-marque .coquille-libelle {
+    display: flex;
+    justify-content: center;
+  }
+
+  .coquille-nav[data-reduite='reduite'] .marque-libelle {
+    display: none;
+  }
+}
+
+/* Le même geste pour la barre repliée d'office entre 900 et 1200. */
+@media (min-width: 901px) and (max-width: 1200px) {
+  .coquille-nav[data-reduite='auto'] .coquille-marque {
+    flex-direction: column;
+  }
+
+  .coquille-nav[data-reduite='auto'] .coquille-marque .coquille-libelle {
+    display: flex;
+    justify-content: center;
+  }
+
+  .coquille-nav[data-reduite='auto'] .marque-libelle {
+    display: none;
+  }
 }
 
 /* Le chevron pointe vers le mouvement à venir : replier, ou déplier. */
@@ -562,13 +614,44 @@ a:hover {
   justify-content: center;
 }
 
-.coquille-repli {
-  display: flex;
+/*
+ * **Chaque largeur déclare ses trois boutons, et aucune ne déborde sur
+ * l'autre.**
+ *
+ * Ces trois règles étaient nues — donc valables partout — et déclarées
+ * *après* le bloc du tiroir, à spécificité égale. **Une requête de média
+ * n'ajoute aucune spécificité** : à égalité, la dernière déclarée l'emporte.
+ * Le `display: flex` du tiroir n'a donc jamais rien pu faire.
+ *
+ * Mesuré à 390 px, sur build de production, dans les deux coquilles : le
+ * bouton d'ouverture faisait `0 × 0` en `display: none`, aucun ancêtre inerte,
+ * un vrai clic de souris à son centre restait sans effet. `.coquille-fermer`
+ * et `.coquille-repli` étaient inversés de la même façon — le chevron de repli
+ * paraissait dans le tiroir, où replier n'a pas de sens.
+ *
+ * Le remède est la symétrie, pas un `!important` : 901 px est l'exact
+ * complément du `max-width: 900` du tiroir. Les deux blocs se répondent au
+ * lieu de se recouvrir, et ajouter un bouton demandera de le déclarer des
+ * deux côtés — ce qui est précisément la question qu'on avait oublié de poser.
+ */
+@media (min-width: 901px) {
+  /* En colonne : on replie une barre, on n'ouvre ni ne ferme un tiroir. */
+  .coquille-repli {
+    display: flex;
+  }
+
+  .coquille-fermer,
+  .coquille-menu {
+    display: none;
+  }
 }
 
-.coquille-initiales,
-.coquille-fermer,
-.coquille-menu {
+/*
+ * Les initiales restent hors des deux blocs, et ce n'est pas un oubli : le
+ * tiroir ne les masque que pour `reduite` et `auto`. Les borner au bureau les
+ * ferait paraître dans un tiroir ouvert sous témoin `etendue`.
+ */
+.coquille-initiales {
   display: none;
 }
 
