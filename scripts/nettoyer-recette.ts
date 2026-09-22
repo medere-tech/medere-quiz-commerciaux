@@ -38,6 +38,7 @@
  *   node --env-file=.env.local scripts/nettoyer-recette.ts --questions=toutes
  *   node --env-file=.env.local scripts/nettoyer-recette.ts --confirmer=EFFACER
  *   node --env-file=.env.local scripts/nettoyer-recette.ts --seances --confirmer=EFFACER
+ *   node --env-file=.env.local scripts/nettoyer-recette.ts --orphelins
  *
  * Périmètres (aucun n'est activé quand on en nomme au moins un ; tous le sont
  * quand on n'en nomme aucun, sauf `--questions`, toujours explicite) :
@@ -45,12 +46,20 @@
  *   --seances       toutes les séances collectives et leur contenu
  *   --statistiques  questionStats et ses marqueurs d'événements
  *   --synchros      le journal des synchronisations Airtable
+ *   --orphelins     les documents users/ dont le compte Authentication a disparu
  *   --questions=…   « toutes », ou des identifiants séparés par des virgules
+ *
+ * **Et un contrôle qui n'efface rien**, affiché à chaque lancement : les prix
+ * qui renvoient à une séance absente de la base. Un prix porte son code, son
+ * rang et sa date en dur — il survit très bien à sa séance, et on ne le
+ * supprime pas au passage. Mais on le dit, parce qu'une incohérence que rien
+ * ne signale se retrouve six mois plus tard sans personne pour l'expliquer.
  */
 
 import { createInterface } from 'node:readline/promises';
 
-import { cert, initializeApp } from 'firebase-admin/app';
+import { cert, initializeApp, type App } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import {
   getFirestore,
   type CollectionReference,
@@ -58,7 +67,7 @@ import {
   type Timestamp,
 } from 'firebase-admin/firestore';
 
-const PERIMETRES = ['progression', 'seances', 'statistiques', 'synchros'] as const;
+const PERIMETRES = ['progression', 'seances', 'statistiques', 'synchros', 'orphelins'] as const;
 type Perimetre = (typeof PERIMETRES)[number];
 
 const MOT_DE_CONFIRMATION = 'EFFACER';
@@ -77,7 +86,17 @@ function argument(nom: string): string | undefined {
   return process.argv.find((valeur) => valeur.startsWith(prefixe))?.slice(prefixe.length);
 }
 
-function base(): Firestore {
+/**
+ * L'application Admin, initialisée une fois.
+ *
+ * Firestore et Authentication la partagent : le périmètre `orphelins` a besoin
+ * des deux, et deux `initializeApp` sur le même projet lèvent.
+ */
+let applicationAdmin: App | undefined;
+
+function application(): App {
+  if (applicationAdmin) return applicationAdmin;
+
   if (process.env.FIRESTORE_EMULATOR_HOST) {
     throw new Error(
       'FIRESTORE_EMULATOR_HOST est défini : ce script vise la base réelle, ' +
@@ -97,12 +116,20 @@ function base(): Firestore {
     );
   }
 
-  return getFirestore(
-    initializeApp({
-      credential: cert({ projectId: projet, clientEmail, privateKey: clePrivee.replace(/\\n/g, '\n') }),
+  applicationAdmin = initializeApp({
+    credential: cert({
       projectId: projet,
+      clientEmail,
+      privateKey: clePrivee.replace(/\\n/g, '\n'),
     }),
-  );
+    projectId: projet,
+  });
+
+  return applicationAdmin;
+}
+
+function base(): Firestore {
+  return getFirestore(application());
 }
 
 function date(valeur: unknown): string {
@@ -267,6 +294,118 @@ async function planQuestions(db: Firestore, selection: string): Promise<Plan> {
   return { chemins, lignes };
 }
 
+/**
+ * Les documents `users/{uid}` dont le compte Authentication n'existe plus.
+ *
+ * **C'est exactement ce qu'un nettoyage doit savoir trouver, et il ne le
+ * trouvait pas.** `planProgression` saute tout document sans sous-document ni
+ * étoile : une coquille vide laissée par un compte supprimé traversait donc
+ * tous les périmètres sans jamais être vue. Trente-six d'entre elles ont été
+ * découvertes en septembre 2026, dont trente-cinq venaient du harnais de
+ * mesure du parcours commercial — chaque exécution créait un compte jetable,
+ * supprimait le compte à la fin, et laissait son document derrière elle.
+ *
+ * **La garde qui porte tout le poids.** Un document est déclaré orphelin parce
+ * qu'il *n'est pas* dans la liste des comptes. Une liste vide, tronquée ou
+ * refusée ferait donc paraître la base entière orpheline — et ce périmètre
+ * l'effacerait. Deux précautions, et elles ne se négocient pas : la pagination
+ * va jusqu'au bout, et **une liste vide est une erreur, jamais un résultat**.
+ */
+async function comptesVivants(): Promise<Set<string>> {
+  const auth = getAuth(application());
+  const uids = new Set<string>();
+  let page: string | undefined;
+
+  do {
+    const lot = await auth.listUsers(1000, page);
+    for (const compte of lot.users) uids.add(compte.uid);
+    page = lot.pageToken;
+  } while (page);
+
+  if (uids.size === 0) {
+    throw new Error(
+      'Aucun compte Authentication listé. Un document utilisateur est déclaré ' +
+        'orphelin parce qu’il ne figure pas dans cette liste : la tenir pour vide ' +
+        'reviendrait à déclarer toute la base orpheline. Rien n’a été tenté — ' +
+        'vérifiez les droits du compte de service.',
+    );
+  }
+
+  return uids;
+}
+
+/** Le document d'utilisateur et tout son sous-arbre, compte par compte. */
+async function planOrphelins(db: Firestore): Promise<Plan> {
+  const vivants = await comptesVivants();
+  const chemins: string[] = [];
+  const lignes: string[] = [];
+
+  for (const utilisateur of await db.collection('users').listDocuments()) {
+    if (vivants.has(utilisateur.id)) continue;
+
+    const donnees = (await utilisateur.get()).data() ?? {};
+    let contenu = 0;
+
+    for (const sous of await utilisateur.listCollections()) {
+      const enfants = await sous.listDocuments();
+      contenu += enfants.length;
+      chemins.push(...enfants.map((enfant) => enfant.path));
+    }
+
+    chemins.push(utilisateur.path);
+    lignes.push(
+      `  ${utilisateur.id}  ${String(donnees.email ?? '(sans adresse)').padEnd(30)} ` +
+        `${String(contenu).padStart(4)} document(s)`,
+    );
+  }
+
+  return { chemins, lignes };
+}
+
+/**
+ * Les prix qui renvoient à une séance qui n'existe plus.
+ *
+ * **Ce contrôle signale, il ne supprime pas, et c'est délibéré.** Un prix est
+ * un trophée : il porte son code de séance, son rang et sa date en dur, il
+ * s'affiche parfaitement sans la séance, et l'effacer au passage d'un
+ * nettoyage de séances reviendrait à retirer à un commercial quelque chose
+ * qu'il a gagné. Mais une incohérence que rien ne signale se découvre six mois
+ * plus tard, et plus personne ne sait alors d'où elle vient.
+ *
+ * **Deux états, et la différence compte.** Ce qui est *déjà* orphelin l'était
+ * avant ce lancement — c'est un constat. Ce qui va *le devenir* est le fait de
+ * cette exécution-ci, et l'affichage est la dernière occasion de s'en
+ * apercevoir avant que ce soit vrai.
+ */
+async function auditPrix(
+  db: Firestore,
+  aSupprimer: Set<string>,
+): Promise<{ lignes: string[]; deja: number; aVenir: number }> {
+  const existantes = new Set(
+    (await db.collection('sessions').get()).docs.map((seance) => seance.id),
+  );
+
+  const lignes: string[] = [];
+  let deja = 0;
+  let aVenir = 0;
+
+  for (const utilisateur of await db.collection('users').listDocuments()) {
+    for (const trophee of (await utilisateur.collection('prix').get()).docs) {
+      const code = String(trophee.data().codeSession ?? trophee.id);
+
+      if (!existantes.has(trophee.id)) {
+        deja += 1;
+        lignes.push(`  ${code.padEnd(10)} séance absente de la base          ${utilisateur.id}`);
+      } else if (aSupprimer.has(`sessions/${trophee.id}`)) {
+        aVenir += 1;
+        lignes.push(`  ${code.padEnd(10)} séance effacée par ce lancement    ${utilisateur.id}`);
+      }
+    }
+  }
+
+  return { lignes, deja, aVenir };
+}
+
 /* ------------------------------------------------------------- effacement */
 
 const ECRITURES_PAR_LOT = 400;
@@ -342,6 +481,14 @@ async function principal(): Promise<void> {
     chemins.push(...plan.chemins);
   }
 
+  if (actifs.includes('orphelins')) {
+    const plan = await planOrphelins(db);
+    console.log('ORPHELINS — documents users/ dont le compte Authentication n’existe plus');
+    console.log(plan.lignes.length > 0 ? plan.lignes.join('\n') : '  (rien)');
+    console.log();
+    chemins.push(...plan.chemins);
+  }
+
   if (questions !== undefined) {
     const plan = await planQuestions(db, questions);
     console.log('QUESTIONS — suppression définitive de la banque');
@@ -353,6 +500,26 @@ async function principal(): Promise<void> {
       'QUESTIONS — aucune. Pour en supprimer, nommez-les :\n' +
         '  --questions=toutes  ou  --questions=<id>,<id>\n',
     );
+  }
+
+  /*
+   * Le contrôle de cohérence, avant le total et avant toute écriture.
+   *
+   * Il s'affiche même en essai à blanc, et même quand aucun périmètre ne le
+   * concerne : c'est un constat sur la base, pas un périmètre de plus.
+   */
+  const prix = await auditPrix(db, new Set(chemins.filter((chemin) => /^sessions\/[^/]+$/.test(chemin))));
+
+  if (prix.lignes.length > 0) {
+    console.log('COHÉRENCE — prix renvoyant à une séance qui n’existe pas ou plus');
+    console.log(prix.lignes.join('\n'));
+    console.log(
+      `  ${prix.deja} déjà orphelin(s), ${prix.aVenir} qui le deviendrai(en)t par ce lancement.` +
+        (actifs.includes('progression')
+          ? ' Le périmètre « progression » les efface de toute façon.'
+          : ' Ils restent affichables : un prix porte son code, son rang et sa date.'),
+    );
+    console.log();
   }
 
   console.log(
