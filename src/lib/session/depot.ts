@@ -250,21 +250,54 @@ export async function chercherSessionParCode(code: string): Promise<Session | nu
 /**
  * Écoute la séance. C'est par ici que la question arrive sur chaque appareil.
  *
- * `fromCache` dit que l'instantané vient du cache local, faute de connexion :
- * l'écran peut alors annoncer qu'il est hors ligne plutôt que d'afficher une
- * question périmée sans le dire. Firestore n'expose pas l'état du lien
- * autrement.
+ * `fromCache` dit que l'instantané vient du cache local plutôt que du serveur.
+ * C'est le seul signal que Firestore expose sur l'état du lien, et l'écran s'en
+ * sert pour annoncer qu'il est hors ligne plutôt que de montrer une question
+ * périmée sans le dire.
+ *
+ * **Mais `fromCache` brut ne veut pas dire « hors ligne », et il l'a prouvé
+ * deux fois.**
+ *
+ * *Premier défaut : « pas encore reçu » n'est pas « perdu ».* Le tout premier
+ * instantané vient du cache, toujours — c'est ainsi que Firestore répond vite.
+ * Le bandeau « Connexion perdue » s'affichait donc à l'arrivée en séance,
+ * alors que tout allait bien. C'était la première chose qu'un commercial
+ * voyait en entrant, et c'était faux. Le drapeau n'est donc levé qu'une fois
+ * le serveur entendu au moins une fois.
+ *
+ * *Second défaut, et c'est lui qui figeait le bandeau : un rappel qui
+ * n'arrivait jamais.* `onSnapshot` ignore par défaut les changements qui ne
+ * portent que sur les métadonnées. Le passage cache → serveur, à données
+ * identiques, ne rappelait donc pas la fonction : le bandeau restait affiché
+ * jusqu'à la prochaine vraie modification de la séance. Mesuré à une quinzaine
+ * de secondes, et sans limite en principe — une séance à l'arrêt ne change
+ * pas. `includeMetadataChanges` est la réponse, et elle sert dans les deux
+ * sens : c'est aussi ce qui permet de voir la connexion *revenir*.
+ *
+ * **Ce que ce choix laisse passer, et il faut le savoir.** Quelqu'un qui
+ * n'aurait jamais joint le serveur ne verra pas le bandeau. Le cas ne se
+ * présente pas ici : on n'arrive sur cet écran qu'après avoir rejoint la
+ * séance, ce qui est une écriture, et le HTML de la page est `no-store`. Pas
+ * de connexion, pas d'écran du tout.
  */
 export function ecouterSession(
   sessionId: string,
   aChaqueEtat: (session: Session | null, horsLigne: boolean) => void,
 ): Unsubscribe {
-  return onSnapshot(doc(baseDeDonnees(), 'sessions', sessionId), (instantane) => {
-    aChaqueEtat(
-      instantane.exists() ? lireSession(instantane.id, instantane.data()) : null,
-      instantane.metadata.fromCache,
-    );
-  });
+  let serveurEntendu = false;
+
+  return onSnapshot(
+    doc(baseDeDonnees(), 'sessions', sessionId),
+    { includeMetadataChanges: true },
+    (instantane) => {
+      if (!instantane.metadata.fromCache) serveurEntendu = true;
+
+      aChaqueEtat(
+        instantane.exists() ? lireSession(instantane.id, instantane.data()) : null,
+        serveurEntendu && instantane.metadata.fromCache,
+      );
+    },
+  );
 }
 
 /**

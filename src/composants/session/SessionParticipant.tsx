@@ -50,9 +50,12 @@ import type { Question } from '@/lib/questions/lecture';
  *   les questions passées ne concernent plus personne. Si la réponse est déjà
  *   révélée, la correction s'affiche et le vote est fermé — répondre juste ne
  *   prouverait rien, et la réponse compterait dans la progression.
- * - **Perdre la connexion.** `fromCache` dit que l'instantané ne vient pas du
- *   serveur : on l'annonce plutôt que d'afficher une question périmée en
- *   silence. Firestore reconnecte seul.
+ * - **Perdre la connexion.** L'écouteur le dit, et on l'annonce plutôt que
+ *   d'afficher une question périmée en silence. Firestore reconnecte seul.
+ *   **Le drapeau ne vaut pas `fromCache` brut** : le premier instantané vient
+ *   toujours du cache, et l'annoncer faisait du bandeau « Connexion perdue »
+ *   la première chose qu'un commercial voyait en entrant. Voir
+ *   `ecouterSession`, qui porte la distinction.
  * - **Répondre trop tard.** Les règles refusent l'écriture après la
  *   révélation. Ce refus n'est pas une panne, et l'écran le dit.
  */

@@ -39,6 +39,7 @@
  *   node --env-file=.env.local scripts/nettoyer-recette.ts --confirmer=EFFACER
  *   node --env-file=.env.local scripts/nettoyer-recette.ts --seances --confirmer=EFFACER
  *   node --env-file=.env.local scripts/nettoyer-recette.ts --orphelins
+ *   node --env-file=.env.local scripts/nettoyer-recette.ts --references
  *
  * Périmètres (aucun n'est activé quand on en nomme au moins un ; tous le sont
  * quand on n'en nomme aucun, sauf `--questions`, toujours explicite) :
@@ -47,7 +48,22 @@
  *   --statistiques  questionStats et ses marqueurs d'événements
  *   --synchros      le journal des synchronisations Airtable
  *   --orphelins     les documents users/ dont le compte Authentication a disparu
+ *   --references    les séances et questionStats qui pointent vers une question effacée
  *   --questions=…   « toutes », ou des identifiants séparés par des virgules
+ *
+ * **`--references` ne supprime aucune séance, il la recoud.** C'est le seul
+ * périmètre qui *modifie* au lieu d'effacer : il retire d'une séance les
+ * identifiants de questions qui n'existent plus, et recale `indexCourant` en
+ * conséquence. Les agrégats `questionStats` sans question, eux, sont effacés.
+ *
+ * Deux séances lui échappent, et il les nomme au lieu de les taire :
+ *   - **Celles déjà jouées** — terminées, abandonnées. Leur liste est un
+ *     compte rendu : Noémie a vu neuf questions passer ce jour-là, son
+ *     historique doit le dire. Réécrire le passé pour réparer le présent
+ *     serait un mauvais échange.
+ *   - **Celles qui se retrouveraient sans aucune question.** Une séance vide
+ *     est un document que l'application ne sait pas afficher, et le choix
+ *     entre la supprimer et la recomposer revient à Noémie.
  *
  * **Et un contrôle qui n'efface rien**, affiché à chaque lancement : les prix
  * qui renvoient à une séance absente de la base. Un prix porte son code, son
@@ -61,13 +77,21 @@ import { createInterface } from 'node:readline/promises';
 import { cert, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import {
+  FieldValue,
   getFirestore,
   type CollectionReference,
   type Firestore,
   type Timestamp,
 } from 'firebase-admin/firestore';
 
-const PERIMETRES = ['progression', 'seances', 'statistiques', 'synchros', 'orphelins'] as const;
+const PERIMETRES = [
+  'progression',
+  'seances',
+  'statistiques',
+  'synchros',
+  'orphelins',
+  'references',
+] as const;
 type Perimetre = (typeof PERIMETRES)[number];
 
 const MOT_DE_CONFIRMATION = 'EFFACER';
@@ -377,6 +401,157 @@ async function planOrphelins(db: Firestore): Promise<Plan> {
  * cette exécution-ci, et l'affichage est la dernière occasion de s'en
  * apercevoir avant que ce soit vrai.
  */
+/* ------------------------------------------------- references cassees */
+
+/** « 1 question », « 3 questions » — le reste du script s'accommode de « (s) ». */
+function accord(nombre: number, singulier: string, pluriel = `${singulier}s`): string {
+  return `${nombre} ${nombre > 1 ? pluriel : singulier}`;
+}
+
+/**
+ * Une séance à recoudre : les identifiants qu'elle garde et qui ne mènent plus
+ * à rien.
+ */
+type Recouture = {
+  chemin: string;
+  titre: string;
+  statut: string;
+  disparues: string[];
+  avant: number;
+  apres: number;
+  indexAvant: number;
+  indexApres: number;
+};
+
+type PlanReferences = Plan & {
+  recoutures: Recouture[];
+  /** Séances qu'on ne touche pas : les recoudre les viderait entièrement. */
+  bloquees: string[];
+  /** Séances jouées : leur liste est un compte rendu, pas un plan de travail. */
+  histoire: string[];
+};
+
+/**
+ * Les références qui ne mènent plus nulle part.
+ *
+ * **Le défaut que ça répare, et il s'est vu.** Supprimer une question ne touche
+ * pas aux séances : leur `questionIds` garde l'identifiant. La séance arrive
+ * dessus le jeudi et projette « Cette question n'est plus publiée » devant la
+ * salle. Depuis le lot 18, le panneau de suppression prévient — mais il ne
+ * répare pas ce qui est déjà cassé.
+ *
+ * Deux dégâts distincts, traités ensemble parce qu'ils ont la même cause :
+ *
+ *   - **Les séances** gardent des identifiants morts. On les retire, et on
+ *     recale `indexCourant` : une séance de six questions arrêtée à la
+ *     cinquième, réduite à cinq, pointerait au-delà de sa propre liste.
+ *   - **`questionStats`** garde un agrégat par question effacée. Il ne casse
+ *     rien — l'écran des statistiques joint sur la banque — mais il gonfle une
+ *     collection que personne ne relira, et il fausse les comptes bruts.
+ *
+ * **Une séance n'est jamais vidée.** Si la recoudre ne laissait aucune
+ * question, on ne la touche pas et on la nomme : une séance sans question est
+ * un document que l'application ne sait pas afficher, et le choix entre la
+ * supprimer et la recomposer appartient à Noémie, pas à un script.
+ *
+ * **Une séance terminée ou abandonnée n'est jamais recousue.** Noémie a vu
+ * neuf questions passer ce jour-là : son historique doit le dire. Réécrire le
+ * passé pour réparer le présent serait un mauvais échange — et le bilan, figé
+ * dans `bilan/final`, contredirait de toute façon une liste raccourcie après
+ * coup. Elles sont **listées quand même**, avec la mention qu'on n'y touche
+ * pas : une séance absente de la sortie passerait pour une séance oubliée.
+ */
+async function planReferences(db: Firestore): Promise<PlanReferences> {
+  const existantes = new Set(
+    (await db.collection('questions').get()).docs.map((question) => question.id),
+  );
+
+  const recoutures: Recouture[] = [];
+  const bloquees: string[] = [];
+  const histoire: string[] = [];
+
+  /** Les séances qui se joueront encore. Les autres sont un compte rendu. */
+  const A_VENIR = new Set(['attente', 'encours', 'pause']);
+
+  for (const seance of (await db.collection('sessions').get()).docs) {
+    const donnees = seance.data();
+    const ids: string[] = Array.isArray(donnees.questionIds) ? donnees.questionIds : [];
+    const disparues = ids.filter((id) => !existantes.has(id));
+    if (disparues.length === 0) continue;
+
+    const restants = ids.filter((id) => existantes.has(id));
+    const titre = tronquer(donnees.titre || seance.id, 34);
+    const statut = String(donnees.statut ?? '?');
+
+    if (!A_VENIR.has(statut)) {
+      histoire.push(
+        `    ${statut.padEnd(11)} ${titre.padEnd(36)} ` +
+          `${accord(disparues.length, 'question disparue', 'questions disparues')} sur ${ids.length}`,
+      );
+      continue;
+    }
+
+    if (restants.length === 0) {
+      bloquees.push(
+        `  ${statut.padEnd(11)} ${titre} — ${accord(ids.length, 'question a disparu', 'questions ont disparu')}`,
+      );
+      continue;
+    }
+
+    const indexAvant = Number(donnees.indexCourant ?? 0);
+    /* Le rang suit le retrait : on compte combien de disparues le précédaient,
+       puis on borne au dernier rang qui existe encore. */
+    const avancees = ids.slice(0, indexAvant).filter((id) => !existantes.has(id)).length;
+    const indexApres = Math.min(Math.max(0, indexAvant - avancees), restants.length - 1);
+
+    recoutures.push({
+      chemin: `sessions/${seance.id}`,
+      titre,
+      statut,
+      disparues,
+      avant: ids.length,
+      apres: restants.length,
+      indexAvant,
+      indexApres,
+    });
+  }
+
+  const statsOrphelines = (await db.collection('questionStats').get()).docs
+    .filter((agregat) => !existantes.has(agregat.id))
+    .map((agregat) => `questionStats/${agregat.id}`);
+
+  const lignes: string[] = [];
+
+  if (recoutures.length > 0) {
+    lignes.push('  Séances à recoudre :');
+    for (const r of recoutures) {
+      const rang = r.indexAvant === r.indexApres ? '' : `, rang ${r.indexAvant} → ${r.indexApres}`;
+      lignes.push(
+        `    ${r.statut.padEnd(11)} ${r.titre.padEnd(36)} ` +
+          `${accord(r.disparues.length, 'retirée')}, ${r.avant} → ${accord(r.apres, 'question')}${rang}`,
+      );
+    }
+  }
+
+  if (bloquees.length > 0) {
+    lignes.push(
+      '  Séances à venir laissées telles quelles — les vider n’est pas une décision de script :',
+    );
+    lignes.push(...bloquees.map((ligne) => `  ${ligne}`));
+  }
+
+  if (histoire.length > 0) {
+    lignes.push('  Séances déjà jouées — NON TOUCHÉES, leur liste est un compte rendu :');
+    lignes.push(...histoire);
+  }
+
+  if (statsOrphelines.length > 0) {
+    lignes.push(`  ${accord(statsOrphelines.length, 'agrégat')} questionStats sans question`);
+  }
+
+  return { chemins: statsOrphelines, lignes, recoutures, bloquees, histoire };
+}
+
 async function auditPrix(
   db: Firestore,
   aSupprimer: Set<string>,
@@ -421,6 +596,28 @@ async function effacer(db: Firestore, chemins: string[]): Promise<void> {
   }
 }
 
+/**
+ * Recoud les séances : retire les identifiants morts et recale le rang.
+ *
+ * Seuls ces deux champs bougent. Une mise à jour large réécrirait des champs
+ * que ce script n'a pas lus, et les règles — qu'il contourne, puisqu'il passe
+ * par le SDK Admin — ne l'arrêteraient pas.
+ */
+async function recoudre(db: Firestore, recoutures: Recouture[]): Promise<void> {
+  for (let debut = 0; debut < recoutures.length; debut += ECRITURES_PAR_LOT) {
+    const lot = db.batch();
+    for (const recouture of recoutures.slice(debut, debut + ECRITURES_PAR_LOT)) {
+      const seance = db.doc(recouture.chemin);
+      lot.update(seance, {
+        questionIds: FieldValue.arrayRemove(...recouture.disparues),
+        indexCourant: recouture.indexApres,
+      });
+    }
+    await lot.commit();
+    console.log(`  ${Math.min(debut + ECRITURES_PAR_LOT, recoutures.length)} / ${recoutures.length}`);
+  }
+}
+
 async function remettreAZero(db: Firestore, uids: string[]): Promise<void> {
   const lot = db.batch();
   for (const uid of uids) {
@@ -447,6 +644,7 @@ async function principal(): Promise<void> {
 
   const chemins: string[] = [];
   let remisesAZero: string[] = [];
+  let recoutures: Recouture[] = [];
 
   if (actifs.includes('progression')) {
     const plan = await planProgression(db);
@@ -489,6 +687,15 @@ async function principal(): Promise<void> {
     chemins.push(...plan.chemins);
   }
 
+  if (actifs.includes('references')) {
+    const plan = await planReferences(db);
+    recoutures = plan.recoutures;
+    console.log('RÉFÉRENCES CASSÉES — séances et statistiques qui pointent vers une question effacée');
+    console.log(plan.lignes.length > 0 ? plan.lignes.join('\n') : '  (rien)');
+    console.log();
+    chemins.push(...plan.chemins);
+  }
+
   if (questions !== undefined) {
     const plan = await planQuestions(db, questions);
     console.log('QUESTIONS — suppression définitive de la banque');
@@ -524,10 +731,11 @@ async function principal(): Promise<void> {
 
   console.log(
     `TOTAL : ${chemins.length} document(s) à supprimer, ` +
+      `${recoutures.length} séance(s) à recoudre, ` +
       `${remisesAZero.length} compte(s) à remettre à zéro.`,
   );
 
-  if (chemins.length === 0 && remisesAZero.length === 0) {
+  if (chemins.length === 0 && recoutures.length === 0 && remisesAZero.length === 0) {
     console.log('\nRien à faire.');
     return;
   }
@@ -560,6 +768,11 @@ async function principal(): Promise<void> {
     console.log('Nom du projet non confirmé. Rien n’a été touché.');
     process.exitCode = 1;
     return;
+  }
+
+  if (recoutures.length > 0) {
+    console.log(`\nRecouture de ${recoutures.length} séance(s) :`);
+    await recoudre(db, recoutures);
   }
 
   console.log('\nSuppression :');
