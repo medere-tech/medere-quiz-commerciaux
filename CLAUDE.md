@@ -362,6 +362,38 @@ Si une instruction d'ici contredit une demande en conversation, signaler la cont
 
 Ne jamais exécuter git commit, git push ou git merge. Les commits sont faits par Déthié. Prépare les fichiers, décris ce qui a changé, arrête-toi là.
 
+### Le navigateur de Déthié n'est pas un plan de travail
+
+**Ne jamais piloter un onglet qu'on n'a pas soi-même ouvert.** Trois fois de
+suite, une recette a emporté l'onglet de Déthié — `/a-revoir`, puis
+`/admin/session`, puis la banque — pendant qu'il s'en servait. Le jour où cela
+arrive pendant une séance, c'est le mur de la salle qui change de page.
+
+La cause n'est pas le profil, c'est l'appel : **`navigate` sans `tabId` ne crée
+pas d'onglet, il réutilise le premier du groupe** — et ce groupe survit d'un
+tour à l'autre, avec ce que Déthié y a ouvert entre-temps. La discipline, sans
+exception :
+
+1. `tabs_create_mcp` d'abord, à chaque reprise de recette. Garder l'identifiant.
+2. **Passer ce `tabId` explicitement à chaque appel**, y compris `navigate`.
+3. Ne jamais agir sur un identifiant qu'on n'a pas créé dans ce tour, même
+   quand le groupe n'en montre qu'un : il peut être à lui.
+4. Fermer ses onglets à la fin, et seulement les siens.
+
+**Un profil Chrome dédié serait la vraie parade, et il se prépare une fois.**
+Il faut un second profil Chrome, l'extension Claude installée dedans, et une
+connexion à claude.ai — trois gestes que Déthié fait lui-même : une extension
+ne s'installe pas et un compte ne se connecte pas à sa place. Une fois le
+second navigateur connecté, `list_connected_browsers` en montre deux, il dit
+lequel prendre, et `select_browser` s'y attache pour la session. Tant qu'il n'y
+en a qu'un, les quatre règles ci-dessus sont la seule protection — et elles
+valent de toute façon, profil dédié ou non.
+
+**Et les captures d'écran ne remplacent pas ce garde-fou.** Elles échouent dans
+ce Chrome (injection en échec, profil très chargé en extensions) : la recette
+passe par la mesure du DOM et de la géométrie. Raison de plus pour ne pas
+naviguer à l'aveugle dans un onglet qu'on croit vide.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know

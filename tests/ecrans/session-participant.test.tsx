@@ -195,16 +195,70 @@ describe('les états de la séance', () => {
   it('attend la question sans crier à la panne', async () => {
     await poserLaSeance(session());
 
-    // L'écouteur n'a pas encore parlé. Afficher « question indisponible » ici
+    // L'écouteur n'a pas encore parlé. Annoncer une question retirée ici
     // serait un mensonge : c'est un chargement.
-    expect(screen.queryByText(/question indisponible/i)).toBeNull();
+    expect(screen.queryByText(/a été retirée/i)).toBeNull();
   });
 
-  it('dit qu’une question n’est plus publiée quand le direct l’affirme', async () => {
-    await poserLaSeance(session());
-    await poserLaQuestion(null);
+  /*
+   * **Une question retirée reste un écran de séance.**
+   *
+   * C'était un encadré d'erreur seul au milieu de la page : sur un téléphone,
+   * au milieu d'une séance, il ne ressemblait à aucun des écrans qui
+   * l'entouraient, et le commercial croyait en être sorti. Ce qui suit fixe les
+   * trois choses qu'il doit continuer de voir — où il en est, ce qui se passe,
+   * ce qui va arriver.
+   */
+  describe('quand la question a été retirée de la banque', () => {
+    it('le dit, et sans en faire une panne', async () => {
+      await poserLaSeance(session());
+      await poserLaQuestion(null);
 
-    expect(await screen.findByRole('heading', { name: /question indisponible/i })).toBeTruthy();
+      expect(await screen.findByRole('heading', { name: /a été retirée/i })).toBeTruthy();
+    });
+
+    it('garde le rang dans la séance : on n’en est pas sorti', async () => {
+      await poserLaSeance(session({ indexCourant: 1 }));
+      await poserLaQuestion(null);
+
+      expect(await screen.findByText('Question 2 sur 2')).toBeTruthy();
+    });
+
+    it('dit que la suite arrive ici, et que rien n’est compté', async () => {
+      await poserLaSeance(session());
+      await poserLaQuestion(null);
+
+      expect(await screen.findByText(/toujours dans la séance/i)).toBeTruthy();
+      expect(screen.getByText(/ne compte pas pour vous/i)).toBeTruthy();
+    });
+
+    /*
+     * Le décompte dit combien de temps il reste pour répondre. Il n'y a rien à
+     * répondre : le faire tourner serait le seul élément de l'écran à mentir.
+     *
+     * **L'assertion porte sur le texte, pas sur un rôle.** `Chronometre` est
+     * `aria-hidden` et ne déclare aucun rôle — un `queryByRole('timer')` aurait
+     * été vert avec ou sans lui, donc n'aurait rien gardé. Il rend « N s », et
+     * c'est ce qu'on cherche. Vérifié en le remettant : le test tombe.
+     */
+    it('ne fait pas tourner de chronomètre', async () => {
+      await poserLaSeance(session());
+      await poserLaQuestion(null);
+
+      await screen.findByRole('heading', { name: /a été retirée/i });
+      expect(screen.queryByText(/^\d+ s$/)).toBeNull();
+      expect(screen.queryByText(/temps écoulé/)).toBeNull();
+    });
+
+    it('n’offre rien à cocher ni à envoyer', async () => {
+      await poserLaSeance(session());
+      await poserLaQuestion(null);
+
+      await screen.findByRole('heading', { name: /a été retirée/i });
+      expect(screen.queryByRole('button', { name: /envoyer/i })).toBeNull();
+      expect(screen.queryByRole('radio')).toBeNull();
+      expect(screen.queryByRole('checkbox')).toBeNull();
+    });
   });
 
   it('affiche la question et ses options', async () => {

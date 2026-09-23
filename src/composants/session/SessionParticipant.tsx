@@ -4,7 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Bouton, Carte, EtiquetteStatut, Meta } from '@/composants/ds/primitives';
-import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
+import { EtatVide, Squelettes } from '@/composants/ds/etats';
 import {
   ConsigneReponses,
   GroupeDeReponses,
@@ -398,13 +398,74 @@ export function SessionParticipant() {
     );
   }
 
+  const total = session.questionIds.length;
+
+  /*
+   * **La question a été retirée de la banque — et on reste en séance.**
+   *
+   * C'était un encadré d'erreur seul au milieu de la page, dans la coquille du
+   * parcours. Sur un téléphone, au milieu d'une séance, il ne ressemblait à
+   * aucun des écrans qui l'entouraient : le commercial croyait en être sorti,
+   * alors qu'il y était toujours et que la suite allait arriver sur cet écran.
+   *
+   * **Même forme qu'une question, donc** — l'étiquette d'état, le rang dans la
+   * séance, la colonne centrée de 760 px — et seul le contenu change : le
+   * message prend la place de l'énoncé et des options.
+   *
+   * **Sans chronomètre.** Le décompte dit combien de temps il reste pour
+   * répondre ; il n'y a rien à répondre. Le faire tourner ici serait le seul
+   * élément de l'écran à mentir.
+   */
   if (!question) {
     return (
       <div className="page-admin">
-        <EtatErreur
-          titre="Question indisponible"
-          texte="Cette question n’est plus publiée. L’animatrice peut passer à la suivante."
-        />
+        <div
+          style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', flexWrap: 'wrap' }}
+        >
+          <EtiquetteStatut ton="attention">Retirée</EtiquetteStatut>
+          <Meta>
+            Question {session.indexCourant + 1} sur {total}
+          </Meta>
+        </div>
+
+        {horsLigne && (
+          <Carte rayon="var(--radius-md)" rembourrage="12px 16px" elevation="petite">
+            <span style={{ fontSize: 'var(--body-sm-size)', color: 'var(--text-heading)' }}>
+              Connexion perdue. Cet écran montre le dernier état reçu ; il se remettra à jour tout
+              seul.
+            </span>
+          </Carte>
+        )}
+
+        <div style={{ maxWidth: 760, width: '100%', margin: '0 auto' }}>
+          <h1
+            style={{
+              margin: 0,
+              fontFamily: 'var(--font-display)',
+              fontWeight: 400,
+              fontSize: 'clamp(24px, 5vw, 36px)',
+              lineHeight: 1.14,
+              color: 'var(--text-heading)',
+              textWrap: 'pretty',
+            }}
+          >
+            Cette question a été retirée
+          </h1>
+
+          <p
+            style={{
+              margin: '16px 0 0',
+              fontSize: 'var(--body-md-size)',
+              lineHeight: 1.6,
+              color: 'var(--neutral-70)',
+              textWrap: 'pretty',
+            }}
+          >
+            Elle ne fait plus partie de la banque : il n’y a rien à répondre, et elle ne compte
+            pas pour vous. Vous êtes toujours dans la séance — restez sur cet écran, l’animatrice
+            passe à la suivante et elle s’affichera ici.
+          </p>
+        </div>
       </div>
     );
   }
@@ -412,7 +473,6 @@ export function SessionParticipant() {
   const correction = session.revelee ? corriger(question, choisies) : null;
   const multiple = question.bonnesReponses.length > 1;
   const verrouille = vote !== 'ouvert' || session.revelee;
-  const total = session.questionIds.length;
 
   return (
     <div className="page-admin">
