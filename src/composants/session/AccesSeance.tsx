@@ -5,12 +5,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { Bouton, Carte, Champ, EtiquetteStatut, Meta, Touche } from '@/composants/ds/primitives';
 import { Icone } from '@/composants/ds/Icone';
 import { Picto } from '@/composants/ds/Picto';
+import { AppelALaPorte } from '@/composants/session/AppelALaPorte';
 import { ChampCode } from '@/composants/session/ChampCode';
 import { Collage, type FormePosee } from '@/composants/session/Collage';
 import { ChoixAvatar, Pastille } from '@/composants/session/Pastille';
 import { AVATAR_PAR_DEFAUT, type CleAvatar } from '@/lib/session/avatar';
 import {
   ecouterPresents,
+  ecouterSession,
   LIBELLES_LIEU,
   LIEUX_PRESENCE,
   seanceOuverte,
@@ -82,7 +84,18 @@ type Salle = { etat: 'chargement' } | { etat: 'lue'; presents: Participant[] };
  * Trois issues et non deux : un booléen aurait forcé les deux refus à se
  * ressembler, et c'est exactement ce qu'il ne faut pas.
  */
-export type VerdictAcces = 'entre' | 'introuvable' | 'fermee';
+/**
+ * Ce que la tentative d'entrée a donné.
+ *
+ * **`fermee` porte la séance, et ce n'est pas décoratif.** Frapper à la porte
+ * demande l'identifiant de *celle qu'on vient de se voir refuser* — qui n'est
+ * pas forcément la séance annoncée sur cet écran : le code saisi peut en
+ * désigner une autre.
+ */
+export type VerdictAcces =
+  | { sorte: 'entre' }
+  | { sorte: 'introuvable' }
+  | { sorte: 'fermee'; seance: Session };
 
 export function AccesSeance({
   uid,
@@ -151,6 +164,13 @@ export function AccesSeance({
   >('repos');
 
   const [seance, setSeance] = useState<Session | null | undefined>(undefined);
+
+  /*
+   * La séance qui vient de refuser l'entrée, quand elle n'est pas celle
+   * annoncée — le code saisi peut en désigner une autre. C'est elle dont on
+   * suit la porte, et à laquelle on frappe.
+   */
+  const [seanceFermee, setSeanceFermee] = useState<Session | null>(null);
   const [salle, setSalle] = useState<Salle>({ etat: 'chargement' });
 
   useEffect(() => {
@@ -183,12 +203,42 @@ export function AccesSeance({
     );
   }, [seance]);
 
+  /*
+   * **La porte s'écoute, elle ne se relit pas à la main.**
+   *
+   * Cet écran lisait la séance une seule fois, au montage. Quand l'animatrice
+   * rouvrait l'accès, rien ne bougeait : le refus restait affiché, et le
+   * retardataire devait réessayer de lui-même pour découvrir qu'il aurait pu
+   * entrer depuis deux minutes. Prévenir l'animatrice n'aurait servi à rien
+   * si la réponse n'arrivait pas jusqu'ici.
+   *
+   * On suit la séance qui a refusé quand il y en a une — le code saisi peut
+   * désigner une autre séance que celle annoncée — et l'annoncée sinon.
+   */
+  const seanceSuivie = seanceFermee ?? seance ?? null;
+  const idSuivi = seanceSuivie?.id;
+
+  useEffect(() => {
+    if (!idSuivi) return;
+    return ecouterSession(idSuivi, (etat) => {
+      if (!etat) return;
+      setSeanceFermee((precedente) => (precedente?.id === etat.id ? etat : precedente));
+      setSeance((precedente) => (precedente?.id === etat.id ? etat : precedente));
+      /* La porte rouvre : le refus s'efface tout seul, et « Rejoindre »
+         redevient le geste. Personne n'a à frapper une seconde fois. */
+      if (!etat.verrouillee) {
+        setRecherche((etatRecherche) => (etatRecherche === 'fermee' ? 'repos' : etatRecherche));
+      }
+    });
+  }, [idSuivi]);
+
   const valider = useCallback(async () => {
     if (code.trim() === '' || nom.trim() === '' || recherche === 'encours') return;
     setRecherche('encours');
     try {
       const verdict = await onRejoindre(code, nom, avatar, presence);
-      setRecherche(verdict === 'entre' ? 'repos' : verdict);
+      setRecherche(verdict.sorte === 'entre' ? 'repos' : verdict.sorte);
+      setSeanceFermee(verdict.sorte === 'fermee' ? verdict.seance : null);
     } catch {
       setRecherche('echec');
     }
@@ -286,7 +336,20 @@ export function AccesSeance({
               * qui est annoncée ici.
               */}
             {(fermee || (seance?.verrouillee && !dejaPresent && recherche === 'repos')) && (
-              <SalleFermee confirme={fermee} />
+              <SalleFermee
+                confirme={fermee}
+                /*
+                  * On ne frappe qu'à la porte qu'on a réellement essayée. Tant
+                  * que la séance annoncée est seulement *affichée* comme
+                  * fermée, sans tentative, les règles refuseraient l'appel de
+                  * quelqu'un qui pourrait être déjà présent — et l'écran
+                  * promettrait un geste qui échoue.
+                  */
+                seanceId={seanceFermee?.id}
+                uid={uid}
+                nom={nom || nomPropose}
+                avatar={avatar}
+              />
             )}
 
             {/*
@@ -441,7 +504,20 @@ export function AccesSeance({
  * ailleurs sur la page. Sans annonce vocale, il n'existerait que pour ceux qui
  * regardent au bon endroit.
  */
-function SalleFermee({ confirme }: { confirme: boolean }) {
+function SalleFermee({
+  confirme,
+  seanceId,
+  uid,
+  nom,
+  avatar,
+}: {
+  confirme: boolean;
+  /** La séance qui a refusé. Absente tant qu'aucune tentative n'a eu lieu. */
+  seanceId?: string;
+  uid: string;
+  nom: string;
+  avatar: string;
+}) {
   return (
     <div
       role="status"
@@ -478,9 +554,18 @@ function SalleFermee({ confirme }: { confirme: boolean }) {
           }}
         >
           {confirme
-            ? 'Votre code est bon. Signalez-vous à l’animatrice : elle peut rouvrir l’accès, et vous entrerez avec le même code.'
-            : 'L’animatrice a fermé l’accès pour commencer. Signalez-vous à elle : elle peut le rouvrir, et vous entrerez avec le même code.'}
+            ? 'Votre code est bon. Prévenez l’animatrice : elle peut rouvrir l’accès, et vous entrerez avec le même code.'
+            : 'L’animatrice a fermé l’accès pour commencer. Saisissez votre code : s’il est bon, vous pourrez la prévenir.'}
         </span>
+
+        {/*
+          * **La consigne devient un geste.** Elle disait « signalez-vous » et
+          * s'arrêtait là : il fallait sortir de l'outil, retrouver Noémie
+          * ailleurs, et espérer qu'elle regarde. Ajout hors maquette.
+          */}
+        {seanceId !== undefined && (
+          <AppelALaPorte sessionId={seanceId} uid={uid} nom={nom} avatar={avatar} />
+        )}
       </span>
     </div>
   );

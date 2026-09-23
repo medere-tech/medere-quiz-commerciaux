@@ -216,10 +216,10 @@ export function SessionParticipant() {
       avatarChoisi: CleAvatar,
       presenceChoisie: LieuPresence,
     ): Promise<VerdictAcces> => {
-      if (!uid) return 'introuvable';
+      if (!uid) return { sorte: 'introuvable' };
 
       const trouvee = await chercherSessionParCode(codeSaisi.toUpperCase());
-      if (!trouvee) return 'introuvable';
+      if (!trouvee) return { sorte: 'introuvable' };
 
       /*
        * **On tente, puis on explique — et surtout pas l'inverse.**
@@ -245,13 +245,15 @@ export function SessionParticipant() {
          */
         if ((probleme as { code?: string })?.code !== 'permission-denied') throw probleme;
         const relue = await chercherSessionParCode(codeSaisi.toUpperCase());
-        if (!relue) return 'introuvable';
-        if (relue.verrouillee) return 'fermee';
+        if (!relue) return { sorte: 'introuvable' };
+        /* La séance voyage avec le refus : c'est à *celle-là* qu'on frappera,
+           et ce n'est pas forcément celle annoncée sur l'écran d'accès. */
+        if (relue.verrouillee) return { sorte: 'fermee', seance: relue };
         throw probleme;
       }
 
       setSessionId(trouvee.id);
-      return 'entre';
+      return { sorte: 'entre' };
     },
     [uid],
   );

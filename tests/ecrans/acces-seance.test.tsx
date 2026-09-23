@@ -3,8 +3,8 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { rendre, session } from './aide';
-import type { Participant, Session } from '@/lib/session/depot';
-import { fausseAuth } from '../aide/faux';
+import type { Appel, Participant, Session } from '@/lib/session/depot';
+import { fausseApplication, fausseAuth } from '../aide/faux';
 
 /**
  * 10a, 10b, 06, 06b · L'accès à la séance — ce que l'écran montre.
@@ -29,6 +29,13 @@ import { fausseAuth } from '../aide/faux';
 /* ------------------------------------------------ le monde autour de l'écran */
 
 let ecouteurPresents: ((presents: Participant[] | null) => void) | null = null;
+let ecouteurMonAppel: ((appel: Appel | null) => void) | null = null;
+let ecouteurSeance: ((seance: Session | null, horsLigne: boolean) => void) | null = null;
+/** Ce que l'écouteur d'appel annonce à l'arrivée : personne n'a frappé. */
+let appelCourant: Appel | null = null;
+
+const frapperALaPorte =
+  vi.fn<(sessionId: string, uid: string, nom: string, avatar: string) => Promise<void>>();
 
 type VerdictAcces = import('@/composants/session/AccesSeance').VerdictAcces;
 
@@ -43,6 +50,30 @@ vi.mock(import('@/lib/session/depot'), async (original) => {
   return {
     ...vrai,
     seanceOuverte: () => seanceOuverte(),
+    /* La porte, en direct. C'est par là qu'arrive la réouverture, et l'écran
+       doit s'en apercevoir sans que personne ne réessaie. */
+    ecouterSession: (
+      _id: string,
+      rappel: (seance: Session | null, horsLigne: boolean) => void,
+    ) => {
+      ecouteurSeance = rappel;
+      return () => {
+        ecouteurSeance = null;
+      };
+    },
+    frapperALaPorte: (...arguments_: Parameters<typeof vrai.frapperALaPorte>) =>
+      frapperALaPorte(...arguments_),
+    ecouterMonAppel: (
+      _sessionId: string,
+      _uid: string,
+      rappel: (appel: Appel | null) => void,
+    ) => {
+      ecouteurMonAppel = rappel;
+      rappel(appelCourant);
+      return () => {
+        ecouteurMonAppel = null;
+      };
+    },
     ecouterPresents: (_id: string, rappel: (presents: Participant[] | null) => void) => {
       ecouteurPresents = rappel;
       return () => {
@@ -62,6 +93,7 @@ vi.mock(import('@/lib/session/depot'), async (original) => {
  */
 vi.mock(import('@/lib/firebase/client'), () => ({
   authentification: () => fausseAuth(null),
+  applicationFirebase: () => fausseApplication(),
 }));
 
 const { AccesSeance } = await import('@/composants/session/AccesSeance');
@@ -75,8 +107,12 @@ function presents(): Participant[] {
 
 beforeEach(() => {
   ecouteurPresents = null;
+  ecouteurMonAppel = null;
+  ecouteurSeance = null;
+  appelCourant = null;
+  frapperALaPorte.mockReset().mockResolvedValue();
   seanceOuverte.mockReset().mockResolvedValue(session());
-  onRejoindre.mockReset().mockResolvedValue('entre');
+  onRejoindre.mockReset().mockResolvedValue({ sorte: 'entre' });
 });
 
 afterEach(cleanup);
@@ -113,6 +149,13 @@ async function seanceAnnoncee() {
 }
 
 /* ------------------------------------------------------------ ce qui s'annonce */
+
+/** Monte l'écran, attend l'annonce, et saisit un code. */
+async function remplir(code: string) {
+  monter();
+  await seanceAnnoncee();
+  fireEvent.change(screen.getByLabelText('Code de la séance'), { target: { value: code } });
+}
 
 describe('Ce que la séance annonce', () => {
   it('affiche le titre de la séance ouverte', async () => {
@@ -213,12 +256,6 @@ describe('Déjà dans la salle', () => {
 /* -------------------------------------------------------------- le formulaire */
 
 describe('Rejoindre', () => {
-  async function remplir(code: string) {
-    monter();
-    await seanceAnnoncee();
-    fireEvent.change(screen.getByLabelText('Code de la séance'), { target: { value: code } });
-  }
-
   it('met le code en capitales et retire les espaces', async () => {
     await remplir('jeudi 7');
     expect((screen.getByLabelText('Code de la séance') as HTMLInputElement).value).toBe('JEUDI7');
@@ -244,7 +281,7 @@ describe('Rejoindre', () => {
 
   /* 10b et 06b : le code refusé. */
   it('dit qu’aucune séance ne porte ce code', async () => {
-    onRejoindre.mockResolvedValue('introuvable');
+    onRejoindre.mockResolvedValue({ sorte: 'introuvable' });
     await remplir('jeudi9');
     fireEvent.click(screen.getByRole('button', { name: /Rejoindre/ }));
 
@@ -252,7 +289,7 @@ describe('Rejoindre', () => {
   });
 
   it('efface le refus dès qu’on corrige le code', async () => {
-    onRejoindre.mockResolvedValue('introuvable');
+    onRejoindre.mockResolvedValue({ sorte: 'introuvable' });
     await remplir('jeudi9');
     fireEvent.click(screen.getByRole('button', { name: /Rejoindre/ }));
     await screen.findByText('Aucune séance ouverte avec ce code.');
@@ -270,7 +307,7 @@ describe('Rejoindre', () => {
    * doit surtout pas se marquer — rouge, il enverrait relire un code juste.
    */
   it('distingue une salle fermée d’un code refusé', async () => {
-    onRejoindre.mockResolvedValue('fermee');
+    onRejoindre.mockResolvedValue({ sorte: 'fermee', seance: session({ verrouillee: true }) });
     await remplir('jeudi7');
     fireEvent.click(screen.getByRole('button', { name: /Rejoindre/ }));
 
@@ -279,7 +316,7 @@ describe('Rejoindre', () => {
   });
 
   it('dit que le code est bon et qui peut rouvrir', async () => {
-    onRejoindre.mockResolvedValue('fermee');
+    onRejoindre.mockResolvedValue({ sorte: 'fermee', seance: session({ verrouillee: true }) });
     await remplir('jeudi7');
     fireEvent.click(screen.getByRole('button', { name: /Rejoindre/ }));
 
@@ -323,7 +360,7 @@ describe('Rejoindre', () => {
   });
 
   it('efface l’avis dès qu’on saisit un autre code', async () => {
-    onRejoindre.mockResolvedValue('fermee');
+    onRejoindre.mockResolvedValue({ sorte: 'fermee', seance: session({ verrouillee: true }) });
     await remplir('jeudi7');
     fireEvent.click(screen.getByRole('button', { name: /Rejoindre/ }));
     await screen.findByRole('status');
@@ -437,5 +474,153 @@ describe('Où l’on suit la séance', () => {
 
     await waitFor(() => expect(onRejoindre).toHaveBeenCalledOnce());
     expect(onRejoindre.mock.calls[0]?.[3]).toBe('salle');
+  });
+});
+
+/**
+ * Frapper à la porte — le seul canal qui remonte de la salle.
+ *
+ * **Ce que ces tests gardent.** L'écran disait « signalez-vous à
+ * l'animatrice » et n'offrait aucun moyen de le faire : il fallait sortir de
+ * l'outil. Et même prévenue, elle ne pouvait rien : l'écran lisait la séance
+ * une seule fois au montage, si bien qu'une porte rouverte ne se voyait pas.
+ * Les deux moitiés comptent — prévenir sans réponse ne vaut rien.
+ */
+describe('frapper à la porte', () => {
+  async function seFaireRefuser() {
+    onRejoindre.mockResolvedValue({ sorte: 'fermee', seance: session({ verrouillee: true }) });
+    await remplir('jeudi7');
+    fireEvent.click(screen.getByRole('button', { name: /Rejoindre/ }));
+    await screen.findByText(/L’accès à cette séance est fermé/);
+  }
+
+  it('offre de prévenir l’animatrice une fois le refus reçu', async () => {
+    await seFaireRefuser();
+
+    expect(screen.getByRole('button', { name: 'Prévenir l’animatrice' })).toBeTruthy();
+  });
+
+  /*
+   * **Rien à frapper tant qu'on n'a pas essayé.** L'étiquette de tête annonce
+   * la porte close avant la première tentative ; les règles, elles, refusent
+   * l'appel de quelqu'un qui pourrait être déjà présent. Promettre un geste
+   * qui échouerait serait pire que de ne rien promettre.
+   */
+  it('ne l’offre pas avant la première tentative', async () => {
+    seanceOuverte.mockResolvedValue(session({ verrouillee: true }));
+    monter();
+    await screen.findByText('Accès fermé');
+
+    expect(screen.queryByRole('button', { name: 'Prévenir l’animatrice' })).toBeNull();
+  });
+
+  it('frappe au nom et à la couleur choisis', async () => {
+    await seFaireRefuser();
+    fireEvent.click(screen.getByRole('button', { name: 'Prévenir l’animatrice' }));
+
+    await waitFor(() => expect(frapperALaPorte).toHaveBeenCalledTimes(1));
+    expect(frapperALaPorte.mock.calls[0]?.[2]).toBe('Jordan');
+  });
+
+  /* Ce que voit le retardataire ensuite : la preuve que c'est passé, sinon il
+     frappe vingt fois. */
+  it('remplace le bouton par une confirmation', async () => {
+    await seFaireRefuser();
+    fireEvent.click(screen.getByRole('button', { name: 'Prévenir l’animatrice' }));
+
+    await waitFor(() => expect(frapperALaPorte).toHaveBeenCalled());
+    ecouteurMonAppel?.({ uid: 'u1', nom: 'Jordan', avatar: 'bleu', demandeLeMs: Date.now() });
+
+    expect(await screen.findByText('L’animatrice est prévenue')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Prévenir l’animatrice' })).toBeNull();
+  });
+
+  /*
+   * **Un onglet rechargé ne refrappe pas.** Sur un téléphone qu'on
+   * reverrouille, l'écran se remonte : sans relecture de son propre appel, il
+   * proposerait de nouveau de prévenir, et la personne le ferait.
+   */
+  it('retrouve un appel déjà posé au remontage', async () => {
+    appelCourant = { uid: 'u1', nom: 'Jordan', avatar: 'bleu', demandeLeMs: Date.now() };
+    await seFaireRefuser();
+
+    expect(await screen.findByText('L’animatrice est prévenue')).toBeTruthy();
+    expect(frapperALaPorte).not.toHaveBeenCalled();
+  });
+
+  it('ne propose la relance qu’au bout d’une minute', async () => {
+    appelCourant = { uid: 'u1', nom: 'Jordan', avatar: 'bleu', demandeLeMs: Date.now() };
+    await seFaireRefuser();
+    await screen.findByText('L’animatrice est prévenue');
+
+    expect(screen.queryByRole('button', { name: 'La relancer' })).toBeNull();
+  });
+
+  it('propose la relance passé une minute', async () => {
+    appelCourant = { uid: 'u1', nom: 'Jordan', avatar: 'bleu', demandeLeMs: Date.now() - 61_000 };
+    await seFaireRefuser();
+
+    expect(await screen.findByRole('button', { name: 'La relancer' })).toBeTruthy();
+  });
+
+  /*
+   * **Ce que voit le retardataire quand elle écarte plutôt que d'ouvrir.**
+   *
+   * Vu au navigateur, et c'était faux : le document effacé, l'écran revenait à
+   * « Prévenir l'animatrice » comme si rien ne s'était produit. Deux
+   * conséquences — le retardataire en concluait qu'elle n'avait rien vu, et le
+   * délai d'une minute s'évaporait avec le document, si bien qu'écarter
+   * invitait à refrapper aussitôt. L'inverse de l'intention.
+   */
+  it('dit que l’appel a été écarté, au lieu de faire comme si rien n’était arrivé', async () => {
+    appelCourant = { uid: 'u1', nom: 'Jordan', avatar: 'bleu', demandeLeMs: Date.now() };
+    await seFaireRefuser();
+    await screen.findByText('L’animatrice est prévenue');
+
+    // L'animatrice écarte : le document disparaît.
+    ecouteurMonAppel?.(null);
+
+    expect(await screen.findByText('L’animatrice a écarté votre appel')).toBeTruthy();
+    expect(screen.getByText(/ne rouvre pas l’accès pour l’instant/)).toBeTruthy();
+  });
+
+  it('garde le délai d’une minute après un appel écarté', async () => {
+    appelCourant = { uid: 'u1', nom: 'Jordan', avatar: 'bleu', demandeLeMs: Date.now() };
+    await seFaireRefuser();
+    await screen.findByText('L’animatrice est prévenue');
+
+    ecouteurMonAppel?.(null);
+    await screen.findByText('L’animatrice a écarté votre appel');
+
+    /* Sans mémoire, le bouton revenait immédiatement : écarter servait de
+       remise à zéro du délai. */
+    expect(screen.queryByRole('button', { name: 'Prévenir l’animatrice' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'La relancer' })).toBeNull();
+  });
+
+  it('laisse relancer une fois la minute passée, même après un écart', async () => {
+    appelCourant = { uid: 'u1', nom: 'Jordan', avatar: 'bleu', demandeLeMs: Date.now() - 61_000 };
+    await seFaireRefuser();
+    await screen.findByText('L’animatrice est prévenue');
+
+    ecouteurMonAppel?.(null);
+
+    expect(await screen.findByRole('button', { name: 'La relancer' })).toBeTruthy();
+  });
+
+  /*
+   * **La seconde moitié, et sans elle la première ne sert à rien.** L'écran
+   * lisait la séance une seule fois : quand l'animatrice rouvrait, le refus
+   * restait affiché, et le retardataire devait réessayer de lui-même pour
+   * découvrir qu'il aurait pu entrer depuis deux minutes.
+   */
+  it('efface le refus quand la porte se rouvre, sans rien redemander', async () => {
+    await seFaireRefuser();
+
+    ecouteurSeance?.(session({ verrouillee: false }), false);
+
+    await waitFor(() =>
+      expect(screen.queryByText(/L’accès à cette séance est fermé/)).toBeNull(),
+    );
   });
 });

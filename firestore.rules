@@ -897,6 +897,33 @@ service cloud.firestore {
              .data.get('verrouillee', false) == false;
     }
 
+    /*
+     * La porte est-elle fermée ?
+     *
+     * **C'est l'exacte négation de `salleOuverte`, et il fallait la nommer.**
+     * On ne frappe qu'à une porte close : tant que la salle accepte, le bouton
+     * « Rejoindre » est le bon geste, et un appel serait du bruit sur l'écran
+     * de l'animatrice. La séance doit tout de même être vivante — on ne frappe
+     * pas à une séance terminée.
+     */
+    function porteFermee(sessionId) {
+      return get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut
+               in ['encours', 'pause']
+        && get(/databases/$(database)/documents/sessions/$(sessionId))
+             .data.get('verrouillee', false) == true;
+    }
+
+    function appelValide(donnees) {
+      return donnees.keys().hasOnly(['nom', 'avatar', 'demandeLe'])
+        && donnees.keys().hasAll(['nom', 'avatar', 'demandeLe'])
+        && nomAffichageValide(donnees.nom)
+        // Même palette que les présences : l'appelant porte déjà sa pastille
+        // avant d'entrer, et il la garde une fois entré.
+        && donnees.avatar in ['bleu', 'turquoise', 'vert', 'jaune',
+                              'orange', 'rose', 'violet', 'encre']
+        && horodatagePasse(donnees.demandeLe);
+    }
+
     match /sessions/{sessionId} {
       allow read: if domaineAutorise();
       allow create: if estAdmin()
@@ -1054,6 +1081,58 @@ service cloud.firestore {
           && participantValide(request.resource.data)
           && request.resource.data.rejointLe == resource.data.rejointLe;
         allow delete: if false;
+      }
+
+      /*
+       * **Frapper à la porte — le seul canal qui remonte de la salle.**
+       *
+       * Tout le reste descend : la question, la révélation, le classement. Un
+       * participant n'écrit que ce qui le concerne à l'intérieur de la séance —
+       * sa présence, sa réponse. Ici, quelqu'un qui n'est *pas* dans la pièce
+       * adresse une demande à l'animatrice, et c'est la première fois.
+       *
+       * **Un document par personne, identifié par son uid.** Frapper deux fois
+       * réécrit le même document : il n'y a pas de file à dédupliquer, et dix
+       * personnes qui insistent ne produisent pas dix lignes. C'est la réponse
+       * la plus simple à « il ne doit pas frapper vingt fois ».
+       *
+       * **`list` ne s'ouvre pas au domaine, et c'est la différence avec les
+       * présences.** Celles-ci sont lisibles par toute la salle parce que
+       * l'écran projeté les affiche déjà : la liste ne dit rien que la pièce ne
+       * voie. Un appel dit l'inverse — qui est resté dehors — et cela ne
+       * regarde que l'animatrice. Personne d'autre n'apprend qui a frappé.
+       *
+       * **Rien ne s'archive.** L'appel s'efface quand la personne entre, quand
+       * l'animatrice l'écarte, et avec la séance. Il n'existe aucun état où
+       * l'outil garde la trace des retards d'un jeudi.
+       *
+       * **Ce que ces règles ne tiennent pas, et on l'assume.** Elles ne
+       * vérifient pas que l'appelant connaît le code : le document de séance
+       * est lisible par tout le domaine, l'identifiant s'y trouve, et le code
+       * est une commodité, pas un secret. Ce qu'elles tiennent : un membre du
+       * domaine, une porte effectivement fermée, quelqu'un qui n'est pas déjà
+       * entré, et son seul document.
+       */
+      match /appels/{appelantUid} {
+        allow get: if estAnimateur(sessionId) || estProprietaire(appelantUid);
+        allow list: if estAnimateur(sessionId);
+
+        /*
+         * `create` et `update` portent la même charge : le second est le
+         * rappel, une minute plus tard, qui ne fait que repousser `demandeLe`.
+         *
+         * **`!estPresent` ferme la porte dans l'autre sens.** Qui est entré n'a
+         * plus rien à demander, et un appel laissé là ferait apparaître dans la
+         * liste quelqu'un qui est assis dans la salle.
+         */
+        allow create, update: if estProprietaire(appelantUid)
+          && appelValide(request.resource.data)
+          && porteFermee(sessionId)
+          && !estPresent(sessionId);
+
+        // L'animatrice écarte, l'appelant se rétracte — ou son entrée efface
+        // son propre appel.
+        allow delete: if estAnimateur(sessionId) || estProprietaire(appelantUid);
       }
 
       /*

@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import type { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import type { FirebaseApp } from 'firebase/app';
 import type { Auth, User } from 'firebase/auth';
 import type { ReadonlyURLSearchParams } from 'next/navigation';
 
@@ -18,7 +19,7 @@ import type { ReadonlyURLSearchParams } from 'next/navigation';
  * ferait plus de bruit que de garantie.
  *
  * **La règle qu'on se donne : les conversions de type vivent ici, nommées et
- * justifiées, et on les compte.** Il y en a deux. Pas une par fichier. Le jour où Firebase ajoute un membre que
+ * justifiées, et on les compte.** Il y en a trois. Pas une par fichier. Le jour où Firebase ajoute un membre que
  * notre code appelle, c'est ce fichier qu'on corrige, et tous les tests en
  * profitent. Une conversion dispersée, au contraire, se multiplie sans que
  * personne ne la recompte.
@@ -72,6 +73,35 @@ export function fausseAuth(utilisateur: Partial<User> | null): Auth {
       return () => {};
     },
   } as unknown as Auth;
+}
+
+/**
+ * L'application Firebase, **et elle n'est là que pour exister**.
+ *
+ * `@/lib/firebase/firestore` importe `applicationFirebase` depuis le module
+ * client : un test d'écran qui remplace ce module sans fournir ce nom échoue
+ * au chargement, avant même d'avoir rendu quoi que ce soit — le message parle
+ * d'un export manquant, pas du test.
+ *
+ * **Elle n'est jamais appelée, et c'est vérifiable :** tout écran qui
+ * atteindrait vraiment Firestore passe par un dépôt, et les dépôts sont
+ * remplacés dans ces tests. Si l'un d'eux y arrivait quand même, la levée
+ * ci-dessous le dirait tout de suite plutôt que de laisser un test réussir sur
+ * une base fantôme.
+ *
+ * Troisième et dernière conversion de ce fichier.
+ */
+export function fausseApplication(): FirebaseApp {
+  return new Proxy(
+    {},
+    {
+      get() {
+        throw new Error(
+          'Un écran a tenté d’atteindre Firebase pour de vrai : le dépôt n’était pas remplacé.',
+        );
+      },
+    },
+  ) as FirebaseApp;
 }
 
 /**

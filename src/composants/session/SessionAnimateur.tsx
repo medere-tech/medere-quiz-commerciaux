@@ -16,6 +16,8 @@ import type { Question } from '@/lib/questions/depot';
 import {
   ecouterClassement,
   ecouterParticipants,
+  ecouterAppels,
+  ecarterAppel,
   ecouterQuestion,
   ecouterReponses,
   ecouterSession,
@@ -29,6 +31,7 @@ import {
   revelerReponse,
   terminerSession,
   verrouillerAcces,
+  type Appel,
   type Participant,
   type Rang,
   type ReponseSession,
@@ -61,6 +64,14 @@ export function SessionAnimateur() {
   const [reponses, setReponses] = useState<ReponseSession[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [classement, setClassement] = useState<Rang[] | null>(null);
+
+  /*
+   * **Qui est resté dehors.** Le seul canal qui remonte de la salle : sans
+   * lui, un retardataire face à une porte close n'avait aucun moyen de le
+   * signaler depuis l'outil. `null` veut dire « pas encore lu », et la liste
+   * vide « personne » — l'écran ne montre le bloc que dans le second cas.
+   */
+  const [appels, setAppels] = useState<Appel[]>([]);
   const [recherche, setRecherche] = useState(true);
 
   useEffect(() => authentification().onAuthStateChanged((u) => setUid(u?.uid ?? null)), []);
@@ -78,6 +89,11 @@ export function SessionAnimateur() {
       vivant = false;
     };
   }, [uid]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    return ecouterAppels(sessionId, (recus) => setAppels(recus ?? []));
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -269,6 +285,8 @@ export function SessionAnimateur() {
         onTerminer={() => void terminerSession(session.id)}
         onAbandonner={() => void abandonner(session.id)}
         onVerrouiller={(ferme) => void verrouillerAcces(session.id, ferme)}
+        appels={appels}
+        onEcarterAppel={(uid) => void ecarterAppel(session.id, uid)}
       />
     );
   }
@@ -314,6 +332,10 @@ export function SessionAnimateur() {
         reponses={reponsesCourantes}
         question={question}
         revelee={session.revelee}
+        appels={appels}
+        verrouillee={session.verrouillee}
+        onVerrouiller={(ferme) => void verrouillerAcces(session.id, ferme)}
+        onEcarterAppel={(uid) => void ecarterAppel(session.id, uid)}
       />
     </div>
   );

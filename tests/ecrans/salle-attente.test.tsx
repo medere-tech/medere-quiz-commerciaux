@@ -3,7 +3,7 @@ import { cleanup, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { rendre, session } from './aide';
-import type { Participant } from '@/lib/session/depot';
+import type { Appel, Participant } from '@/lib/session/depot';
 import { fausseAuth } from '../aide/faux';
 
 /**
@@ -50,17 +50,20 @@ const GESTES = {
   onTerminer: vi.fn(),
   onAbandonner: vi.fn(),
   onVerrouiller: vi.fn(),
+  onEcarterAppel: vi.fn(),
 };
 
 function monter(
   remplacements: Parameters<typeof session>[0] = {},
   participants: Participant[] = [],
+  appels: Appel[] = [],
 ) {
   Object.values(GESTES).forEach((geste) => geste.mockReset());
   return rendre(
     <SalleDAttente
       session={session({ demarree: false, ...remplacements })}
       participants={participants}
+      appels={appels}
       {...GESTES}
     />,
   );

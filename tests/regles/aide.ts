@@ -172,6 +172,16 @@ export function participant(remplacements: Document = {}): Document {
   };
 }
 
+/** Un appel à la porte, conforme au modèle. */
+export function appel(remplacements: Document = {}): Document {
+  return {
+    nom: 'Jordan',
+    avatar: 'turquoise',
+    demandeLe: HIER,
+    ...remplacements,
+  };
+}
+
 /** Formation du référentiel, conforme au modèle. */
 export function formation(remplacements: Document = {}): Document {
   return {

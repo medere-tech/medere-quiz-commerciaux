@@ -6,12 +6,13 @@ import { Bouton, Carte, EtiquetteStatut, Meta, Touche } from '@/composants/ds/pr
 import { Icone } from '@/composants/ds/Icone';
 import { Marque } from '@/composants/ds/Coquille';
 import { Picto } from '@/composants/ds/Picto';
+import { AppelsALaPorte } from '@/composants/session/AppelsALaPorte';
 import { ArreterSeance } from '@/composants/session/ArreterSeance';
 import { CodeQr } from '@/composants/session/CodeQr';
 import { Collage, type FormePosee } from '@/composants/session/Collage';
 import { Pastille } from '@/composants/session/Pastille';
 import { adresseRejoindre } from '@/lib/session/rejoindre';
-import { LIBELLES_LIEU, type Participant, type Session } from '@/lib/session/depot';
+import { LIBELLES_LIEU, type Appel, type Participant, type Session } from '@/lib/session/depot';
 import {
   animatricePar,
   dureeAnnonceeMinutes,
@@ -59,6 +60,8 @@ export function SalleDAttente({
   onTerminer,
   onAbandonner,
   onVerrouiller,
+  appels,
+  onEcarterAppel,
 }: {
   session: Session;
   participants: Participant[];
@@ -69,6 +72,15 @@ export function SalleDAttente({
   onAbandonner: () => void;
   /** Ferme ou rouvre la porte. Réversible : voir `DansLaSalle`. */
   onVerrouiller: (verrouillee: boolean) => void;
+  /**
+   * Ceux qui ont trouvé porte close et l'ont signalé.
+   *
+   * **Le premier canal qui remonte de la salle.** Il n'existait pas : un
+   * retardataire lisait « signalez-vous à l'animatrice » sans aucun moyen de
+   * le faire depuis l'outil.
+   */
+  appels: Appel[];
+  onEcarterAppel: (uid: string) => void;
 }) {
   const enPause = session.statut === 'pause';
   const verrouillee = session.verrouillee;
@@ -164,6 +176,8 @@ export function SalleDAttente({
           manquants={manquants}
           verrouillee={verrouillee}
           onVerrouiller={onVerrouiller}
+          appels={appels}
+          onEcarterAppel={onEcarterAppel}
         />
       </div>
     </div>
@@ -412,12 +426,16 @@ function DansLaSalle({
   manquants,
   verrouillee,
   onVerrouiller,
+  appels,
+  onEcarterAppel,
 }: {
   participants: Participant[];
   attendus: number;
   manquants: number;
   verrouillee: boolean;
   onVerrouiller: (verrouillee: boolean) => void;
+  appels: Appel[];
+  onEcarterAppel: (uid: string) => void;
 }) {
   const vide = participants.length === 0;
 
@@ -467,6 +485,19 @@ function DansLaSalle({
             </span>
           </span>
         </span>
+
+        {/*
+          * **Au-dessus de la liste, et non en dessous.** Ceux qui sont dedans
+          * n'attendent rien ; celui qui est dehors, si. Le bloc disparaît dès
+          * qu'elle ouvre ou qu'elle écarte — rien ne s'accumule.
+          */}
+        <AppelsALaPorte
+          appels={appels}
+          presentation="salle"
+          verrouillee={verrouillee}
+          onOuvrir={() => onVerrouiller(false)}
+          onEcarter={onEcarterAppel}
+        />
 
         {vide ? (
           <div className="salle-attente-vide">

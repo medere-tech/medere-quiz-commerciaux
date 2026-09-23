@@ -352,6 +352,11 @@ export async function rejoindre(
     { merge: true },
   );
   lot.update(doc(base, 'users', uid), { nomSession: propre, avatar, presence });
+  /* **Entrer efface son propre appel.** Sans cette ligne, un retardataire
+     admis resterait affiché « à la porte » sur l'écran de l'animatrice, qui
+     l'aurait pourtant devant elle. Effacer un document absent ne coûte rien :
+     le cas ordinaire est celui d'une entrée sans appel. */
+  lot.delete(doc(base, 'sessions', sessionId, 'appels', uid));
 
   await lot.commit();
 }
@@ -633,6 +638,132 @@ export function ecouterPresents(
       aChaqueEtat(null);
     },
   );
+}
+
+/* ----------------------------------------------------- frapper à la porte */
+
+/**
+ * Quelqu'un qui a trouvé porte close, et qui le signale.
+ *
+ * **Le seul canal qui remonte de la salle.** Tout le reste descend — la
+ * question, la révélation, le classement. Un participant n'écrit que ce qui le
+ * concerne à l'intérieur de la séance ; ici, quelqu'un qui n'est pas dans la
+ * pièce adresse une demande.
+ */
+export type Appel = {
+  uid: string;
+  nom: string;
+  avatar: string;
+  /** Quand il a frappé. `null` tant que le serveur n'a pas horodaté. */
+  demandeLeMs: number | null;
+};
+
+/**
+ * Frappe à la porte, ou repousse un appel déjà posé.
+ *
+ * **Un document par personne, identifié par son uid.** Frapper deux fois
+ * réécrit le même document : dix personnes qui insistent ne produisent pas dix
+ * lignes sur l'écran de l'animatrice. C'est ce qui rend le rappel inoffensif.
+ *
+ * Le nom et la couleur sont republiés par leur porteur, comme pour les
+ * présences : `users/{uid}` est fermé aux administrateurs, et Noémie ne peut
+ * pas aller les chercher.
+ */
+export async function frapperALaPorte(
+  sessionId: string,
+  uid: string,
+  nom: string,
+  avatar: string,
+): Promise<void> {
+  await setDoc(doc(baseDeDonnees(), 'sessions', sessionId, 'appels', uid), {
+    nom: nomAffichable(nom),
+    avatar,
+    demandeLe: serverTimestamp(),
+  });
+}
+
+/**
+ * Les appels en attente, pour l'animatrice.
+ *
+ * **Un refus de permission n'est pas une liste vide.** Les règles réservent
+ * cette lecture à l'animatrice de la séance : côté commercial, l'écouteur
+ * rendrait `null`, et un écran qui afficherait « personne à la porte » sur un
+ * refus mentirait. On distingue donc les deux, comme pour les présents.
+ */
+export function ecouterAppels(
+  sessionId: string,
+  aChaqueEtat: (appels: Appel[] | null) => void,
+): Unsubscribe {
+  return onSnapshot(
+    collection(baseDeDonnees(), 'sessions', sessionId, 'appels'),
+    (instantane) => {
+      aChaqueEtat(
+        instantane.docs
+          .map((document) => {
+            const donnees = document.data();
+            return {
+              uid: document.id,
+              nom: typeof donnees.nom === 'string' ? donnees.nom : '',
+              avatar: typeof donnees.avatar === 'string' ? donnees.avatar : 'encre',
+              demandeLeMs: enMillisecondes(donnees.demandeLe),
+            };
+          })
+          /* Le plus ancien d'abord : celui qui attend depuis le plus longtemps
+             est celui qu'on risque d'oublier. Un appel non encore horodaté par
+             le serveur passe en dernier — il vient d'arriver. */
+          .sort((a, b) => (a.demandeLeMs ?? Infinity) - (b.demandeLeMs ?? Infinity)),
+      );
+    },
+    (panne) => {
+      if (panne.code !== 'permission-denied') {
+        console.error('Lecture des appels impossible', panne);
+      }
+      aChaqueEtat(null);
+    },
+  );
+}
+
+/**
+ * Mon propre appel — ce qui évite de frapper vingt fois.
+ *
+ * L'écran du retardataire s'en sert pour montrer que le message est passé, et
+ * pour le retrouver après un rechargement : sans cela, un onglet rouvert
+ * afficherait de nouveau « Prévenir l'animatrice » comme si rien n'avait été
+ * fait.
+ */
+export function ecouterMonAppel(
+  sessionId: string,
+  uid: string,
+  aChaqueEtat: (appel: Appel | null) => void,
+): Unsubscribe {
+  return onSnapshot(
+    doc(baseDeDonnees(), 'sessions', sessionId, 'appels', uid),
+    (instantane) => {
+      if (!instantane.exists()) {
+        aChaqueEtat(null);
+        return;
+      }
+      const donnees = instantane.data();
+      aChaqueEtat({
+        uid,
+        nom: typeof donnees.nom === 'string' ? donnees.nom : '',
+        avatar: typeof donnees.avatar === 'string' ? donnees.avatar : 'encre',
+        demandeLeMs: enMillisecondes(donnees.demandeLe),
+      });
+    },
+    () => aChaqueEtat(null),
+  );
+}
+
+/**
+ * Écarte un appel.
+ *
+ * L'animatrice quand elle a vu et choisi de ne pas ouvrir ; l'appelant
+ * lui-même quand il entre. **Rien ne s'archive** : il n'existe aucun état où
+ * l'outil garde la trace des retards d'un jeudi.
+ */
+export async function ecarterAppel(sessionId: string, uid: string): Promise<void> {
+  await deleteDoc(doc(baseDeDonnees(), 'sessions', sessionId, 'appels', uid));
 }
 
 /**
