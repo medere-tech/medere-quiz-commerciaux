@@ -893,7 +893,7 @@ export default function PageFormations() {
                     flexWrap: 'wrap',
                   }}
                 >
-                  <Meta style={{ fontSize: 12 }}>N° {formation.numeroActionDpc || '—'}</Meta>
+                  <Meta style={{ fontSize: 12 }}>N° {formation.numeroActionDpc || '-'}</Meta>
                   {formation.format && <Meta style={{ fontSize: 12 }}>{formation.format}</Meta>}
                   {formation.dureeTotale && (
                     <Meta style={{ fontSize: 12 }}>{formation.dureeTotale} h</Meta>

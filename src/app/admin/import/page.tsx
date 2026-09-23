@@ -173,7 +173,7 @@ export default function PageImport() {
         setFeuilleChoisie('');
         setFichierDepose(
           resultat.encodage === 'windows-1252'
-            ? `${resultat.nom} — lu en Windows-1252`
+            ? `${resultat.nom} - lu en Windows-1252`
             : resultat.nom,
         );
         reinitialiser(lireCollage(resultat.texte));
@@ -460,7 +460,7 @@ export default function PageImport() {
             <EtatVide
               icone="upload"
               titre="Rien à importer pour l’instant"
-              texte="Collez votre tableau à gauche. La première ligne doit nommer les colonnes : c’est elle qui dit où se trouve quoi."
+              texte="Collez votre tableau à gauche. La première ligne doit nommer les colonnes."
               actions={<BoutonEnteteModele />}
             />
           )}
@@ -495,7 +495,7 @@ export default function PageImport() {
               titre="Aucune ligne dans ce filtre"
               texte={
                 filtre === 'erreur'
-                  ? 'Toutes les lignes sont prêtes : il n’y a rien à corriger.'
+                  ? 'Toutes les lignes sont prêtes.'
                   : 'Aucune ligne ne remplit ce filtre pour l’instant.'
               }
               actions={
@@ -701,7 +701,7 @@ function LignePrevisualisation({
               textOverflow: 'ellipsis',
             }}
           >
-            {valeurs.enonce || '—'}
+            {valeurs.enonce || '-'}
           </span>
           <span
             style={{
@@ -816,7 +816,7 @@ function Correction({
       >
         {colonne && (
           <strong style={{ fontWeight: 'var(--weight-semibold)' }}>
-            {LIBELLES_COLONNE[colonne]} —{' '}
+            {LIBELLES_COLONNE[colonne]} -{' '}
           </strong>
         )}
         {erreur.message}
@@ -913,7 +913,7 @@ function ControleCorrection({
             .map((formation) => ({
               valeur: formation.id,
               libelle: formation.numeroActionDpc
-                ? `${formation.nom} — ${formation.numeroActionDpc}`
+                ? `${formation.nom} - ${formation.numeroActionDpc}`
                 : formation.nom,
             })),
         ]}
@@ -976,7 +976,7 @@ function DepotFichier({
     const fichiers = evenement.dataTransfer.files;
     if (fichiers.length === 0) return;
     if (fichiers.length > 1) {
-      onErreur('Déposez un seul fichier à la fois : un lot par import.');
+      onErreur('Déposez un seul fichier à la fois.');
       return;
     }
     onFichier(fichiers[0]);
@@ -1033,7 +1033,7 @@ function DepotFichier({
           <Meta style={{ fontSize: 12 }}>
             {nom
               ? 'Déposez-en un autre pour le remplacer.'
-              : `${EXTENSIONS_ACCEPTEES.join(', ')} — ou collez le tableau ci-dessous.`}
+              : `${EXTENSIONS_ACCEPTEES.join(', ')} - ou collez le tableau ci-dessous.`}
           </Meta>
           </span>
         </span>

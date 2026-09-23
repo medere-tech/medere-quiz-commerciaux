@@ -55,11 +55,14 @@ export type Entree = {
   icone: NomIcone;
   chemin: string;
   /**
-   * Seules les entrées livrées portent une route. Les autres figurent dans la
-   * maquette et attendent leur lot : elles restent visibles mais inertes,
-   * plutôt que de faire changer la navigation de forme à chaque livraison.
+   * **Toute entrée mène quelque part.** Le type a longtemps rendu la route
+   * facultative, pour des entrées dessinées par la maquette mais pas encore
+   * livrées : elles paraissaient grisées, avec une infobulle qui disait
+   * « disponible à un prochain lot ». Plus aucune n'était dans ce cas, la
+   * branche ne s'affichait jamais, et son libellé faisait fuiter du
+   * vocabulaire interne : un utilisateur ne sait pas ce qu'est un lot.
    */
-  route?: Route;
+  route: Route;
   /**
    * Nom du compteur à afficher au bout de la ligne, quand la maquette en pose
    * un. La coquille le calcule elle-même : une navigation qui attendrait le
@@ -304,7 +307,7 @@ function CompteurEntree({
     >
       <span aria-hidden="true">{nombre}</span>
       <span className="visuellement-cache">
-        {` — ${nombre} ${quoi === 'ratees' ? 'à revoir' : 'servies aux commerciaux'}, dans ${libelle}`}
+        {` - ${nombre} ${quoi === 'ratees' ? 'à revoir' : 'servies aux commerciaux'}, dans ${libelle}`}
       </span>
     </span>
   );
@@ -381,7 +384,7 @@ export function Coquille({
   role: string;
   /** Nom du monde où l'on se trouve, affiché à côté de la marque. */
   contexte: string;
-  /** Sections de l'espace. Celles sans route restent visibles mais inertes. */
+  /** Sections de l'espace. Chacune mène à un écran qui existe. */
   entrees: Entree[];
   /** Passage vers l'autre espace. Omis pour qui n'a accès qu'à celui-ci. */
   bascule?: Bascule;
@@ -537,18 +540,6 @@ export function Coquille({
               fontWeight: actif ? 600 : 400,
               textDecoration: 'none',
             } as const;
-
-            if (!entree.route) {
-              return (
-                <span
-                  key={entree.chemin}
-                  title={`${entree.libelle} — disponible à un prochain lot`}
-                  style={{ ...style, opacity: 0.4, cursor: 'not-allowed' }}
-                >
-                  {contenu}
-                </span>
-              );
-            }
 
             return (
               <Link

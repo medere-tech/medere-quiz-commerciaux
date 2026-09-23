@@ -714,6 +714,66 @@ export async function seanceOuverte(): Promise<Session | null> {
   return seances[0] ?? null;
 }
 
+/**
+ * La prochaine séance préparée, quand aucune n'est en cours.
+ *
+ * **Sans tri côté base, et c'est délibéré.** Un `where` sur le statut suivi
+ * d'un `orderBy` sur la date exigerait un index composite de plus ; on lit les
+ * quelques séances en attente et on les classe ici. Une animatrice n'en
+ * prépare pas trente d'avance.
+ *
+ * La plus récemment créée l'emporte : le modèle ne porte pas de date de
+ * programmation, et la dernière préparée est celle du prochain jeudi.
+ */
+export async function prochaineSeance(): Promise<Session | null> {
+  const instantane = await getDocs(
+    query(collection(baseDeDonnees(), 'sessions'), where('statut', '==', 'attente'), limit(10)),
+  );
+
+  const seances = instantane.docs
+    .map((document) => ({
+      seance: lireSession(document.id, document.data()),
+      creeeLeMs: enMillisecondes(document.data().creeeLe) ?? 0,
+    }))
+    .sort((a, b) => b.creeeLeMs - a.creeeLeMs);
+
+  return seances[0]?.seance ?? null;
+}
+
+/**
+ * Les séances encore à jouer qui contiennent cette question.
+ *
+ * **Ce qu'elle empêche.** Supprimer une question ne touche pas aux séances :
+ * leur `questionIds` garde l'identifiant, et personne n'est prévenu. Le jeudi,
+ * la séance arrive sur cette question et affiche « Cette question n'est plus
+ * publiée » devant la salle — un trou que Noémie ne peut ni prévoir ni
+ * expliquer, parce que rien, au moment de la suppression, ne le lui a dit.
+ *
+ * **Seules les séances à venir comptent ici.** Une séance terminée ou
+ * abandonnée est de l'histoire : son bilan est figé, et la question manquante
+ * n'y produira plus rien de neuf. Les trois autres statuts — préparée, en
+ * cours, en pause — désignent des séances qui se joueront encore.
+ *
+ * **Un seul filtre dans la requête, et c'est délibéré.** Croiser
+ * `array-contains` et un `in` sur le statut réclamerait un index composite de
+ * plus ; l'appartenance suffit à ramener une poignée de documents, et le tri
+ * se fait ici. Une question n'entre pas dans trente séances.
+ */
+export async function seancesAVenirContenant(questionId: string): Promise<Session[]> {
+  const instantane = await getDocs(
+    query(
+      collection(baseDeDonnees(), 'sessions'),
+      where('questionIds', 'array-contains', questionId),
+      limit(20),
+    ),
+  );
+
+  const aVenir: StatutSession[] = ['attente', 'encours', 'pause'];
+  return instantane.docs
+    .map((document) => lireSession(document.id, document.data()))
+    .filter((seance) => aVenir.includes(seance.statut));
+}
+
 /* ------------------------------------------------- arrêter, suspendre */
 
 /**

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { question, rang, rendre, session } from './aide';
 import type { Question } from '@/lib/questions/lecture';
 import type { Rang, Session } from '@/lib/session/depot';
-import { fausseAuth } from '../aide/faux';
+import { fausseAuth, fausseRequete } from '../aide/faux';
 
 /**
  * 10a · Session collective, côté commercial — ce que l'écran montre.
@@ -35,10 +35,22 @@ let ecouteurQuestion: ((recue: Question | null) => void) | null = null;
 let ecouteurClassement: ((rangs: Rang[] | null) => void) | null = null;
 let ouverts = 0;
 
+let adresse = fausseRequete();
+
 const chargerMaReponse = vi.fn<() => Promise<string[] | null>>();
 const repondreEnSession = vi.fn<() => Promise<void>>();
 const rejoindre = vi.fn<() => Promise<void>>();
 const chercherSessionParCode = vi.fn<() => Promise<Session | null>>();
+
+/*
+ * L'écran lit le code apporté par l'adresse — `/session?code=XXXXXX`, où mène
+ * le QR de la salle d'attente. Sans contexte de routeur, `useSearchParams`
+ * lève et l'écran entier ne rend plus : le faux rend une requête vide, qui est
+ * le cas ordinaire, et les tests qui veulent un code la remplacent.
+ */
+vi.mock(import('next/navigation'), () => ({
+  useSearchParams: () => adresse,
+}));
 
 vi.mock(import('@/lib/session/depot'), async (original) => {
   const vrai = await original<typeof import('@/lib/session/depot')>();
@@ -82,6 +94,7 @@ vi.mock(import('@/lib/firebase/client'), () => ({
 const { SessionParticipant } = await import('@/composants/session/SessionParticipant');
 
 beforeEach(() => {
+  adresse = fausseRequete();
   ecouteurSession = null;
   ecouteurQuestion = null;
   ecouteurClassement = null;
@@ -359,7 +372,7 @@ describe('le vote', () => {
 
     // Le vote rouvre pour ceux qui n'avaient pas répondu. Sans cette phrase,
     // celui qui a déjà répondu voit un bouton éteint et ne sait pas pourquoi.
-    expect(screen.getByText(/elle ne se change plus/i)).toBeTruthy();
+    expect(screen.getByText(/ne se change plus/i)).toBeTruthy();
   });
 
   it('montre la correction et ce qui manquait à la révélation', async () => {

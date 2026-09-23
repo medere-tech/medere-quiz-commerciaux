@@ -192,7 +192,7 @@ export function HistoriqueSeances({
                                 </span>
                                 <Meta style={{ fontSize: 12 }}>
                                   {ligne.reponses === 0
-                                    ? 'jamais posée — la séance s’est arrêtée avant'
+                                    ? 'jamais posée - la séance s’est arrêtée avant'
                                     : `${ligne.echecs} échec${ligne.echecs > 1 ? 's' : ''} sur ${ligne.reponses} réponse${ligne.reponses > 1 ? 's' : ''}`}
                                 </Meta>
                               </span>
@@ -214,7 +214,7 @@ export function HistoriqueSeances({
                                   fontVariantNumeric: 'tabular-nums',
                                 }}
                               >
-                                {ligne.reponses === 0 ? '—' : `${taux} %`}
+                                {ligne.reponses === 0 ? '-' : `${taux} %`}
                               </span>
                             </span>
                           );

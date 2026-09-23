@@ -642,7 +642,7 @@ export default function PageEditeur() {
             erreur={messagePour(erreurs, 'explication')}
             aide={`Elle s'affiche même quand la réponse est juste. ${brouillon.explication.length} caractères sur ${PLAFONDS.explication}.`}
             lignes={3}
-            placeholder="Expliquez pourquoi cette réponse est la bonne, en une ou deux phrases."
+            placeholder="En une ou deux phrases."
           />
 
           {/*
@@ -654,7 +654,7 @@ export default function PageEditeur() {
             * la carte ne s'affiche simplement pas.
             */}
           <ZoneDeTexte
-            label="À l’argumentaire — facultatif"
+            label="À l’argumentaire - facultatif"
             value={brouillon.argumentaire}
             onChange={(argumentaire) => modifier({ argumentaire })}
             erreur={messagePour(erreurs, 'argumentaire')}

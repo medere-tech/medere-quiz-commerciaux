@@ -101,6 +101,20 @@ describe('Référentiel — questions et formations', () => {
     await assertSucceeds(updateDoc(doc(admin, 'questions/q4'), { statut: 'brouillon' }));
   });
 
+  /*
+   * **Le pendant positif du refus ci-dessus, et il garde un bouton.**
+   *
+   * La banque de questions porte une corbeille par rangée depuis le lot 18.
+   * Le refus opposé à un commercial était déjà tenu ; rien ne vérifiait que
+   * l'administratrice, elle, passe. Une règle resserrée par mégarde aurait
+   * cassé la corbeille en silence : l'écran aurait affiché « la suppression a
+   * échoué », et la suite de tests serait restée verte.
+   */
+  it('un administrateur supprime une question', async () => {
+    await semer();
+    await assertSucceeds(deleteDoc(doc(connecte(env, NOEMIE), 'questions/q1')));
+  });
+
   it('un administrateur écrit une formation', async () => {
     await assertSucceeds(setDoc(doc(connecte(env, NOEMIE), 'formations/f3'), formation()));
   });

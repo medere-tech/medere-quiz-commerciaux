@@ -275,7 +275,7 @@ export function Accueil({
         <EtatVide
           icone="layers"
           titre="Aucune question publiée pour l’instant"
-          texte="L’entraînement s’ouvrira dès que des questions seront publiées. Rien à faire de votre côté."
+          texte="L’entraînement s’ouvrira dès la première publication."
         />
       ) : (
         <div className="accueil-colonnes">

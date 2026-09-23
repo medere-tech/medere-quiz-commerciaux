@@ -87,6 +87,7 @@ export type VerdictAcces = 'entre' | 'introuvable' | 'fermee';
 export function AccesSeance({
   uid,
   nomPropose,
+  codeInitial,
   onRejoindre,
 }: {
   /**
@@ -102,6 +103,15 @@ export function AccesSeance({
   /** Le prénom du compte, proposé tant que rien n'a été choisi. */
   nomPropose: string;
   /**
+   * Le code apporté par l'adresse, quand on arrive en scannant le QR.
+   *
+   * **Il préremplit, il ne valide pas.** Le nom, la couleur et le lieu de
+   * présence restent à choisir : entrer quelqu'un dans une salle sans lui
+   * demander sous quel nom il y paraîtra serait pire que de lui faire retaper
+   * six caractères.
+   */
+  codeInitial?: string;
+  /**
    * Rejoint la séance, et dit ce qui s'est passé.
    *
    * L'écran ne parle pas à Firestore lui-même : il rend le formulaire et son
@@ -115,7 +125,7 @@ export function AccesSeance({
     presence: LieuPresence,
   ) => Promise<VerdictAcces>;
 }) {
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(codeInitial ?? '');
   /*
    * **`null` veut dire « pas encore touché », et ce n'est pas la même chose
    * qu'une chaîne vide.** Le prénom du compte n'arrive qu'après le premier
@@ -249,7 +259,7 @@ export function AccesSeance({
           >
             {seance
               ? `${seance.questionIds.length} questions, ${phraseSalle(salle)}. Vos réponses restent anonymes pour la salle, sauf votre nom au classement.`
-              : 'Le code est annoncé à voix haute au début de la séance. Vos réponses restent anonymes pour la salle, sauf votre nom au classement.'}
+              : 'Vos réponses restent anonymes pour la salle, sauf votre nom au classement.'}
           </p>
 
           <div className="acces-seance-formulaire">
@@ -266,7 +276,7 @@ export function AccesSeance({
               /* Le champ ne se marque que lorsque le champ est en cause. Une
                  salle fermée n'est pas une faute de saisie. */
               erreur={introuvable ? 'Aucune séance ouverte avec ce code.' : undefined}
-              aide="Six caractères, annoncés à voix haute au début de la séance."
+              aide="Six caractères."
             />
 
             {/*
@@ -360,7 +370,7 @@ export function AccesSeance({
                 </Meta>
               ) : introuvable ? (
                 <Meta style={{ fontSize: 12 }}>
-                  Vérifiez le code auprès de l’animatrice — une séance terminée ne se rejoint
+                  Vérifiez le code auprès de l’animatrice - une séance terminée ne se rejoint
                   plus.
                 </Meta>
               ) : fermee ? (
@@ -469,7 +479,7 @@ function SalleFermee({ confirme }: { confirme: boolean }) {
         >
           {confirme
             ? 'Votre code est bon. Signalez-vous à l’animatrice : elle peut rouvrir l’accès, et vous entrerez avec le même code.'
-            : 'L’animatrice a fermé l’accès pour commencer. Signalez-vous à elle : elle peut le rouvrir, et vous entrerez avec le code annoncé.'}
+            : 'L’animatrice a fermé l’accès pour commencer. Signalez-vous à elle : elle peut le rouvrir, et vous entrerez avec le même code.'}
         </span>
       </span>
     </div>
@@ -851,7 +861,7 @@ function AucuneSeance({ enAttente }: { enAttente: boolean }) {
       >
         {enAttente
           ? 'Recherche de la séance en cours…'
-          : 'Aucune séance n’est ouverte en ce moment. Le code vous sera donné à voix haute au début de la prochaine — il reste saisissable dès maintenant.'}
+          : 'Aucune séance n’est ouverte en ce moment.'}
       </p>
     </Carte>
   );

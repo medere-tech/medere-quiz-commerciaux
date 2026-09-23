@@ -132,7 +132,7 @@ export function SceneProjetee({
             }}
           >
             <Icone nom="users" taille={18} />
-            {vue.reponsesRecues} sur {vue.participants || '—'}
+            {vue.reponsesRecues} sur {vue.participants || '-'}
           </span>
         </span>
       </div>
@@ -345,6 +345,51 @@ export function SceneProjetee({
               }}
             >
               Séance suspendue · le vote est fermé
+            </span>
+          </>
+        ) : !question ? (
+          /*
+           * **La question a disparu de la banque : il n'y a rien à révéler, et
+           * il y avait pire qu'un bouton mort.**
+           *
+           * Cet état s'obtient en supprimant une question qu'une séance
+           * préparée contient — `ecouterQuestion` rend alors `null`. L'écran
+           * l'annonçait déjà (« Cette question n'est plus publiée »), mais les
+           * commandes, elles, restaient celles d'une question ordinaire :
+           * « Révéler la bonne réponse », qui sort en silence sur `!question`,
+           * plus Pause et Arrêter.
+           *
+           * **« Question suivante » n'apparaît qu'après révélation.** Comme la
+           * révélation ne pouvait pas avoir lieu, il n'existait aucun chemin
+           * vers la question d'après : devant la salle, la seule issue était
+           * d'arrêter la séance. Un bouton actif qui ne fait rien est déjà
+           * mauvais ; un cul-de-sac est une panne.
+           *
+           * On ne garde donc que l'action qui a du sens ici, et on dit
+           * pourquoi — l'animatrice n'a pas à deviner que le trou vient d'une
+           * suppression.
+           */
+          <>
+            <Bouton taille="lg" variante="soulignee" onClick={onSuivante}>
+              {dernier ? 'Terminer et classer' : 'Question suivante'}
+            </Bouton>
+            <Bouton taille="lg" variante="fantome" onClick={onPause} style={{ color: '#fff' }}>
+              Pause
+            </Bouton>
+            <ArreterSeance
+              onTerminer={onTerminer}
+              onAbandonner={onAbandonner}
+              questionsJouees={vue.numero}
+              questionsTotal={vue.total}
+            />
+            <span
+              style={{
+                marginLeft: 'auto',
+                fontSize: 'clamp(14px, 1.3vw, 19px)',
+                color: SUR_ENCRE,
+              }}
+            >
+              Rien à révéler : cette question a été retirée de la banque
             </span>
           </>
         ) : vue.revelee ? (

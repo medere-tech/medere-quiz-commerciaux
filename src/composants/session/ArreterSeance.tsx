@@ -217,7 +217,7 @@ export function ArreterSeance({
                    */}
                   Les réponses de la séance sont effacées, et il n’y a ni classement ni prix.
                   La progression de chacun est conservée : ce qui a été répondu reste dans les
-                  questions à revoir. C’est définitif — pour recommencer, préparez une nouvelle
+                  questions à revoir. C’est définitif - pour recommencer, préparez une nouvelle
                   séance.
                 </Issue>
 

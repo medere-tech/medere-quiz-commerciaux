@@ -247,7 +247,7 @@ export default function PageStatistiques() {
             }}
           >
             Les questions les plus ratées composent la séance collective. Le code s’affiche en
-            grand à l’ouverture : annoncez-le à voix haute.
+            grand à l’ouverture.
           </p>
           <Bouton
             variante="secondaire"
@@ -307,10 +307,10 @@ export default function PageStatistiques() {
               }}
             >
               {vue === 'ratees'
-                ? `Classées par taux d’échec, à partir de ${TENTATIVES_FIABLES} réponses. Une question massivement ratée signale le plus souvent un argumentaire à clarifier.`
+                ? `Classées par taux d’échec, à partir de ${TENTATIVES_FIABLES} réponses.`
                 : vue === 'tropPeu'
-                  ? `Moins de ${TENTATIVES_FIABLES} réponses : un taux calculé ici ne voudrait rien dire, une seule erreur ferait cent pour cent.`
-                  : 'Publiées, mais encore jamais tirées dans une série. Elles entreront d’elles-mêmes : le tirage sert en priorité ce qui n’a jamais été vu.'}
+                  ? `Moins de ${TENTATIVES_FIABLES} réponses : un taux calculé ici ne voudrait rien dire.`
+                  : 'Publiées, mais encore jamais tirées. Le tirage sert en priorité ce qui n’a jamais été vu.'}
             </p>
 
             <div

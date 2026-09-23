@@ -1,5 +1,6 @@
 'use client';
 
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Bouton, Carte, EtiquetteStatut, Meta } from '@/composants/ds/primitives';
@@ -63,6 +64,14 @@ const CONSIGNE = 'consigne-reponses';
 
 export function SessionParticipant() {
   const [uid, setUid] = useState<string | null>(null);
+
+  /*
+   * Le code apporté par l'adresse : `/session?code=XXXXXX`, où mène le QR de
+   * la salle d'attente en passant par `/rejoindre`. Lu une fois, à l'arrivée :
+   * il préremplit le formulaire, la suite appartient au participant.
+   */
+  const parametres = useSearchParams();
+  const codeDeLAdresse = (parametres.get('code') ?? '').trim().toUpperCase() || undefined;
   const [nomPropose, setNomPropose] = useState('');
 
   /*
@@ -284,7 +293,12 @@ export function SessionParticipant() {
   if (!sessionId) {
     return (
       <div className="page-admin">
-        <AccesSeance uid={uid} nomPropose={nomPropose} onRejoindre={rejoindreParCode} />
+        <AccesSeance
+          uid={uid}
+          nomPropose={nomPropose}
+          codeInitial={codeDeLAdresse}
+          onRejoindre={rejoindreParCode}
+        />
       </div>
     );
   }
@@ -336,7 +350,7 @@ export function SessionParticipant() {
         <EtatVide
           icone="clock"
           titre={TITRE_PAUSE_PARTICIPANT}
-          texte="L’animatrice a suspendu la séance. Gardez cet écran ouvert : la question suivante arrivera toute seule."
+          texte="L’animatrice a suspendu la séance. Gardez cet écran ouvert : la question suivante s’affichera ici."
         />
       </div>
     );
@@ -555,7 +569,7 @@ export function SessionParticipant() {
               {session.repondants} réponse{session.repondants > 1 ? 's' : ''} reçue
               {session.repondants > 1 ? 's' : ''}.{' '}
               {vote === 'envoye'
-                ? 'Votre réponse est enregistrée : elle ne se change plus, même si le vote rouvre. La correction s’affiche dès que l’animatrice révèle la bonne réponse.'
+                ? 'Votre réponse ne se change plus, même si le vote rouvre. La correction s’affiche dès que l’animatrice révèle la bonne réponse.'
                 : 'Choisissez, puis envoyez.'}
             </span>
             <Bouton
@@ -572,7 +586,7 @@ export function SessionParticipant() {
           <Carte rayon="var(--radius-md)" rembourrage="14px 16px" elevation="petite" style={{ marginTop: 'var(--space-4)' }}>
             <span style={{ fontSize: 'var(--body-sm-size)', color: 'var(--text-heading)' }}>
               La bonne réponse a été révélée avant que votre envoi n’arrive. Cette question ne
-              compte pas pour vous — la suivante, si.
+              compte pas pour vous - la suivante, si.
             </span>
           </Carte>
         )}

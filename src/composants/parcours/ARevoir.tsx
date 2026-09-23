@@ -189,7 +189,7 @@ export function ARevoir({
         <EtatVide
           icone="check"
           titre="Tout est acquis pour l’instant"
-          texte="Lancez une série ordinaire : les questions jamais vues sont celles qui vous feront progresser."
+          texte="Lancez une série ordinaire : le tirage sert en priorité les questions jamais vues."
           actions={
             <Bouton iconeGauche={<Icone nom="play" taille={16} />} href={'/serie' as Route}>
               Lancer une série

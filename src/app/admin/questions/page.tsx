@@ -33,6 +33,7 @@ import {
   compterQuestions,
   compterQuestionsServies,
   dupliquerQuestion,
+  supprimerQuestion,
   PLAFOND_RECHERCHE,
   type FiltresQuestions,
   type Question,
@@ -43,6 +44,7 @@ import { authentification } from '@/lib/firebase/client';
 import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
 import { ChargerPlus } from '@/composants/admin/ChargerPlus';
+import { SupprimerQuestion } from '@/composants/admin/SupprimerQuestion';
 import { sansAccentNiCasse } from '@/lib/texte';
 
 /**
@@ -96,7 +98,7 @@ const DEFAUTS = {
 };
 
 function dateCourte(valeur: Date | null): string {
-  if (!valeur) return '—';
+  if (!valeur) return '-';
   return valeur.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
 }
 
@@ -111,6 +113,13 @@ export default function PageBanque() {
   const [chargementSuite, setChargementSuite] = useState(false);
   const [erreur, setErreur] = useState<EchecDeLecture>();
   const [duplicationEnCours, setDuplicationEnCours] = useState<string>();
+  /*
+   * **Seul « une suppression est partie » vit ici.** L'ouverture du panneau de
+   * confirmation appartient au panneau lui-même : une seule rangée peut
+   * l'ouvrir à la fois, et c'est le navigateur qui le garantit en rendant le
+   * fond inerte. Un second état ici n'aurait fait que redire la même chose.
+   */
+  const [suppressionEnCours, setSuppressionEnCours] = useState<string>();
   /** Totaux exacts, obtenus par agrégat sans lire les documents. */
   const [total, setTotal] = useState(0);
   const [totalBanque, setTotalBanque] = useState(0);
@@ -362,6 +371,36 @@ export default function PageBanque() {
     }
   }
 
+  /**
+   * Supprimer, une fois la rangée confirmée.
+   *
+   * La question part de la liste affichée sans relire la banque : une relecture
+   * complète pour un retrait d'une ligne coûterait l'écran entier. Les
+   * compteurs d'en-tête suivent, sinon ils annonceraient une question de plus
+   * que ce que la liste montre.
+   */
+  async function supprimer(question: Question) {
+    setSuppressionEnCours(question.id);
+    try {
+      await supprimerQuestion(question.id);
+      setQuestions((precedentes) => precedentes.filter((autre) => autre.id !== question.id));
+      setTotal((precedent) => Math.max(0, precedent - 1));
+      setTotalBanque((precedent) => Math.max(0, precedent - 1));
+    } catch (cause) {
+      setErreur({
+        texte: 'La suppression a échoué. La question est toujours en place.',
+        reessayable: true,
+      });
+      /* **L'échec remonte, il ne s'arrête pas ici.** Le panneau se referme sur
+         un appel qui rend la main : s'il absorbait l'erreur, la confirmation
+         disparaîtrait en laissant croire que la question est partie, alors
+         qu'elle est toujours dans la liste. */
+      throw cause;
+    } finally {
+      setSuppressionEnCours(undefined);
+    }
+  }
+
   return (
     <div className="page-admin">
       <TitrePage
@@ -498,7 +537,7 @@ export default function PageBanque() {
         <EtatVide
           icone="search"
           titre="Aucune question ne correspond"
-          texte="Élargissez la recherche, ou retirez un filtre. La banque, elle, n'a pas changé."
+          texte="Élargissez la recherche, ou retirez un filtre."
           actions={
             <Bouton
               variante="secondaire"
@@ -600,10 +639,15 @@ export default function PageBanque() {
                 >
                   {dateCourte(question.modifieeLe)}
                 </span>
+                {/*
+                  * Trois commandes, donc trois fois 24 px et deux interstices :
+                  * 80. La colonne en valait 64, dessinee pour deux, et la
+                  * corbeille y entrait a l'etroit.
+                  */}
                 <span
                   className="colonne-fixe"
                   style={{
-                    width: 64,
+                    width: 80,
                     flex: 'none',
                     display: 'flex',
                     gap: 4,
@@ -629,6 +673,20 @@ export default function PageBanque() {
                   >
                     <Icone nom="copy" taille={16} />
                   </button>
+
+                  {/*
+                    * La suppression demande avant d'effacer, dans un panneau
+                    * superpose. Elle a d'abord demande ici meme, entre les
+                    * icones : les trois libelles se superposaient dans une
+                    * colonne large de deux icones. Voir `SupprimerQuestion`.
+                    */}
+                  <SupprimerQuestion
+                    questionId={question.id}
+                    enonce={question.enonce}
+                    enCours={suppressionEnCours === question.id}
+                    onSupprimer={() => supprimer(question)}
+                    style={boutonLigne}
+                  />
                 </span>
               </Carte>
               </div>

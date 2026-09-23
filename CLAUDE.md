@@ -161,6 +161,30 @@ Corollaire : **un collant se vérifie en défilant, pas en lisant la règle qui 
 déclare.** Mesurer sa position avant et après un défilement complet, à chaque
 largeur de la maquette.
 
+**Un nœud qui existe ne dit rien de ce qu'on voit — et c'est la troisième fois
+que ce piège se referme.** Après les deux collants ci-dessus, la confirmation
+de suppression : trois libellés écrits dans une colonne large de deux icônes,
+avec `white-space: nowrap`. Ils se sont superposés, illisibles. Le contrôle qui
+précédait la livraison cherchait des nœuds — les trois étaient là, dans le bon
+ordre, avec les bons libellés et les bons `aria-label` — et il a conclu que
+l'écran allait bien.
+
+Chercher un nœud, lire son texte, vérifier son rôle : **aucune de ces trois
+vérifications ne touche à la mise en page**, et jsdom comme happy-dom n'en font
+aucune. Un test d'écran ne verra jamais un chevauchement ; ce n'est pas un
+manque à combler, c'est leur nature.
+
+Deux mesures l'attrapent, et elles tiennent en quelques lignes : **l'
+intersection des rectangles de deux frères**, et **la somme des largeurs des
+enfants comparée à celle du conteneur** — trois commandes de 24 px et deux
+interstices de 4 font 80, une colonne déclarée à 64 est fausse avant même qu'on
+regarde. Le détecteur et ses deux précautions d'emploi sont dans
+`.claude/rules/interface.md`.
+
+Corollaire : **« le nœud est là » et « la personne le voit » sont deux énoncés
+différents.** Le second ne se déduit jamais du premier, et seul le navigateur
+en répond.
+
 **`router.replace` est une navigation, `history.replaceState` n'en est pas
 une.** Filtrer, trier, chercher ne sont pas des navigations : `router.replace`
 change bien l'adresse, mais il fait aussi ce que fait toute navigation — **il

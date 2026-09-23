@@ -111,7 +111,7 @@ export function ConsigneReponses({
       }}
     >
       {multiple
-        ? 'Plusieurs réponses attendues — une réponse incomplète est comptée fausse.'
+        ? 'Plusieurs réponses attendues - une réponse incomplète est comptée fausse.'
         : 'Une seule réponse.'}
       {complement ? ` ${complement}` : ''}
     </p>

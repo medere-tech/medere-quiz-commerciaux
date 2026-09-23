@@ -383,7 +383,7 @@ export function Serie({
           }
           texte={
             revision !== null
-              ? 'Elle a pu être retirée depuis l’ouverture de votre liste. Les autres vous attendent.'
+              ? 'Elle a pu être retirée depuis l’ouverture de votre liste.'
               : rattrapage
                 ? 'Toutes vos dernières tentatives sont justes. Lancez une série ordinaire pour continuer.'
                 : 'Aucune question n’est publiée pour l’instant. L’entraînement s’ouvrira dès qu’il y en aura.'
@@ -753,11 +753,11 @@ function VueCorrection({ passage }: { passage: Passage }) {
                 taille="sm"
                 note={
                   etat === 'juste'
-                    ? 'Votre réponse — juste'
+                    ? 'Votre réponse - juste'
                     : etat === 'manquee'
-                      ? 'Attendue — non cochée'
+                      ? 'Attendue - non cochée'
                       : etat === 'fausse'
-                        ? 'Votre réponse — fausse'
+                        ? 'Votre réponse - fausse'
                         : undefined
                 }
               >
@@ -916,8 +916,8 @@ function FinDeSerie({
           >
             {revision
               ? justes === total
-                ? 'Votre réponse est juste : cette question sort de vos questions à revoir.'
-                : 'Toujours ratée : elle reste dans vos questions à revoir et reviendra en priorité.'
+                ? 'Cette question sort de vos questions à revoir.'
+                : 'Elle reste dans vos questions à revoir et reviendra en priorité.'
               : `${
                   justes === total
                     ? 'Série sans faute.'
@@ -1136,7 +1136,7 @@ function BarreActions({
                  le reste. Sur téléphone, la répéter ici volait la pleine
                  largeur au geste : la maquette mobile ne la dessine pas. */
               <Meta className="serie-indication">
-                {multiple ? 'Cochez au moins une réponse.' : 'Choisissez une réponse pour continuer.'}
+                {multiple ? 'Cochez au moins une réponse.' : 'Choisissez une réponse.'}
               </Meta>
             ) : (
               <span

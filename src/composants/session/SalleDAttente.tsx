@@ -10,7 +10,7 @@ import { ArreterSeance } from '@/composants/session/ArreterSeance';
 import { CodeQr } from '@/composants/session/CodeQr';
 import { Collage, type FormePosee } from '@/composants/session/Collage';
 import { Pastille } from '@/composants/session/Pastille';
-import { URL_REJOINDRE } from '@/lib/session/rejoindre';
+import { adresseRejoindre } from '@/lib/session/rejoindre';
 import { LIBELLES_LIEU, type Participant, type Session } from '@/lib/session/depot';
 import {
   animatricePar,
@@ -178,9 +178,11 @@ export function SalleDAttente({
  * **L'adresse et le code se lisent ensemble, ou ne servent à rien.** Quelqu'un
  * qui connaît le code sans savoir où le taper est exactement aussi bloqué que
  * quelqu'un qui connaît l'adresse sans le code. Les deux sont donc dans le même
- * bloc, et l'adresse vient d'une constante partagée avec la route — voir
- * `src/lib/session/rejoindre.ts` — pour qu'un écran projeté ne puisse pas
- * dicter une adresse qui n'existe plus.
+ * bloc, et l'adresse vient du navigateur lui-même — voir `adresseRejoindre`
+ * dans `src/lib/session/rejoindre.ts` — pour qu'un écran projeté ne puisse pas
+ * afficher une adresse que personne n'a vérifiée. C'est d'ailleurs ce qui se
+ * passait : un domaine écrit à la main, celui des adresses électroniques, qui
+ * ne sert nulle part à naviguer.
  */
 function BlocCode({
   code,
@@ -236,7 +238,7 @@ function BlocCode({
             ? 'Accès fermé, ce code n’ouvre plus'
             : enPause
               ? 'Le code reste valable'
-              : 'Code à dicter à la salle'}
+              : 'Code de la séance'}
         </span>
       </span>
 
@@ -259,7 +261,9 @@ function BlocCode({
         }}
       >
         Sur{' '}
-        <span style={{ fontWeight: 600, color: 'var(--neutral-100)' }}>{URL_REJOINDRE}</span>
+        <span style={{ fontWeight: 600, color: 'var(--neutral-100)' }}>
+          {adresseRejoindre()}
+        </span>
         <span className="salle-attente-code-suite">
           , puis ce code. Il reste valable toute la séance.
         </span>

@@ -84,7 +84,7 @@ if (!identifiantTable.startsWith('tbl')) {
   throw new ErreurConfiguration(
     `AIRTABLE_TABLE_FORMATIONS (« ${identifiantTable} ») ne ressemble pas à un ` +
       `identifiant de table Airtable : ceux-ci commencent par « tbl ». ` +
-      `Un nom de table ne convient pas — il se renomme, l'identifiant non. ` +
+      `Un nom de table ne convient pas : il se renomme, l'identifiant non. ` +
       `Voir docs/airtable-formations.md.`,
   );
 }

@@ -1,6 +1,6 @@
 import qrcode from 'qrcode-generator';
 
-import { URL_REJOINDRE } from '@/lib/session/rejoindre';
+import { lienRejoindre } from '@/lib/session/rejoindre';
 
 /**
  * Le QR de la séance — la même information que le code, pour qui a le
@@ -13,8 +13,9 @@ import { URL_REJOINDRE } from '@/lib/session/rejoindre';
  *
  * **L'adresse encodée contient le code**, et le code seul suffirait à un
  * humain — mais un appareil photo ne sait pas quoi faire d'un mot de six
- * lettres. L'URL vient de la constante partagée avec la route : un QR qui
- * pointerait ailleurs que le lien dicté serait la pire des deux options.
+ * lettres. L'adresse vient de `lienRejoindre`, la même source que celle
+ * affichée sous le code : un QR qui pointerait ailleurs que l'adresse lue à
+ * l'écran serait la pire des deux options.
  *
  * Rendu en SVG plutôt qu'en `<canvas>` ou en image : à 208 px sur un
  * vidéoprojecteur, les modules doivent rester des carrés nets, et le SVG ne
@@ -32,7 +33,16 @@ export function CodeQr({ code }: { code: string }) {
    * Un numéro fixé casserait le jour où un code ferait un caractère de plus.
    */
   const motif = qrcode(0, 'M');
-  motif.addData(`https://${URL_REJOINDRE}?code=${encodeURIComponent(code)}`);
+  /*
+   * **L'adresse vient du module qui la détient, et lui la tient du
+   * navigateur.**
+   *
+   * Le QR encodait `https://${URL_REJOINDRE}` — un domaine écrit à la main,
+   * celui des adresses électroniques, qui ne sert nulle part à naviguer. Rien
+   * ne garantissait qu'il réponde, et un QR qui mène ailleurs que la séance
+   * fait rater l'entrée à toute la salle sans rien signaler.
+   */
+  motif.addData(lienRejoindre(code));
   motif.make();
 
   const modules = motif.getModuleCount();

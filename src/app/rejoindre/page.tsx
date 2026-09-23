@@ -19,6 +19,20 @@ import { redirect } from 'next/navigation';
  * projeté affiche : une seule source, pour qu'un mur ne puisse pas dicter une
  * adresse morte.
  */
-export default function PageRejoindre() {
-  redirect('/session');
+export default async function PageRejoindre({
+  searchParams,
+}: {
+  searchParams: Promise<{ code?: string | string[] }>;
+}) {
+  /*
+   * **Le code traverse la redirection.** Il ne le faisait pas : le QR de la
+   * salle d'attente encodait `/rejoindre?code=XXXXXX`, et cette page renvoyait
+   * sur `/session` tout court. Scanner menait donc au formulaire vide, sur
+   * lequel il fallait ressaisir à la main le code qu'on venait de scanner —
+   * exactement ce que le QR existe pour éviter.
+   */
+  const { code } = await searchParams;
+  const propre = (Array.isArray(code) ? code[0] : code)?.trim().toUpperCase();
+
+  redirect(propre ? `/session?code=${encodeURIComponent(propre)}` : '/session');
 }

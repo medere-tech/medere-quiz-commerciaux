@@ -123,7 +123,7 @@ export function MesPrix({ uid }: { uid: string }) {
                 >
                   {/* Un tiret, pas un zéro : la marche est libre, elle n'est
                       pas un échec chiffré. */}
-                  {gagne ? compte : '—'}
+                  {gagne ? compte : '-'}
                 </span>
                 <span
                   style={{

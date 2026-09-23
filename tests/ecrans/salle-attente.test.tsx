@@ -30,7 +30,7 @@ vi.mock(import('@/lib/firebase/client'), () => ({
 
 const { SalleDAttente } = await import('@/composants/session/SalleDAttente');
 const { TITRE_PAUSE_PARTICIPANT } = await import('@/lib/session/seance');
-const { URL_REJOINDRE } = await import('@/lib/session/rejoindre');
+const { adresseRejoindre, CHEMIN_REJOINDRE } = await import('@/lib/session/rejoindre');
 
 afterEach(cleanup);
 
@@ -78,14 +78,22 @@ describe('Le code dicté à la salle', () => {
    * **L'adresse et le code se lisent ensemble ou ne servent à rien.** Quelqu'un
    * qui a le code sans l'adresse est aussi bloqué que l'inverse.
    */
-  it('affiche l’adresse à taper, depuis la constante partagée avec la route', () => {
+  it('affiche l’adresse du site où l’écran est projeté, pas un domaine écrit à la main', () => {
     monter();
-    expect(screen.getByText(URL_REJOINDRE)).toBeTruthy();
+
+    /*
+     * Ce que ce test garde : l'adresse lue sur le mur est celle de
+     * l'application qui l'affiche. En jsdom, `location.host` vaut
+     * « localhost:3000 » ; en production, le domaine servi. L'assertion porte
+     * donc sur la règle, pas sur une valeur écrite deux fois.
+     */
+    expect(screen.getByText(`${window.location.host}${CHEMIN_REJOINDRE}`)).toBeTruthy();
+    expect(adresseRejoindre()).toBe(`${window.location.host}${CHEMIN_REJOINDRE}`);
   });
 
-  it('annonce le code à dicter tant que la séance n’est pas suspendue', () => {
+  it('nomme le code tant que la séance n’est pas suspendue', () => {
     monter();
-    expect(screen.getByText('Code à dicter à la salle')).toBeTruthy();
+    expect(screen.getByText('Code de la séance')).toBeTruthy();
   });
 });
 
@@ -309,7 +317,7 @@ describe('La porte de la salle', () => {
   it('ne le dit pas quand la porte est ouverte', () => {
     monter({ verrouillee: false });
     expect(screen.queryByText(/ce code n’ouvre plus/)).toBeNull();
-    expect(screen.getByText('Code à dicter à la salle')).toBeTruthy();
+    expect(screen.getByText('Code de la séance')).toBeTruthy();
   });
 
   /* Verrouiller n'est pas mettre en pause : l'écran ne doit pas le laisser

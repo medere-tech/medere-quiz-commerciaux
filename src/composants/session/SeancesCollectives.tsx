@@ -167,8 +167,8 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
           <h1 className="preparer-titre">Séances collectives</h1>
           <p className="preparer-sous-titre">
             {pretes.length === 0
-              ? 'Aucune séance n’est prête. L’historique vous dit ce qui a trébuché la dernière fois.'
-              : `${pretes.length === 1 ? 'Une séance est prête' : `${pretes.length} séances sont prêtes`} à lancer. L’historique vous dit ce qui a trébuché la dernière fois.`}
+              ? 'Aucune séance n’est prête.'
+              : `${pretes.length === 1 ? 'Une séance est prête' : `${pretes.length} séances sont prêtes`} à lancer.`}
           </p>
         </div>
         {/*
@@ -205,7 +205,7 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
                 <span
                   style={{ display: 'block', fontSize: 'var(--body-md-size)', fontWeight: 600 }}
                 >
-                  {titreDeSeance(enCours)} — en cours
+                  {titreDeSeance(enCours)} - en cours
                 </span>
                 <Meta style={{ fontSize: 13 }}>
                   {enCours.demarree
@@ -461,7 +461,7 @@ function LignePassee({ seance, derniere }: { seance: Session; derniere: boolean 
 
       <span className="seance-mesure">
         {taux === null ? (
-          <Meta style={{ fontSize: 13 }}>—</Meta>
+          <Meta style={{ fontSize: 13 }}>-</Meta>
         ) : (
           <>
             <span style={{ flex: 1 }}>

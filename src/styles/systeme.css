@@ -426,6 +426,39 @@ a:hover {
   min-width: 0;
 }
 
+/*
+ * **La barre latérale ne part pas avec le défilement.**
+ *
+ * En colonne, elle est un élément d'une boîte flexible dont la hauteur suit
+ * celle de la page. Par défaut elle s'étire sur toute cette hauteur : son
+ * contenu reste en haut, et dès que la page défile, la navigation sort de
+ * l'écran. Sur la banque de questions ou les statistiques, qui défilent sur
+ * plusieurs hauteurs d'écran, il fallait remonter pour changer de section.
+ *
+ * Trois déclarations, et les trois sont nécessaires :
+ *   - `align-self: flex-start` arrête l'étirement. Sans elle, la barre fait
+ *     déjà la hauteur du conteneur et `sticky` n'a aucune course à parcourir.
+ *   - `height: 100vh` lui donne la hauteur de la fenêtre, pas celle du texte.
+ *   - `position: sticky` la cale contre le haut de la fenêtre.
+ *
+ * `overflow-y: auto` est une sécurité, pas le mode normal : le contenu tient
+ * au-dessus de la ligne de flottaison aux hauteurs de la maquette. Sur une
+ * fenêtre très courte, mieux vaut une barre qui défile pour elle-même qu'un
+ * bouton de déconnexion inatteignable.
+ *
+ * Bornée au-dessus de 900 px : sous ce seuil la barre est un tiroir `fixed`,
+ * qui ne défile déjà pas avec la page.
+ */
+@media (min-width: 901px) {
+  .coquille-nav {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    overflow-y: auto;
+  }
+}
+
 .coquille-entete {
   display: none;
 }
@@ -2535,23 +2568,65 @@ a:hover {
   gap: var(--space-10);
 }
 
+/*
+ * **La carte de séance : une taille proportionnée, pas une largeur figée.**
+ *
+ * Elle valait 232 pixels à toutes les largeurs — la mesure de la maquette de
+ * référence. Sur un écran large, elle paraissait perdue à côté d'un titre qui,
+ * lui, grandit ; sur un portable étroit, elle mangeait la moitié de la ligne.
+ * Elle suit désormais la fenêtre entre deux bornes, et sa typographie suit sa
+ * largeur.
+ */
 .accueil-seance {
   flex: none;
-  width: 232px;
+  width: clamp(232px, 22vw, 320px);
 }
 
-.accueil-seance:empty {
-  display: none;
+.bandeau-seance-titre {
+  display: block;
+  margin-top: 10px;
+  font-family: var(--font-display);
+  font-size: clamp(19px, 1.5vw, 24px);
+  line-height: 1.2;
+  color: #fff;
+  text-wrap: pretty;
+}
+
+.bandeau-seance-detail {
+  margin: 8px 0 16px;
+  font-size: var(--body-sm-size);
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.72);
+  text-wrap: pretty;
+}
+
+/*
+ * La place tenue pendant la lecture.
+ *
+ * La carte se remplit après un aller-retour Firestore. Sans réserve, l'accueil
+ * se peindrait sans elle puis se décalerait — exactement le déplacement sous
+ * les doigts que la lecture au montage cherche à éviter.
+ */
+.bandeau-seance-reserve {
+  min-height: 188px;
+}
+
+@media (max-width: 899px) {
+  .accueil-seance {
+    width: 100%;
+  }
+
+  /* Empilée sous le titre, une réserve de hauteur ne protège plus rien : elle
+     ne ferait que trouer l'écran le temps d'une lecture. */
+  .bandeau-seance-reserve {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 899px) {
   .accueil-entete {
     flex-direction: column;
     gap: var(--space-6);
-  }
-
-  .accueil-seance {
-    width: 100%;
   }
 }
 

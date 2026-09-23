@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { question } from './aide';
@@ -32,21 +32,29 @@ function vue(remplacements: Partial<VueScene> = {}): VueScene {
   };
 }
 
-function poser(remplacements: Partial<VueScene> = {}) {
+/**
+ * Rend l'écran. `dernier` n'appartient pas à la vue — c'est une propriété à
+ * part de `SceneProjetee` — d'où sa place à côté des remplacements, et non
+ * dedans.
+ */
+function poser(remplacements: Partial<VueScene> & { dernier?: boolean } = {}) {
+  const { dernier = false, ...vueRemplacements } = remplacements;
   const rien = vi.fn();
+  const onSuivante = vi.fn();
   render(
     <SceneProjetee
-      vue={vue(remplacements)}
+      vue={vue(vueRemplacements)}
       onReveler={rien}
-      onSuivante={rien}
+      onSuivante={onSuivante}
       onRejouer={rien}
       onPause={rien}
       onReprendre={rien}
       onTerminer={rien}
       onAbandonner={rien}
-      dernier={false}
+      dernier={dernier}
     />,
   );
+  return { onSuivante };
 }
 
 afterEach(cleanup);
@@ -71,7 +79,7 @@ describe('la consigne de réponse', () => {
     // Trois formulations pour une même règle seraient pires que le silence :
     // la consigne est un seul composant, partagé par les trois écrans.
     expect(
-      screen.getByText('Plusieurs réponses attendues — une réponse incomplète est comptée fausse.'),
+      screen.getByText('Plusieurs réponses attendues - une réponse incomplète est comptée fausse.'),
     ).toBeTruthy();
   });
 });
@@ -122,5 +130,54 @@ describe('la question retirée', () => {
     poser({ question: null });
 
     expect(screen.getByText(/n’est plus publiée/i)).toBeTruthy();
+  });
+});
+
+/**
+ * Ce qui reste possible quand la question a disparu de la banque.
+ *
+ * **Le cul-de-sac que ces tests ferment.** Supprimer une question qu'une
+ * séance préparée contient rend `question` nul. L'écran l'annonçait, mais ses
+ * commandes restaient celles d'une question ordinaire : « Révéler la bonne
+ * réponse », dont le gestionnaire sort en silence faute de question. Or
+ * « Question suivante » n'apparaît qu'*après* révélation. La révélation ne
+ * pouvant pas avoir lieu, il n'existait aucun chemin vers la question d'après :
+ * devant la salle, la seule issue était d'arrêter la séance.
+ */
+describe('une question retirée de la banque', () => {
+  it('n’offre plus de révéler : il n’y a rien à révéler', () => {
+    poser({ question: null });
+
+    expect(screen.queryByRole('button', { name: /Révéler/i })).toBeNull();
+  });
+
+  it('laisse passer à la suivante, et c’est l’action mise en avant', () => {
+    const { onSuivante } = poser({ question: null });
+
+    const suivante = screen.getByRole('button', { name: 'Question suivante' });
+    fireEvent.click(suivante);
+
+    expect(onSuivante).toHaveBeenCalledTimes(1);
+  });
+
+  it('propose de terminer quand c’est la dernière', () => {
+    poser({ question: null, dernier: true });
+
+    expect(screen.getByRole('button', { name: 'Terminer et classer' })).toBeTruthy();
+  });
+
+  /* L'animatrice n'a pas à deviner que le trou vient d'une suppression : rien,
+     sur cet écran, ne relierait le vide à un geste fait trois jours plus tôt. */
+  it('dit pourquoi il n’y a rien à montrer', () => {
+    poser({ question: null });
+
+    expect(screen.getByText(/retirée de la banque/)).toBeTruthy();
+  });
+
+  it('garde Pause et l’arrêt de séance', () => {
+    poser({ question: null });
+
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Arrêter/ })).toBeTruthy();
   });
 });
