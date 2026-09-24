@@ -9,14 +9,19 @@ import { Bouton, Carte, Meta, TitreSection } from '@/composants/ds/primitives';
 import { EtatErreur, EtatVide, Squelettes } from '@/composants/ds/etats';
 import { Jauge } from '@/composants/ds/parcours';
 import { Icone } from '@/composants/ds/Icone';
+import { ArreterSeance } from '@/composants/session/ArreterSeance';
 import { DetailSeancePassee, dateCourte } from '@/composants/session/DetailSeancePassee';
+import { SeanceQuiBloque } from '@/composants/session/SeanceQuiBloque';
 import type { Referentiel } from '@/composants/parcours/donnees';
 import { authentification } from '@/lib/firebase/client';
 import {
+  abandonner,
   chargerBilan,
   lancerSeance,
   mesSeances,
   supprimerSeance,
+  terminerSession,
+  vivantes,
   type LigneBilan,
   type Session,
 } from '@/lib/session/depot';
@@ -94,10 +99,14 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
     [seances],
   );
 
-  const enCours = useMemo(
-    () => seances.find((seance) => seance.statut === 'encours' || seance.statut === 'pause'),
-    [seances],
-  );
+  /*
+   * **Toutes les vivantes, pas la première trouvée.** `find` n'en montrait
+   * qu'une : avec deux séances ouvertes — ce que rien n'empêche, voir le
+   * README — la seconde était invisible, donc impossible à clore depuis le
+   * seul écran où l'on constate le problème. La dernière lancée d'abord.
+   */
+  const ouvertes = useMemo(() => vivantes(seances), [seances]);
+  const enCours = ouvertes[0];
 
   /** Les closes, la plus récente d'abord. */
   const passees = useMemo(
@@ -132,6 +141,23 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
 
   // `null` tant que le bilan de CETTE séance n'est pas arrivé.
   const bilan = derniere && bilanLu?.id === derniere.id ? bilanLu.lignes : null;
+
+  /*
+   * Clore une séance depuis la liste : on relit ensuite, pour que la carte
+   * disparaisse et que « Lancer » redevienne possible sans rechargement.
+   */
+  /*
+   * **Le refus de lancement, et il est nominatif.** L'identifiant de la séance
+   * qu'on vient d'essayer de lancer pendant qu'une autre tourne. Porté ici
+   * plutôt que dans la rangée : une seule à la fois peut être refusée, et le
+   * lancement d'une autre doit effacer le refus précédent.
+   */
+  const [refusee, setRefusee] = useState<string>();
+
+  const clore = useCallback(async (geste: Promise<unknown>) => {
+    await geste;
+    setTour((valeur) => valeur + 1);
+  }, []);
 
   const reprendreLesRatees = useCallback(
     (questionIds: string[]) => {
@@ -188,9 +214,17 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
 
       <div className="preparer-grille">
         <div className="preparer-colonne">
-          {/* Une séance ouverte passe avant tout : c'est là qu'il faut aller. */}
-          {enCours && (
+          {/*
+            * Une séance ouverte passe avant tout : c'est là qu'il faut aller.
+            *
+            * **Et c'est aussi là qu'on la clôt.** Arrêter une séance obligeait
+            * à ouvrir l'écran d'animation — c'est-à-dire à projeter une séance
+            * qu'on voulait justement fermer. Noémie voit le problème ici ; le
+            * geste est ici.
+            */}
+          {ouvertes.map((ouverte) => (
             <Carte
+              key={ouverte.id}
               rayon="var(--radius-lg)"
               rembourrage="18px 22px"
               style={{
@@ -205,14 +239,21 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
                 <span
                   style={{ display: 'block', fontSize: 'var(--body-md-size)', fontWeight: 600 }}
                 >
-                  {titreDeSeance(enCours)} - en cours
+                  {titreDeSeance(ouverte)} - {ouverte.statut === 'pause' ? 'en pause' : 'en cours'}
                 </span>
                 <Meta style={{ fontSize: 13 }}>
-                  {enCours.demarree
-                    ? `Question ${enCours.indexCourant + 1} sur ${enCours.questionIds.length}`
+                  {ouverte.demarree
+                    ? `Question ${ouverte.indexCourant + 1} sur ${ouverte.questionIds.length}`
                     : 'La salle est ouverte, la première question n’est pas posée.'}
                 </Meta>
               </span>
+              <ArreterSeance
+                presentation="salle"
+                onTerminer={() => void clore(terminerSession(ouverte.id))}
+                onAbandonner={() => void clore(abandonner(ouverte.id))}
+                questionsJouees={ouverte.demarree ? ouverte.indexCourant + 1 : 0}
+                questionsTotal={ouverte.questionIds.length}
+              />
               <Bouton
                 href={'/animer' as Route}
                 iconeGauche={<Icone nom="presentation" taille={15} />}
@@ -220,7 +261,7 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
                 Reprendre l’animation
               </Bouton>
             </Carte>
-          )}
+          ))}
 
           <TitreSection indice="préparées, pas encore lancées">Prêtes à lancer</TitreSection>
 
@@ -239,8 +280,25 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
                   key={seance.id}
                   seance={seance}
                   surLancer={() => {
+                    /* **On refuse, on ne clôt pas à sa place.** Terminer la
+                       précédente emporterait son classement sans que personne
+                       ne l'ait demandé. */
+                    if (enCours) {
+                      setRefusee(seance.id);
+                      return;
+                    }
+                    setRefusee(undefined);
                     void lancerSeance(seance.id).then(() => routeur.push('/animer' as Route));
                   }}
+                  blocage={
+                    refusee === seance.id && enCours ? (
+                      <SeanceQuiBloque
+                        seance={enCours}
+                        onTerminer={() => void clore(terminerSession(enCours.id))}
+                        onAbandonner={() => void clore(abandonner(enCours.id))}
+                      />
+                    ) : undefined
+                  }
                   surSupprimer={() => {
                     void supprimerSeance(seance.id).then(() => setTour((valeur) => valeur + 1));
                   }}
@@ -320,10 +378,18 @@ function SeancePrete({
   seance,
   surLancer,
   surSupprimer,
+  blocage,
 }: {
   seance: Session;
   surLancer: () => void;
   surSupprimer: () => void;
+  /**
+   * Ce qui s'affiche quand le lancement est refusé : la séance qui bloque, et
+   * de quoi la clore. Rendu **dans cette rangée**, sous le bouton qu'on vient
+   * de presser — un refus qui renverrait vers un autre écran ferait perdre le
+   * fil.
+   */
+  blocage?: React.ReactNode;
 }) {
   const minutes = dureeAnnonceeMinutes(seance);
 
@@ -403,6 +469,8 @@ function SeancePrete({
           </span>
         ))}
       </div>
+
+      {blocage}
     </Carte>
   );
 }

@@ -15,15 +15,19 @@ import {
   type AttributsQuestion,
 } from '@/composants/session/BanqueDeSeance';
 import { PanneauComposition, CADENCES } from '@/composants/session/PanneauComposition';
+import { SeanceQuiBloque } from '@/composants/session/SeanceQuiBloque';
 import type { Referentiel } from '@/composants/parcours/donnees';
 import { authentification } from '@/lib/firebase/client';
 import { chargerStatistiques } from '@/lib/statistiques/depot';
 import { tauxEchec } from '@/lib/statistiques/analyse';
 import {
+  abandonner,
   creerSession,
+  maSessionEnCours,
   mesSeances,
   modifierSeance,
   preparerEtLancer,
+  terminerSession,
   type Session,
 } from '@/lib/session/depot';
 import { titreParDefaut } from '@/lib/session/seance';
@@ -74,6 +78,13 @@ export function ComposerSeance({
   const [etat, setEtat] = useState<Etat>('chargement');
   const [enregistrement, setEnregistrement] = useState(false);
   const [echecEcriture, setEchecEcriture] = useState<string | null>(null);
+
+  /*
+   * La séance qui tourne déjà et qui interdit d'en lancer une seconde. Le
+   * geste pour la clore est rendu ici même : renvoyer vers la liste ferait
+   * perdre la composition en cours, et Noémie reviendrait de toute façon.
+   */
+  const [bloquePar, setBloquePar] = useState<Session | null>(null);
 
   const [titre, setTitre] = useState(() => titreParDefaut());
   const [description, setDescription] = useState('');
@@ -213,6 +224,22 @@ export function ComposerSeance({
         if (reprise) {
           await modifierSeance(reprise, choisies, secondes, { titre, description });
         } else if (lancer) {
+          /*
+           * **On vérifie qu'aucune séance ne tourne, et au moment du clic.**
+           *
+           * Une lecture au montage aurait vieilli : Noémie compose pendant dix
+           * minutes, et la séance d'à côté peut s'être ouverte entretemps. Ce
+           * n'est qu'un garde-fou — les règles ne savent pas interroger une
+           * collection, donc elles ne peuvent pas interdire deux séances
+           * vivantes — mais c'est le geste ordinaire qu'il faut tenir.
+           */
+          const vivante = await maSessionEnCours(uid);
+          if (vivante) {
+            setBloquePar(vivante);
+            setEnregistrement(false);
+            return;
+          }
+
           // Un seul chemin d'ouverture : on prépare, puis on lance.
           await preparerEtLancer(uid, choisies, secondes, annonce);
           routeur.push('/animer' as Route);
@@ -315,6 +342,18 @@ export function ComposerSeance({
           Séances et historique
         </Bouton>
       </header>
+
+      {bloquePar && (
+        <SeanceQuiBloque
+          seance={bloquePar}
+          onTerminer={() => {
+            void terminerSession(bloquePar.id).then(() => setBloquePar(null));
+          }}
+          onAbandonner={() => {
+            void abandonner(bloquePar.id).then(() => setBloquePar(null));
+          }}
+        />
+      )}
 
       {echecEcriture && (
         <p

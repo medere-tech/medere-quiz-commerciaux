@@ -30,6 +30,9 @@ const chargerStatistiques = vi.fn<() => Promise<StatsQuestion[]>>();
 const mesSeances = vi.fn<() => Promise<Session[]>>();
 const creerSession = vi.fn<() => Promise<string>>();
 const preparerEtLancer = vi.fn<() => Promise<string>>();
+const maSessionEnCours = vi.fn<() => Promise<Session | null>>();
+const terminerSession = vi.fn<() => Promise<void>>();
+const abandonner = vi.fn<() => Promise<void>>();
 const pousser = vi.fn();
 
 vi.mock(import('@/lib/firebase/client'), () => ({
@@ -51,6 +54,9 @@ vi.mock(import('@/lib/session/depot'), async (original) => {
     mesSeances: () => mesSeances(),
     creerSession: (...a: unknown[]) => creerSession(...(a as [])),
     preparerEtLancer: (...a: unknown[]) => preparerEtLancer(...(a as [])),
+    maSessionEnCours: () => maSessionEnCours(),
+    terminerSession: () => terminerSession(),
+    abandonner: () => abandonner(),
     modifierSeance: vi.fn(async () => {}),
   };
 });
@@ -118,6 +124,10 @@ beforeEach(() => {
   mesSeances.mockReset().mockResolvedValue([]);
   creerSession.mockReset().mockResolvedValue('s-neuve');
   preparerEtLancer.mockReset().mockResolvedValue('s-neuve');
+  // Le cas courant : aucune séance ne tourne, donc rien ne bloque.
+  maSessionEnCours.mockReset().mockResolvedValue(null);
+  terminerSession.mockReset().mockResolvedValue();
+  abandonner.mockReset().mockResolvedValue();
   pousser.mockReset();
 });
 
@@ -403,6 +413,81 @@ describe('Enregistrer et lancer', () => {
     await waitFor(() => expect(preparerEtLancer).toHaveBeenCalledOnce());
     expect(creerSession).not.toHaveBeenCalled();
     expect(pousser).toHaveBeenCalledWith('/animer');
+  });
+
+  /**
+   * **On refuse de lancer pendant qu'une séance tourne, et on met le geste à
+   * portée.**
+   *
+   * Deux séances vivantes se disputent l'écran d'animation, et l'ancien code
+   * reste rejoignable. Clore la précédente automatiquement aurait réglé ça —
+   * mais on ne termine pas une séance sans que personne ne l'ait demandé : son
+   * classement partirait avec.
+   */
+  describe('quand une séance tourne déjà', () => {
+    function seanceVivante(): Session {
+      return {
+        id: 's-en-cours',
+        titre: 'Séance du jeudi',
+        questionIds: ['q1', 'q2'],
+        indexCourant: 1,
+        demarree: true,
+        statut: 'encours',
+      } as Session;
+    }
+
+    it('refuse de lancer, et nomme celle qui bloque', async () => {
+      maSessionEnCours.mockResolvedValue(seanceVivante());
+      await monter();
+      fireEvent.click(ligne('Durée minimale d’un e-learning indemnisé ?'));
+      fireEvent.click(screen.getByRole('button', { name: /Lancer la séance/ }));
+
+      expect(
+        await screen.findByText(/Une séance est déjà en cours : « Séance du jeudi »/),
+      ).toBeTruthy();
+      expect(preparerEtLancer).not.toHaveBeenCalled();
+      expect(pousser).not.toHaveBeenCalled();
+    });
+
+    /* **Le geste est ici, pas dans un autre écran.** Renvoyer vers la liste
+       ferait perdre la composition en cours. */
+    it('offre les deux issues sur place', async () => {
+      maSessionEnCours.mockResolvedValue(seanceVivante());
+      await monter();
+      fireEvent.click(ligne('Durée minimale d’un e-learning indemnisé ?'));
+      fireEvent.click(screen.getByRole('button', { name: /Lancer la séance/ }));
+      await screen.findByText(/Une séance est déjà en cours/);
+
+      fireEvent.click(screen.getByRole('button', { name: /Arrêter la séance/ }));
+
+      expect(await screen.findByRole('dialog')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /Terminer/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /Abandonner/ })).toBeTruthy();
+    });
+
+    it('enregistre sans lancer, même pendant qu’une séance tourne', async () => {
+      maSessionEnCours.mockResolvedValue(seanceVivante());
+      await monter();
+      fireEvent.click(ligne('Durée minimale d’un e-learning indemnisé ?'));
+      fireEvent.click(screen.getByRole('button', { name: 'Enregistrer et fermer' }));
+
+      /* Préparer n'ouvre rien : aucune raison de le refuser. */
+      await waitFor(() => expect(creerSession).toHaveBeenCalledOnce());
+      expect(screen.queryByText(/Une séance est déjà en cours/)).toBeNull();
+    });
+
+    /* La vérification a lieu au clic, pas au montage : Noémie compose pendant
+       dix minutes, et la séance d'à côté peut s'ouvrir entretemps. */
+    it('vérifie au moment du clic, pas à l’ouverture de l’écran', async () => {
+      await monter();
+      fireEvent.click(ligne('Durée minimale d’un e-learning indemnisé ?'));
+
+      maSessionEnCours.mockResolvedValue(seanceVivante());
+      fireEvent.click(screen.getByRole('button', { name: /Lancer la séance/ }));
+
+      expect(await screen.findByText(/Une séance est déjà en cours/)).toBeTruthy();
+      expect(preparerEtLancer).not.toHaveBeenCalled();
+    });
   });
 
   it('enregistre sans lancer, et revient à la liste', async () => {

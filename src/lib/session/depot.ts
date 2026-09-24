@@ -232,6 +232,55 @@ function lireSession(id: string, donnees: Record<string, unknown>): Session {
 /* ------------------------------------------------------- côté participant */
 
 /**
+ * La séance vivante à retenir quand il y en a plusieurs : **la plus récemment
+ * lancée**.
+ *
+ * **Le défaut que ça répare, et il attendait un jeudi pour se voir.** Trois
+ * lectures prenaient « la première trouvée » — c'est-à-dire, chez Firestore,
+ * la première par identifiant de document. Aucun rapport avec ce que Noémie
+ * veut animer. Une séance oubliée en pause la semaine d'avant reste vivante
+ * indéfiniment : le jeudi suivant, `/animer` pouvait ouvrir celle-là, et
+ * l'accueil des commerciaux annoncer la mauvaise.
+ *
+ * **`ouverteLe` est la bonne date, et c'est la seule.** Elle est posée au
+ * lancement, et nulle part ailleurs — reprendre après une pause ne la touche
+ * pas, ce qui est voulu : une séance reprise n'est pas une séance neuve. Une
+ * séance vivante sans cette date est traitée comme la plus ancienne ; le cas
+ * n'arrive pas par l'application, mais une écriture du SDK Admin contourne les
+ * règles, et une date absente ne doit pas l'emporter sur une date connue.
+ *
+ * **Ce que cette fonction ne règle pas :** que deux séances puissent être
+ * vivantes en même temps. Voir le README, « Deux séances vivantes ».
+ *
+ * Elle ne demande que la date, pas une `Session` entière : c'est tout ce
+ * qu'elle lit, et un paramètre plus large obligerait à fabriquer une séance
+ * complète — ou à convertir — pour l'éprouver.
+ */
+/**
+ * Les séances encore vivantes, la dernière lancée d'abord.
+ *
+ * **Plusieurs peuvent l'être en même temps**, et l'outil ne l'empêche pas :
+ * une séance reste `encours` ou `pause` tant que personne ne la termine. C'est
+ * documenté au README, « Deux séances vivantes ». Les écrans qui doivent les
+ * *toutes* montrer — la liste des séances collectives, d'où l'on peut les
+ * clore — passent par ici ; ceux qui n'en veulent qu'une prennent la première.
+ */
+export function vivantes(seances: Session[]): Session[] {
+  return seances
+    .filter((seance) => EN_COURS.includes(seance.statut))
+    .sort((a, b) => (b.ouverteLeMs ?? -Infinity) - (a.ouverteLeMs ?? -Infinity));
+}
+
+export function laPlusRecemmentLancee<T extends { ouverteLeMs: number | null }>(
+  seances: T[],
+): T | null {
+  return (
+    [...seances].sort((a, b) => (b.ouverteLeMs ?? -Infinity) - (a.ouverteLeMs ?? -Infinity))[0] ??
+    null
+  );
+}
+
+/**
  * Retrouve une séance par son code, lu à voix haute puis saisi à la main.
  *
  * La requête ne porte que sur le code — une seule égalité, donc aucun index
@@ -244,7 +293,10 @@ export async function chercherSessionParCode(code: string): Promise<Session | nu
   );
 
   const seances = instantane.docs.map((document) => lireSession(document.id, document.data()));
-  return seances.find((seance) => EN_COURS.includes(seance.statut)) ?? null;
+  /* Deux séances vivantes ne devraient pas partager un code — six caractères
+     tirés au hasard — mais si cela arrivait, c'est la dernière lancée qu'on
+     rejoint, pas celle dont l'identifiant vient en premier. */
+  return laPlusRecemmentLancee(seances.filter((seance) => EN_COURS.includes(seance.statut)));
 }
 
 /**
@@ -542,10 +594,13 @@ export async function maSessionEnCours(animateurUid: string): Promise<Session | 
     ),
   );
 
+  /* **La dernière lancée, et c'est tout le correctif.** « La première
+     trouvée » n'avait aucune raison d'être celle que Noémie veut animer : une
+     séance oubliée en pause la semaine d'avant la devançait. */
   return (
-    instantane.docs
-      .map((document) => lireSession(document.id, document.data()))
-      .find((seance) => EN_COURS.includes(seance.statut)) ?? null
+    laPlusRecemmentLancee(
+      vivantes(instantane.docs.map((document) => lireSession(document.id, document.data()))),
+    ) ?? null
   );
 }
 
@@ -875,7 +930,9 @@ export async function seanceOuverte(): Promise<Session | null> {
   );
 
   const seances = instantane.docs.map((document) => lireSession(document.id, document.data()));
-  return seances[0] ?? null;
+  /* La dernière lancée, et non la première par identifiant : avec deux séances
+     vivantes, l'accueil annonçait celle que personne n'anime. */
+  return laPlusRecemmentLancee(seances);
 }
 
 /**

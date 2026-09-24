@@ -993,6 +993,24 @@ Les routes `/admin` sont protégées côté serveur par le custom claim, pas par
 | L'animatrice ferme son onglet | Rien. Tout l'état vit dans Firestore ; elle retrouve sa séance en rouvrant, à la question près. C'est ce qui interdit de garder le compteur de réponses dans son navigateur. |
 | Un participant perd la connexion | `onSnapshot` reconnecte seul. `fromCache` sert à l'annoncer plutôt qu'à afficher une question périmée en silence. Une réponse partie hors ligne est rejouée — et refusée si la révélation a eu lieu entretemps, ce que l'écran dit. |
 
+**Deux séances vivantes en même temps sont possibles, et rien ne l'empêche.** Une séance reste `encours` ou `pause` tant que personne ne la termine : une séance oubliée en pause la semaine d'avant est toujours vivante le jeudi suivant. Il n'existe ni expiration, ni limite à une séance ouverte par animatrice, ni ménage automatique.
+
+Trois lectures en dépendaient et prenaient **la première trouvée** — c'est-à-dire, chez Firestore, la première par identifiant de document, ce qui n'a aucun rapport avec ce que Noémie veut animer :
+
+| | Ce qu'elle choisissait | Ce qu'elle choisit |
+|---|---|---|
+| `maSessionEnCours` — `/animer` | la première par identifiant | **la plus récemment lancée** |
+| `seanceOuverte` — bandeau d'accueil et annonce de l'écran d'accès | la première par identifiant | **la plus récemment lancée** |
+| `chercherSessionParCode` — entrée par le code | la première par identifiant | **la plus récemment lancée**, à code égal |
+
+Toutes trois passent désormais par `laPlusRecemmentLancee`, qui trie sur `ouverteLe`. **Cette date est posée au lancement et nulle part ailleurs** : reprendre après une pause ne la touche pas, et c'est voulu — une séance reprise n'est pas une séance neuve. `prochaineSeance`, qui ne regarde que des séances en attente, trie sur `creeeLe` : une séance préparée n'a pas encore de date de lancement.
+
+**La coexistence est désormais refusée au lancement.** Décision prise : on refuse, on nomme la séance qui bloque, et on met les deux issues à portée — plutôt que de clore la précédente automatiquement, ce qui emporterait son classement sans que personne ne l'ait demandé. Le refus vaut sur les deux chemins d'ouverture, « Lancer » depuis la liste et « Préparer et lancer » depuis le compositeur, et il est **vérifié au moment du clic** : une composition dure dix minutes, et la séance d'à côté peut s'ouvrir entretemps.
+
+**Ce n'est pas une garantie, c'est un garde-fou, et la distinction compte.** Les règles ne peuvent pas interdire deux séances vivantes : il faudrait qu'une règle interroge une collection, ce que Firestore ne permet pas. Un client modifié passerait outre, et une écriture du SDK Admin aussi. Ce qui est tenu, c'est le geste ordinaire — et le tri ci-dessus reste la réponse au cas où deux séances coexistent malgré tout.
+
+**Et l'on clôt une séance depuis la liste.** Arrêter obligeait à ouvrir l'écran d'animation, c'est-à-dire à projeter la séance qu'on voulait fermer. Chaque séance vivante porte maintenant son panneau `ArreterSeance` — le même composant, avec ses deux issues et leurs conséquences écrites — dans la liste des séances collectives. C'est là que Noémie constate le problème, c'est là qu'elle le règle.
+
 **Le compteur de réponses est tenu par une Cloud Function.** Un participant ne peut pas compter lui-même — il ne lit pas les réponses des autres, et c'est voulu. Le faire écrire par l'animatrice l'aurait lié à son onglet. Le déclencheur `compterReponseSession` incrémente `repondants` sur la séance, et **n'agrège rien** : agréger là compterait chaque réponse deux fois, puisque le participant écrit aussi sous `users/{uid}/reponses`.
 
 ### Classement de séance et prix
