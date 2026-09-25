@@ -226,16 +226,24 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
             <Carte
               key={ouverte.id}
               rayon="var(--radius-lg)"
-              rembourrage="18px 22px"
+              rembourrage="20px 22px"
               style={{
                 marginBottom: 'var(--air-bloc)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 'var(--space-4)',
+                /*
+                 * **La rangée entière, pas le seul bouton.** Deux actions
+                 * voisinent désormais le titre : `--space-4` les collait l'une
+                 * à l'autre et au texte. L'espacement vertical suit, sinon
+                 * l'air manque au-dessus et en dessous dès que la rangée passe
+                 * sur deux lignes.
+                 */
+                gap: 'var(--space-5)',
+                rowGap: 'var(--space-4)',
                 flexWrap: 'wrap',
               }}
             >
-              <span style={{ flex: 1, minWidth: 200 }}>
+              <span style={{ flex: 1, minWidth: 220 }}>
                 <span
                   style={{ display: 'block', fontSize: 'var(--body-md-size)', fontWeight: 600 }}
                 >
@@ -248,7 +256,7 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
                 </Meta>
               </span>
               <ArreterSeance
-                presentation="salle"
+                presentation="liste"
                 onTerminer={() => void clore(terminerSession(ouverte.id))}
                 onAbandonner={() => void clore(abandonner(ouverte.id))}
                 questionsJouees={ouverte.demarree ? ouverte.indexCourant + 1 : 0}

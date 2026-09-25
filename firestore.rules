@@ -924,6 +924,49 @@ service cloud.firestore {
         && horodatagePasse(donnees.demandeLe);
     }
 
+    /*
+     * **Le podium de régularité — l'écart assumé de l'écran 04b.**
+     *
+     * La maquette dessine un classement complet de l'équipe sur le taux de
+     * maîtrise. On publie un podium sur la **régularité**, et ces règles sont
+     * ce qui rend la différence réelle plutôt que décorative.
+     *
+     * **Deux documents, deux portées.**
+     *
+     * `classements/regularite` ne contient que les nommés — trois valeurs au
+     * plus, jamais une série à zéro, jamais moins de trois séries vivantes. Il
+     * est lisible par le domaine : c'est le point de la fonctionnalité.
+     *
+     * `classements/regularite/personnel/{uid}` porte le rang de chacun et
+     * l'écart avec la valeur du dessus. **Lui seul le lit.** C'est ce qui
+     * permet d'annoncer « deux jours de plus et vous passez sixième » sans que
+     * personne n'apprenne le rang de personne.
+     *
+     * **`list` est refusé partout, et c'est la clause décisive.** Sans elle,
+     * lister `personnel` reconstituerait le classement complet — exactement ce
+     * qu'on refuse d'afficher. Aucune distribution n'est publiée non plus,
+     * même anonyme : sur une équipe de dix, un zéro dans une liste se devine.
+     *
+     * **Aucune écriture client, pas même par son propriétaire.** Un rang qu'on
+     * peut s'attribuer ne vaut rien. La Cloud Function écrit par le SDK Admin,
+     * hors de ces règles ; cette autorisation dit qui aurait le droit, et
+     * ferme la porte à tous les autres.
+     *
+     * **Aucun taux de maîtrise n'entre ici.** Il ne sort pas de `users/{uid}`,
+     * et le document publié ne porte que nom, couleur, série et date.
+     */
+    match /classements/{classement} {
+      allow get: if domaineAutorise();
+      allow list: if false;
+      allow write: if false;
+
+      match /personnel/{uid} {
+        allow get: if estProprietaire(uid);
+        allow list: if false;
+        allow write: if false;
+      }
+    }
+
     match /sessions/{sessionId} {
       allow read: if domaineAutorise();
       allow create: if estAdmin()

@@ -15,7 +15,8 @@ import {
 import { BandeauSeance } from '@/composants/session/BandeauSeance';
 import { ObjectifDuJour } from '@/composants/parcours/ObjectifDuJour';
 import { MesRecompenses } from '@/composants/parcours/MesRecompenses';
-import { mesurerCatalogue } from '@/lib/serie/recompenses';
+import { mesurerAssiduite, mesurerCatalogue } from '@/lib/serie/recompenses';
+import { clefDuJour } from '@/lib/serie/assiduite';
 import { MesPrix } from '@/composants/session/MesPrix';
 import { identiteVisuelle } from '@/lib/formations/depot';
 import { avancementParFormation, maitrise } from '@/lib/serie/maitrise';
@@ -66,8 +67,7 @@ export function Accueil({
           avancements,
           etats.filter((etat) => scenarios.has(etat.id)),
         ),
-        recordJours: chargement.donnees.progression.assiduite.record,
-        joursActifsCetteSemaine: chargement.donnees.progression.assiduite.semaine.length,
+        ...mesurerAssiduite(chargement.donnees.progression.assiduite, clefDuJour(new Date())),
       },
     };
   }, [chargement]);

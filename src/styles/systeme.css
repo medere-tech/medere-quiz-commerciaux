@@ -3150,3 +3150,194 @@ a:hover {
     gap: var(--space-3);
   }
 }
+
+/* ------------------------------------------------ 04b · Récompenses et équipe
+ *
+ * Deux colonnes au bureau — les neuf médaillons puis la prochaine à gauche, la
+ * régularité et l'équipe à droite —, une seule dès que la largeur ne les porte
+ * plus. La maquette pose la colonne de droite à 336 px.
+ */
+
+.recompenses-titre {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(28px, 3vw, 34px);
+  line-height: 1.12;
+  color: var(--text-heading);
+  text-wrap: pretty;
+}
+
+.recompenses-sous-titre {
+  margin: 10px 0 0;
+  max-width: 62ch;
+  font-size: var(--body-md-size);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+.recompenses-grille {
+  display: grid;
+  grid-template-columns: 1fr 336px;
+  gap: var(--space-8);
+  align-items: start;
+}
+
+.recompenses-colonne,
+.recompenses-cote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.recompenses-medaillons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.recompense-medaillon {
+  min-height: 148px;
+}
+
+.recompense-prochaine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.recompense-prochaine-jauge {
+  flex: none;
+  width: 190px;
+}
+
+/* Les sept jours de la semaine. Des parts égales, pas une largeur figée : la
+   colonne rétrécit avec la fenêtre, la semaine avec elle. */
+.recompenses-semaine {
+  margin-top: 16px;
+  display: flex;
+  gap: 6px;
+}
+
+.recompenses-jour {
+  flex: 1;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--neutral-100);
+}
+
+.equipe-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.equipe-ligne {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.equipe-rang {
+  flex: none;
+  width: 18px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--neutral-60);
+  font-variant-numeric: tabular-nums;
+}
+
+.equipe-nom {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--body-sm-size);
+  color: var(--text-body);
+}
+
+.equipe-jauge {
+  flex: none;
+  width: 64px;
+}
+
+.equipe-jours {
+  flex: none;
+  width: 30px;
+  text-align: right;
+  font-size: var(--body-sm-size);
+  font-weight: 600;
+  color: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Le pied fixe n'existe qu'au téléphone : au large, l'action du jour vit sur
+   l'accueil, et la répéter ici volerait de la place aux médaillons. */
+.recompenses-pied {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .recompenses-grille {
+    grid-template-columns: 1fr;
+  }
+
+  /* La régularité et l'équipe passent au-dessus des médaillons : c'est ce qui
+     motive le retour, et la maquette mobile la place en premier. */
+  .recompenses-cote {
+    order: -1;
+  }
+}
+
+@media (max-width: 899px) {
+  .recompenses-medaillons {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .recompense-medaillon {
+    min-height: 0;
+  }
+
+  .recompense-prochaine-jauge {
+    width: 100%;
+  }
+
+  /*
+   * L'action du jour, au pouce.
+   *
+   * `fixed` et non `sticky` : une barre collante s'arrête au bord de son bloc
+   * conteneur et part avec lui dès qu'il quitte l'écran — le piège s'est
+   * présenté trois fois sur ce dépôt. La réserve de hauteur est posée sur la
+   * page qui porte la barre, et seulement sur elle.
+   */
+  .recompenses-pied {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    padding: 14px 20px 18px;
+    background: var(--surface-card);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .recompenses-page {
+    padding-bottom: 96px;
+  }
+}
+
+/* Le lien de l'accueil vers l'écran complet, sous la carte des médaillons. */
+.recompenses-suite {
+  display: block;
+  margin-top: var(--space-4);
+}

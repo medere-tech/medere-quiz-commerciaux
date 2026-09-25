@@ -1,11 +1,12 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
+import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { logger, setGlobalOptions } from 'firebase-functions/v2';
 
 import { agreger, estAdministrateur, lireReponse } from './agregation.js';
 import { bilanDesReponses, classer, type ReponseSeance } from './classement.js';
+import { calculerClassement, nomPubliable, type Regularite } from './podium.js';
 import { compterReponse } from './session.js';
 
 /**
@@ -345,3 +346,119 @@ export const classerSessionTerminee = onDocumentUpdated(
     logger.info('Séance close', { classement: rangs.length, questions: questionIds.length });
   },
 );
+
+/**
+ * Le podium de régularité, recalculé quand une assiduité bouge.
+ *
+ * **C'est le seul écran de l'outil où l'on voit le nom de quelqu'un d'autre
+ * hors d'une séance vécue ensemble**, et chaque contrainte qui suit est là
+ * pour que ça reste tenable.
+ *
+ * **Ce qui est lu et ce qui est publié.** La fonction lit `assiduite`, `nom`
+ * et `avatar` de chaque commercial — rien d'autre, et surtout aucun taux de
+ * maîtrise, qui ne sort jamais de `users/{uid}`. Elle publie deux documents :
+ * le podium, lisible par le domaine, qui ne contient que les nommés ; et le
+ * rang de chacun, dans un document que lui seul lit.
+ *
+ * **Le déclencheur, et pourquoi pas un programmateur.** La régularité change
+ * quand quelqu'un termine une série, c'est-à-dire quand `assiduite` change.
+ * Un Cloud Scheduler rattraperait en plus les séries qui se périment sans
+ * écriture — mais une semaine où personne ne joue est une semaine où personne
+ * ne regarde, et l'infrastructure ne vaut pas ce cas. Le classement se fait
+ * donc sur la série **du jour**, et le client la recalcule à la lecture : un
+ * nombre périmé vers le haut serait pire que pas de podium.
+ *
+ * **On ne se redéclenche pas soi-même** : la fonction n'écrit que sous
+ * `classements/`, jamais sous `users/`.
+ */
+export const publierPodiumRegularite = onDocumentUpdated('users/{uid}', async (evenement) => {
+  const avant = evenement.data?.before.data();
+  const apres = evenement.data?.after.data();
+  if (!apres) return;
+
+  /*
+   * **Une écriture sur `users/{uid}` ne veut pas dire qu'une série a bougé.**
+   * Le document porte aussi le nom de séance, la couleur, les étoiles, la
+   * dernière visite. Recalculer à chaque fois ferait dix lectures pour rien,
+   * plusieurs fois par minute, et sur un document que tout le monde touche.
+   */
+  const serieAvant = JSON.stringify(avant?.assiduite ?? null);
+  const serieApres = JSON.stringify(apres.assiduite ?? null);
+  const identiteChangee = avant?.nomSession !== apres.nomSession || avant?.avatar !== apres.avatar;
+  if (serieAvant === serieApres && !identiteChangee) return;
+
+  const base = getFirestore();
+  const tous = await base.collection('users').get();
+
+  const equipe: Regularite[] = tous.docs.flatMap((document) => {
+    const donnees = document.data();
+    const assiduite = donnees.assiduite as { serie?: unknown; dernierJour?: unknown } | undefined;
+    const nom = nomPubliable(donnees);
+    if (nom === '') return [];
+
+    return [
+      {
+        uid: document.id,
+        nom,
+        avatar: typeof donnees.avatar === 'string' ? donnees.avatar : 'encre',
+        serie: typeof assiduite?.serie === 'number' ? assiduite.serie : 0,
+        dernierJour: typeof assiduite?.dernierJour === 'string' ? assiduite.dernierJour : '',
+      },
+    ];
+  });
+
+  const { podium, rangs } = calculerClassement(equipe, clefDuJourParis(new Date()));
+
+  const racine = base.collection('classements').doc('regularite');
+  const lot = base.batch();
+
+  lot.set(racine, {
+    lignes: podium.lignes,
+    autresAuDernierRang: podium.autresAuDernierRang,
+    calculeLe: FieldValue.serverTimestamp(),
+  });
+
+  /*
+   * **Les rangs périmés partent avec.** Quelqu'un dont la série s'éteint sort
+   * du classement : laisser son document dirait « vous êtes 7e » à quelqu'un
+   * qui n'a plus de rang, et l'écran le croirait.
+   */
+  const anciens = await racine.collection('personnel').get();
+  const vivants = new Set(rangs.map((rang) => rang.uid));
+  for (const ancien of anciens.docs) {
+    if (!vivants.has(ancien.id)) lot.delete(ancien.ref);
+  }
+
+  for (const rang of rangs) {
+    lot.set(racine.collection('personnel').doc(rang.uid), {
+      rang: rang.rang,
+      ecart: rang.ecart,
+    });
+  }
+
+  await lot.commit();
+  logger.info('Podium de régularité publié', {
+    nommes: podium.lignes.length,
+    classes: rangs.length,
+  });
+});
+
+/**
+ * La clé du jour à Paris, en `AAAA-MM-JJ`.
+ *
+ * Copie assumée de `src/lib/serie/assiduite.ts` : `functions/` est un paquet à
+ * part, sans accès à `src/`. La frontière du jour est celle de Paris, pas
+ * celle d'UTC — une série terminée à 23 h 30 en hiver appartient au jour
+ * civil français.
+ */
+function clefDuJourParis(instant: Date): string {
+  const parties = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: 'Europe/Paris',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(instant);
+
+  const lire = (type: string) => parties.find((partie) => partie.type === type)?.value ?? '';
+  return `${lire('year')}-${lire('month')}-${lire('day')}`;
+}

@@ -1,4 +1,5 @@
 import type { NomPicto } from '@/composants/ds/Picto';
+import { type Assiduite, semaineDe, serieAffichee } from '@/lib/serie/assiduite';
 
 /**
  * Les récompenses : les paliers franchis sur le catalogue.
@@ -39,9 +40,18 @@ export type Mesures = {
   situationsVues: number;
   /** Mises en situation dont la dernière réponse est fausse. */
   situationsRatees: number;
-  /** Le plus long enchaînement de jours jamais atteint. */
-  recordJours: number;
-  /** Jours actifs de la semaine en cours. */
+  /**
+   * La série du moment — zéro si elle est rompue.
+   *
+   * **Pas le record.** « Dix jours d'affilée » se gagne en enchaînant dix
+   * jours, et la jauge dit combien il en reste depuis aujourd'hui. Mesurée sur
+   * le record, elle annonçait « encore 6 jours » à quelqu'un qui en avait
+   * enchaîné quatre le mois dernier et deux cette semaine : il lui en restait
+   * huit. Une jauge qui promet un palier plus proche qu'il ne l'est est pire
+   * qu'aucune jauge.
+   */
+  serieJours: number;
+  /** Jours actifs de la semaine **en cours** — ceux de la semaine passée n'y comptent pas. */
   joursActifsCetteSemaine: number;
 };
 
@@ -141,9 +151,9 @@ export const RECOMPENSES: Recompense[] = [
     picto: 'regularite',
     teinte: '#2DA131',
     jauge: (m) => ({
-      valeur: m.recordJours,
+      valeur: m.serieJours,
       objectif: 10,
-      reste: m.recordJours >= 10 ? '' : restant(10 - m.recordJours, 'jour'),
+      reste: m.serieJours >= 10 ? '' : restant(10 - m.serieJours, 'jour'),
     }),
   },
   {
@@ -152,9 +162,9 @@ export const RECOMPENSES: Recompense[] = [
     picto: 'calendrier',
     teinte: '#302D2D',
     jauge: (m) => ({
-      valeur: m.recordJours,
+      valeur: m.serieJours,
       objectif: 20,
-      reste: m.recordJours >= 20 ? '' : restant(20 - m.recordJours, 'jour'),
+      reste: m.serieJours >= 20 ? '' : restant(20 - m.serieJours, 'jour'),
     }),
   },
   {
@@ -194,14 +204,13 @@ export const RECOMPENSES: Recompense[] = [
  * jointure entre les questions et les états, ce module compte. C'est ce qui le
  * garde pur — et testable sans charger la configuration Firebase.
  *
- * Les deux mesures qui manquent — le record et les jours actifs — viennent de
- * l'assiduité, et se lisent **après** l'écriture de la série en cours : au
- * moment où l'on crédite, le jour du jour n'est pas encore compté.
+ * Les deux mesures qui manquent — la série et les jours actifs — viennent de
+ * l'assiduité, par `mesurerAssiduite`.
  */
 export function mesurerCatalogue(
   avancements: { maitrise: { pourcentage: number } }[],
   situations: { dejaVue: boolean; derniereRatee: boolean }[],
-): Omit<Mesures, 'recordJours' | 'joursActifsCetteSemaine'> {
+): Omit<Mesures, 'serieJours' | 'joursActifsCetteSemaine'> {
   const vues = situations.filter((situation) => situation.dejaVue);
 
   return {
@@ -223,6 +232,27 @@ export const IDS_RECOMPENSES = RECOMPENSES.map((recompense) => recompense.id);
  * Ne contient jamais les récompenses d'évènement : elles ne se mesurent pas,
  * elles se constatent au moment où elles arrivent.
  */
+/**
+ * Les mesures d'assiduité, **telles qu'elles valent aujourd'hui**.
+ *
+ * Le document ne se corrige qu'à la série suivante : une série rompue garde
+ * son compte, et `semaine` garde les jours de la semaine passée jusqu'au
+ * prochain jour joué. Les lire brutes, c'est annoncer un lundi matin « 4 sur 5
+ * cette semaine » à qui n'a encore rien fait. D'où ce passage obligé, pour
+ * l'écran comme pour le crédit — qui l'appelle, lui, **après** avoir compté le
+ * jour du jour.
+ */
+export function mesurerAssiduite(
+  assiduite: Assiduite,
+  aujourdhui: string,
+): Pick<Mesures, 'serieJours' | 'joursActifsCetteSemaine'> {
+  const semaine = semaineDe(aujourdhui);
+  return {
+    serieJours: serieAffichee(assiduite, aujourdhui),
+    joursActifsCetteSemaine: assiduite.semaine.filter((jour) => semaine.includes(jour)).length,
+  };
+}
+
 export function paliersAtteints(mesures: Mesures): string[] {
   return RECOMPENSES.filter((recompense) => {
     if (!recompense.jauge) return false;

@@ -28,6 +28,7 @@ import {
 } from '@/lib/serie/assiduite';
 import {
   avecNouvelles,
+  mesurerAssiduite,
   paliersAtteints,
   type Mesures,
 } from '@/lib/serie/recompenses';
@@ -277,7 +278,7 @@ export async function crediterSerie(
     /** Toutes les réponses justes : la récompense se constate ici, pas plus tard. */
     parfaite: boolean;
     /** Ce que l'écran mesure déjà — formations et mises en situation. */
-    catalogue: Omit<Mesures, 'recordJours' | 'joursActifsCetteSemaine'>;
+    catalogue: Omit<Mesures, 'serieJours' | 'joursActifsCetteSemaine'>;
   },
   /*
    * Rend les récompenses **nouvellement** obtenues, pour que la fin de série
@@ -306,7 +307,7 @@ export async function crediterSerie(
     const jour = clefDuJour(new Date());
 
     /*
-     * L'assiduité d'abord : le record et les jours actifs de la semaine en
+     * L'assiduité d'abord : la série et les jours actifs de la semaine en
      * dépendent, et **le jour du jour n'y est pas encore compté** au moment où
      * l'on entre dans la transaction. Juger « cinq jours actifs cette semaine »
      * sur l'assiduité d'avant accorderait le palier un jour trop tard.
@@ -315,8 +316,7 @@ export async function crediterSerie(
 
     const atteints = paliersAtteints({
       ...bilan.catalogue,
-      recordJours: assiduite.record,
-      joursActifsCetteSemaine: assiduite.semaine.length,
+      ...mesurerAssiduite(assiduite, jour),
     });
 
     const avant = enRecompenses(donnees?.recompenses);

@@ -74,7 +74,7 @@ export function SeanceQuiBloque({
 
       <span style={{ display: 'block', marginTop: 'var(--space-4)' }}>
         <ArreterSeance
-          presentation="salle"
+          presentation="liste"
           onTerminer={onTerminer}
           onAbandonner={onAbandonner}
           questionsJouees={seance.demarree ? seance.indexCourant + 1 : 0}

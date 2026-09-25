@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
   avecNouvelles,
   IDS_RECOMPENSES,
+  mesurerAssiduite,
   paliersAtteints,
   RECOMPENSES,
   vueDesRecompenses,
   type Mesures,
 } from '@/lib/serie/recompenses';
+import { apresUneSerie, type Assiduite } from '@/lib/serie/assiduite';
 
 /**
  * Les récompenses — neuf paliers, et deux choses qui doivent tenir.
@@ -28,7 +30,7 @@ function mesures(remplacements: Partial<Mesures> = {}): Mesures {
     situationsJustes: 0,
     situationsVues: 0,
     situationsRatees: 0,
-    recordJours: 0,
+    serieJours: 0,
     joursActifsCetteSemaine: 0,
     ...remplacements,
   };
@@ -110,9 +112,9 @@ describe('Les paliers atteints', () => {
   });
 
   it('accorde les deux paliers de jours au bon moment', () => {
-    expect(paliersAtteints(mesures({ recordJours: 10 }))).toContain('dix-jours');
-    expect(paliersAtteints(mesures({ recordJours: 10 }))).not.toContain('vingt-jours');
-    expect(paliersAtteints(mesures({ recordJours: 20 }))).toContain('vingt-jours');
+    expect(paliersAtteints(mesures({ serieJours: 10 }))).toContain('dix-jours');
+    expect(paliersAtteints(mesures({ serieJours: 10 }))).not.toContain('vingt-jours');
+    expect(paliersAtteints(mesures({ serieJours: 20 }))).toContain('vingt-jours');
   });
 
   /*
@@ -126,7 +128,7 @@ describe('Les paliers atteints', () => {
       formationsSolides: 5,
       situationsJustes: 50,
       situationsVues: 50,
-      recordJours: 99,
+      serieJours: 99,
       joursActifsCetteSemaine: 7,
     });
     expect(paliersAtteints(tout)).not.toContain('serie-parfaite');
@@ -183,13 +185,13 @@ describe('La vue des récompenses', () => {
   });
 
   it('dit ce qu’il reste à faire tant que le palier n’est pas franchi', () => {
-    const vue = vueDesRecompenses({}, mesures({ recordJours: 4 }));
+    const vue = vueDesRecompenses({}, mesures({ serieJours: 4 }));
     const dix = vue.find((recompense) => recompense.id === 'dix-jours')!;
     expect(dix.jaugeVue).toEqual({ valeur: 4, objectif: 10, reste: 'encore 6 jours' });
   });
 
   it('accorde le singulier au dernier jour qui manque', () => {
-    const vue = vueDesRecompenses({}, mesures({ recordJours: 9 }));
+    const vue = vueDesRecompenses({}, mesures({ serieJours: 9 }));
     const dix = vue.find((recompense) => recompense.id === 'dix-jours')!;
     expect(dix.jaugeVue?.reste).toBe('encore 1 jour');
   });
@@ -198,5 +200,62 @@ describe('La vue des récompenses', () => {
     const vue = vueDesRecompenses({}, mesures());
     const parfaite = vue.find((recompense) => recompense.id === 'serie-parfaite')!;
     expect(parfaite.jaugeVue).toBeNull();
+  });
+});
+
+/* --------------------------------------------- l'assiduité, telle qu'elle vaut */
+
+/*
+ * **Une jauge ne promet jamais un palier plus proche qu'il ne l'est.**
+ *
+ * Le document d'assiduité ne se corrige qu'à la série suivante : une série
+ * rompue garde son compte, et la semaine garde les jours de la semaine passée.
+ * Le 24 septembre 2026 est un jeudi, le 21 un lundi.
+ */
+describe('Les mesures d’assiduité', () => {
+  const assiduite = (valeurs: Partial<Assiduite>): Assiduite => ({
+    dernierJour: '',
+    serie: 0,
+    record: 0,
+    semaine: [],
+    ...valeurs,
+  });
+  const dixJours = (a: Assiduite, aujourdhui: string) =>
+    vueDesRecompenses({}, mesures(mesurerAssiduite(a, aujourdhui))).find(
+      (recompense) => recompense.id === 'dix-jours',
+    )!.jaugeVue;
+
+  it('compte les jours restants depuis la série du moment, pas depuis le record', () => {
+    const a = assiduite({ dernierJour: '2026-09-24', serie: 2, record: 4 });
+    expect(dixJours(a, '2026-09-24')).toEqual({ valeur: 2, objectif: 10, reste: 'encore 8 jours' });
+  });
+
+  it('repart de dix quand la série est rompue, même si le document dit autre chose', () => {
+    const a = assiduite({ dernierJour: '2026-09-17', serie: 5, record: 5 });
+    expect(mesurerAssiduite(a, '2026-09-24').serieJours).toBe(0);
+    expect(dixJours(a, '2026-09-24')?.reste).toBe('encore 10 jours');
+  });
+
+  it('n’accorde pas un palier de jours sur un record ancien', () => {
+    const a = assiduite({ dernierJour: '2026-09-24', serie: 3, record: 12 });
+    expect(paliersAtteints(mesures(mesurerAssiduite(a, '2026-09-24')))).not.toContain('dix-jours');
+  });
+
+  it('ne compte pas la semaine passée un lundi matin', () => {
+    const a = assiduite({
+      dernierJour: '2026-09-18',
+      serie: 5,
+      record: 5,
+      semaine: ['2026-09-14', '2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18'],
+    });
+    // Vendredi puis lundi : la série tient, mais la semaine repart de zéro.
+    expect(mesurerAssiduite(a, '2026-09-21')).toEqual({ serieJours: 5, joursActifsCetteSemaine: 0 });
+  });
+
+  it('compte le jour joué au moment du crédit', () => {
+    const avant = assiduite({ dernierJour: '2026-09-18', serie: 9, record: 9, semaine: ['2026-09-18'] });
+    const apres = apresUneSerie(avant, '2026-09-21');
+    expect(mesurerAssiduite(apres, '2026-09-21')).toEqual({ serieJours: 10, joursActifsCetteSemaine: 1 });
+    expect(paliersAtteints(mesures(mesurerAssiduite(apres, '2026-09-21')))).toContain('dix-jours');
   });
 });

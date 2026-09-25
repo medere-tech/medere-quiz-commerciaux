@@ -1376,6 +1376,25 @@ cohérente entre eux. **La valeur absolue, elle, était fausse d'un facteur troi
 **À partir de maintenant, toute mesure de poids se fait sur un écran
 authentifié, avec une banque réaliste, et dit lequel.**
 
+**Et une troisième erreur, trouvée au lot 18, de la même famille.** Le harnais
+pose le cookie du serveur ; il ne signe pas le SDK du navigateur. Tout ce qu'un
+écran ne peint qu'**après une lecture Firestore faite par le navigateur** n'a
+donc jamais été demandé pendant la mesure — et jamais compté. Les médaillons de
+l'accueil étaient dans ce cas : leurs pictos SVG, que chaque commercial
+connecté télécharge, manquaient à tous les relevés jusqu'au lot 17 inclus.
+L'erreur n'est apparue que lorsque les lectures privées sont passées au serveur
+(décision du 21 septembre) : les médaillons sont désormais dans le HTML, et le
+harnais les voit. **L'accueil du lot 17 ne pesait pas 906,2 ko mais environ
+928 ko** — 21,7 ko de pictos et de forme en plus.
+
+**Trois instruments, trois erreurs, et toutes dans le sens rassurant** : un
+écran plus léger que le vrai, des ressources tierces absentes, des images
+jamais demandées. Aucune ne se signalait, parce que chacune se reproduisait à
+l'identique d'un lot à l'autre. Ce harnais reste aveugle à une chose, et il faut
+le savoir en lisant chaque tableau qui suit : **ce que le navigateur peint après
+ses propres lectures n'y entre toujours pas** — aujourd'hui, le podium de
+l'écran des récompenses.
+
 ### Comment on mesure un écran authentifié sans partager de secret
 
 **Le harnais ne demande plus le cookie de session, et ne le demandera plus.**
@@ -1746,6 +1765,69 @@ Cela ne se fait pas en marge d'une optimisation : les écrans non semés — « 
 revoir », la série — lisent encore `currentUser` et retomberaient sur leur état
 « anonyme » si on les rendait trop tôt. Il faut donc semer ces écrans aussi,
 puis lever la garde, et mesurer.
+
+### Lot 18 — l'écran des récompenses, et l'accueil corrigé
+
+Mêmes conditions que les mesures précédentes : build de production servi sur
+le port 3000, Pixel 7 émulé, 9 Mbps, 85 ms, processeur bridé ×4, cache vide,
+compte jetable et cookie de cinq minutes lu dans un fichier — compte et fichier
+supprimés après. Banque de production du 25 septembre 2026.
+
+#### Poids transféré
+
+| | lot 17 · accueil | **lot 18 · accueil** | lot 18 · récompenses |
+| --- | --- | --- | --- |
+| tiers Google | 389,2 ko | 392,7 ko | 392,7 ko |
+| scripts de l'application | 379,5 ko | **380,4 ko** | 374,5 ko |
+| polices | 118,3 ko | 118,3 ko | 118,3 ko |
+| styles | 7,4 ko | **7,9 ko** | 7,9 ko |
+| document | 7,4 ko | **11,4 ko** | 10,7 ko |
+| pictos et formes | *non compté* | 21,7 ko | 29,7 ko |
+| préchargements et favicon | 4,4 ko | **9,0 ko** | 7,0 ko |
+| **total transféré** | **906,2 ko** | **941,3 ko** | **940,9 ko** |
+
+**+35,1 ko sur l'accueil, et ce lot n'en porte qu'environ trois.** Ligne à
+ligne :
+
+- **pictos et formes, 21,7 ko** : pas un coût nouveau, une erreur de mesure
+  corrigée — voir « Ce que pèse vraiment un écran ». Rapporté au vrai chiffre
+  du lot 17 (≈ 928 ko), l'écart tombe à **+13,4 ko**.
+- **préchargements, +4,6 ko** : le lien « Récompenses » (2,2 ko, ce lot) et
+  celui de la série (2,4 ko, lots précédents).
+- **document, +4,0 ko** : les données rendues au serveur depuis le
+  21 septembre.
+- **scripts +0,9 ko, styles +0,5 ko** : ce lot pour les styles de l'écran 04b ;
+  les scripts ne se séparent pas des lots intermédiaires sans remesurer `main`.
+- **tiers Google, +3,5 ko** : reCAPTCHA Enterprise, qui varie de ±3 ko d'une
+  mesure à l'autre sans que rien ne change chez nous.
+
+#### Le délai entre le clic et l'affichage
+
+Accueil → entrée de la barre latérale, sept échantillons par route, en
+alternance, profil neuf à chaque fois :
+
+| accueil → | squelette peint | écran peint (étendue) |
+| --- | --- | --- |
+| Récompenses | **175 ms** | **2 545 ms** (1 331 – 3 882) |
+| À revoir, en référence | 167 ms | 1 672 ms (1 016 – 2 888) |
+
+**Le squelette tient** : la frontière `loading.tsx` de la nouvelle section
+répond comme celle de « À revoir ».
+
+**L'écran des récompenses est plus lent d'environ 0,9 s en médiane, et ce
+n'est pas tranché.** Ce qui a été écarté, mesuré : le rendu serveur (≈ 450 ms
+contre ≈ 420 ms à chaud) et le fragment de la route (8,2 ko contre 9,2 ko
+gzip). L'écart est dans l'arrivée de la réponse au navigateur, très dispersée
+sur les deux routes — les deux séries se recouvrent. Hypothèse plausible, non
+démontrée : le fil principal bridé est occupé par l'accueil, qui dans ce
+harnais reste sur « session expirée » avec un SDK qui réessaie.
+
+**Et un écart de référence qui n'est pas tranché non plus.** Au lot 17,
+accueil → « À revoir » peignait son squelette en ~68 ms ; ce lot mesure
+167 ms sur le même trajet. Le script n'est pas le même — celui-ci clique
+l'entrée de la barre latérale, celui du lot 17 cliquait autrement —, et
+l'écart peut tenir à l'instrument autant qu'au produit. Le poursuivre coûterait
+plus qu'il ne rapporte ; il est noté pour ne pas être redécouvert.
 
 ### Les premiers tests d'écran
 

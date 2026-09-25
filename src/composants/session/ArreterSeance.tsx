@@ -44,13 +44,28 @@ export function ArreterSeance({
    * `scene` — la scène projetée, sur le fond encre : bouton inversé, panneau
    * étroit. C'est l'écran 10d, et il ne change pas.
    * `salle` — la salle d'attente, sur fond clair : bouton secondaire, panneau
-   * large, chaque issue dans son propre encadré.
+   * large, chaque issue dans son propre encadré. **Écran projeté** : le bouton
+   * y porte les tailles de la distance (`--sa-btn`, jusqu'à 20 px).
+   * `liste` — le même panneau large, mais un bouton de taille ordinaire. C'est
+   * une rangée du back-office, lue à cinquante centimètres : les tailles de la
+   * projection y écrasent leurs voisines et serrent toute la rangée.
    */
-  presentation?: 'scene' | 'salle';
+  presentation?: 'scene' | 'salle' | 'liste';
 }) {
   const [ouvert, setOuvert] = useState(false);
   const panneau = useRef<HTMLDivElement | null>(null);
-  const enSalle = presentation === 'salle';
+
+  /*
+   * **Deux choses distinctes, et les confondre a serré une rangée.**
+   *
+   * `enSalle` décide de la *forme du panneau* — large, chaque issue dans son
+   * encadré. `projete` décide des *tailles du bouton* — celles de la distance
+   * de lecture. La liste des séances veut le premier sans le second : son
+   * bouton s'y affichait à 20 px à côté d'un bouton ordinaire, et poussait
+   * ses voisins.
+   */
+  const enSalle = presentation === 'salle' || presentation === 'liste';
+  const projete = presentation === 'salle';
 
   usePanneauSuperpose(ouvert, panneau);
 
@@ -82,11 +97,11 @@ export function ArreterSeance({
     <>
       {enSalle ? (
         <Bouton
-          taille="lg"
+          taille={projete ? 'lg' : 'md'}
           variante="secondaire"
           onClick={() => setOuvert(true)}
-          iconeGauche={<Icone nom="close" taille={18} />}
-          style={{ fontSize: 'var(--sa-btn)', padding: 'var(--sa-btn-pad)' }}
+          iconeGauche={<Icone nom="close" taille={projete ? 18 : 15} />}
+          style={projete ? { fontSize: 'var(--sa-btn)', padding: 'var(--sa-btn-pad)' } : undefined}
         >
           Arrêter la séance
         </Bouton>

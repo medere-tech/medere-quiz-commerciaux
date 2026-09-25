@@ -47,6 +47,12 @@ const NAVIGATION_COMMERCIAL: Entree[] = [
     route: '/a-revoir',
     compteur: 'ratees',
   },
+  {
+    libelle: 'Récompenses',
+    icone: 'award',
+    chemin: '/recompenses',
+    route: '/recompenses',
+  },
   { libelle: 'Session du jeudi', icone: 'users', chemin: '/session', route: '/session' },
 ];
 

@@ -1,6 +1,9 @@
 'use client';
 
-import { Carte, Meta, TitreSection } from '@/composants/ds/primitives';
+import type { Route } from 'next';
+
+import { Bouton, Carte, Meta, TitreSection } from '@/composants/ds/primitives';
+import { Icone } from '@/composants/ds/Icone';
 import { Picto } from '@/composants/ds/Picto';
 import { vueDesRecompenses, type Mesures, type RecompenseVue } from '@/lib/serie/recompenses';
 
@@ -57,12 +60,6 @@ export function MesRecompenses({
   return (
     <div>
       <TitreSection indice={`${gagnees.length} sur ${toutes.length}`}>Récompenses</TitreSection>
-
-      {/* La ligne qui dit de quoi il s'agit. Sans elle, deux blocs de
-          médaillons teintés se ressemblent trop sur le même écran. */}
-      <Meta style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
-        Paliers franchis sur le catalogue, sans rapport avec le jeudi.
-      </Meta>
 
       <Carte
         rayon="var(--radius-lg)"
@@ -128,6 +125,25 @@ export function MesRecompenses({
           </Meta>
         )}
       </Carte>
+
+      {/*
+        * **Après la section, pas à côté du titre.** Quelqu'un qui vient de
+        * lire ses quatre médaillons continue là où son regard s'arrête ; le
+        * mettre en tête l'aurait obligé à remonter.
+        *
+        * Un lien, pas un bouton : la primitive `Bouton` accepte un `href` pour
+        * ça, et c'est ce qui le fait précharger.
+        */}
+      <span className="recompenses-suite">
+        <Bouton
+          taille="sm"
+          variante="secondaire"
+          href={'/recompenses' as Route}
+          iconeDroite={<Icone nom="chevronRight" taille={14} />}
+        >
+          Toutes les récompenses
+        </Bouton>
+      </span>
     </div>
   );
 }

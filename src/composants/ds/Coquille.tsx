@@ -551,6 +551,13 @@ export function Coquille({
                 // Changer d'écran referme le tiroir : le laisser ouvert
                 // masquerait la page qu'on vient de demander.
                 onClick={() => setTiroirOuvert(false)}
+                /*
+                 * Le fond dit la position à l'œil ; ceci la dit au lecteur
+                 * d'écran, pour qui c'est la seule indication de lieu dans
+                 * tout l'outil. « page » sur l'écran même, « true » sur un
+                 * écran qu'il contient — l'éditeur sous la banque.
+                 */
+                aria-current={chemin === entree.chemin ? 'page' : actif ? 'true' : undefined}
                 style={style}
               >
                 {contenu}
