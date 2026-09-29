@@ -10,6 +10,7 @@ import {
 import { validerQuestion, type ErreurChamp } from '@/lib/questions/validation';
 import { COLONNES, LIBELLES_COLONNE, normaliserEntete, type Colonne } from '@/lib/import/colonnes';
 import { normaliserEnonce } from '@/lib/texte';
+import { ANGLES, reconnaitreAngle } from '@/lib/questions/angles';
 
 /**
  * D'une ligne de tableau à une question.
@@ -65,7 +66,7 @@ export type LigneImport = {
  * l'outil pour faire ce qu'elle voulait faire.
  */
 export type AvertissementLigne = {
-  genre: 'difficulte-par-defaut' | 'doublon';
+  genre: 'difficulte-par-defaut' | 'doublon' | 'angle-hors-liste';
   message: string;
 };
 
@@ -134,6 +135,7 @@ const COLONNE_PAR_CHAMP: Record<string, Colonne> = {
   ordreOptions: 'reponses',
   bonnesReponses: 'bonnesReponses',
   explication: 'explication',
+  argumentaire: 'argumentaire',
   formationIds: 'formations',
   theme: 'theme',
   difficulte: 'difficulte',
@@ -244,6 +246,21 @@ export function analyserLigne(
     }
   }
 
+  // --- Angle
+  // Une variante reconnue prend sa forme canonique ; un angle hors liste
+  // passe tel qu'écrit, et le dit. Un angle vide reste une erreur, que la
+  // validation partagée signale.
+  const angleEcrit = valeurs.theme.trim();
+  const angle = reconnaitreAngle(angleEcrit);
+  if (angleEcrit.length > 0 && !angle) {
+    avertissements.push({
+      genre: 'angle-hors-liste',
+      message:
+        `Angle « ${angleEcrit} » hors des cinq de l’argumentaire : la question entre telle quelle. ` +
+        `Si elle relève de l’un d’eux, écrivez plutôt ${ANGLES.map((nom) => `« ${nom} »`).join(', ')}.`,
+    });
+  }
+
   const brouillon: BrouillonQuestion = {
     type: (type ?? 'qcm') as TypeQuestion,
     contexte: valeurs.contexte,
@@ -252,12 +269,9 @@ export function analyserLigne(
     ordreOptions,
     bonnesReponses,
     explication: valeurs.explication,
-    /* L'import ne connaît pas de colonne d'argumentaire : il vient de fiches
-       existantes, et l'angle de vente s'écrit dans l'éditeur, question par
-       question. */
-    argumentaire: '',
+    argumentaire: valeurs.argumentaire,
     formationIds,
-    theme: valeurs.theme,
+    theme: angle ?? valeurs.theme,
     difficulte,
     // Jamais publiée par un import : la relecture n'est pas facultative.
     statut: 'brouillon',

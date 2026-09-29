@@ -37,6 +37,7 @@ import {
   type TypeQuestion,
 } from '@/lib/questions/modele';
 import { messagePour, validerQuestion, type ErreurChamp } from '@/lib/questions/validation';
+import { ANGLES, reconnaitreAngle } from '@/lib/questions/angles';
 import { chargerFormations, type Formation } from '@/lib/formations/depot';
 import {
   chargerQuestion,
@@ -670,14 +671,31 @@ export default function PageEditeur() {
               gap: 'var(--space-4)',
             }}
           >
+            {/*
+              * L'angle de l'argumentaire. Les cinq valeurs sont proposées par
+              * la liste native du champ, sans être imposées : une question qui
+              * ne rentre dans aucune reste légitime. Voir `angles.ts`.
+              */}
             <Champ
-              label="Thème"
+              label="Angle"
               value={brouillon.theme}
               onChange={(theme) => modifier({ theme })}
               erreur={messagePour(erreurs, 'theme')}
-              aide={erreurs.length === 0 ? 'Sert à filtrer la banque.' : undefined}
-              placeholder="reglementaire, formats, parcours…"
+              aide={
+                erreurs.length === 0
+                  ? brouillon.theme.trim().length > 0 && !reconnaitreAngle(brouillon.theme)
+                    ? 'Hors des cinq angles de l’argumentaire. Accepté tel quel.'
+                    : 'L’entrée de l’argumentaire sur laquelle la question porte.'
+                  : undefined
+              }
+              placeholder="Choisir ou écrire un angle"
+              list="angles-argumentaire"
             />
+            <datalist id="angles-argumentaire">
+              {ANGLES.map((angle) => (
+                <option key={angle} value={angle} />
+              ))}
+            </datalist>
             <Selecteur
               label="Difficulté"
               value={String(brouillon.difficulte)}

@@ -203,6 +203,60 @@ describe('analyserLigne — traduction', () => {
     expect(analyse.question?.sourceFiche).toBe('Argumentaire DPC');
     expect(analyse.question?.sourceVersion).toBe('v2');
   });
+
+  it('importe l’argumentaire, que l’import ignorait', () => {
+    const analyse = analyserLigne(
+      ligneCorrecte({ argumentaire: 'Demandez qui assiste le praticien au fauteuil.' }),
+      index,
+    );
+
+    expect(analyse.question?.argumentaire).toBe('Demandez qui assiste le praticien au fauteuil.');
+  });
+
+  it('applique à l’argumentaire le plafond de l’éditeur', () => {
+    const analyse = analyserLigne(
+      ligneCorrecte({ argumentaire: 'a'.repeat(PLAFONDS.argumentaire + 1) }),
+      index,
+    );
+
+    expect(analyse.erreurs.map((e) => e.colonne)).toContain('argumentaire');
+  });
+});
+
+describe('analyserLigne — l’angle', () => {
+  const horsListe = (analyse: ReturnType<typeof analyserLigne>) =>
+    analyse.avertissements.some((a) => a.genre === 'angle-hors-liste');
+
+  it('ramène une variante à sa forme canonique, sans avertir', () => {
+    for (const [ecrit, attendu] of [
+      ['publics', 'Public et conditions'],
+      ['l’expert', 'Expert'],
+      ['FORMATRICE', 'Expert'],
+      ['bloc de certification', 'Certification'],
+      ['arguments de vente', 'Arguments de vente'],
+      ['contenu', 'Contenu'],
+    ] as const) {
+      const analyse = analyserLigne(ligneCorrecte({ theme: ecrit }), index);
+
+      expect(analyse.question?.theme, ecrit).toBe(attendu);
+      expect(horsListe(analyse), ecrit).toBe(false);
+    }
+  });
+
+  it('accepte un angle hors liste tel qu’écrit, en le disant', () => {
+    const analyse = analyserLigne(ligneCorrecte({ theme: 'Réglementation DPC' }), index);
+
+    expect(analyse.erreurs).toEqual([]);
+    expect(analyse.question?.theme).toBe('Réglementation DPC');
+    expect(horsListe(analyse)).toBe(true);
+  });
+
+  it('refuse toujours un angle vide', () => {
+    const analyse = analyserLigne(ligneCorrecte({ theme: '' }), index);
+
+    expect(analyse.erreurs.map((e) => e.colonne)).toContain('theme');
+    expect(horsListe(analyse)).toBe(false);
+  });
 });
 
 describe('analyserLigne — la validation reste celle de l’éditeur', () => {
@@ -303,6 +357,30 @@ describe('lireCollage', () => {
     const resultat = lireCollage(`${varie}\nvf\tUne question ?\tOui|Non\t1\tParce que\trecAAA\tpublics`);
 
     expect(resultat.etat).toBe('lu');
+  });
+
+  it('range une colonne « argumentaire » dans l’argumentaire, jamais dans la fiche source', () => {
+    // Le mot conduisait à `sourceFiche` : le texte de vente d'une IA y
+    // atterrissait sans un mot.
+    const resultat = lireCollage(
+      `${entete}\tArgumentaire\nvf\tQ ?\tOui|Non\t1\tParce que\trecAAA\tpublics\tDites-le ainsi.`,
+    );
+
+    expect(resultat.etat).toBe('lu');
+    if (resultat.etat !== 'lu') return;
+    expect(resultat.lignes[0]?.valeurs.argumentaire).toBe('Dites-le ainsi.');
+    expect(resultat.lignes[0]?.valeurs.sourceFiche).toBe('');
+  });
+
+  it('reconnaît « angle » comme l’ancienne colonne « thème »', () => {
+    const resultat = lireCollage(
+      'format\tenonce\treponses\tbonnesReponses\texplication\tformations\tAngle\n' +
+        'vf\tQ ?\tOui|Non\t1\tParce que\trecAAA\tExpert',
+    );
+
+    expect(resultat.etat).toBe('lu');
+    if (resultat.etat !== 'lu') return;
+    expect(resultat.lignes[0]?.valeurs.theme).toBe('Expert');
   });
 
   it('refuse en bloc quand l’en-tête ne dit pas ce que contiennent les colonnes', () => {

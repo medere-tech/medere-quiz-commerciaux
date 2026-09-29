@@ -8,6 +8,7 @@ import {
   type BrouillonQuestion,
   type QuestionAEcrire,
 } from '@/lib/questions/modele';
+import { reconnaitreAngle } from '@/lib/questions/angles';
 
 /**
  * Validation d'une question avant enregistrement.
@@ -92,9 +93,12 @@ export function validerQuestion(brouillon: BrouillonQuestion): ResultatValidatio
 
   const theme = texte(brouillon.theme);
   if (theme.length === 0) {
-    ajouter('theme', 'Le thème est obligatoire : il sert à filtrer la banque de questions.');
+    ajouter(
+      'theme',
+      'L’angle est obligatoire : dites sous quel angle de l’argumentaire la question interroge.',
+    );
   } else if (theme.length > PLAFONDS.theme) {
-    ajouter('theme', `Le thème fait ${theme.length} caractères, le maximum est ${PLAFONDS.theme}.`);
+    ajouter('theme', `L’angle fait ${theme.length} caractères, le maximum est ${PLAFONDS.theme}.`);
   }
 
   // Le contexte n'existe que pour les mises en situation.
@@ -232,7 +236,9 @@ export function validerQuestion(brouillon: BrouillonQuestion): ResultatValidatio
     explication,
     argumentaire,
     formationIds,
-    theme,
+    // Une variante reconnue part sous sa forme canonique, d'où qu'elle vienne
+    // — éditeur, import, copie : « expert » et « Expert » ne font qu'un angle.
+    theme: reconnaitreAngle(theme) ?? theme,
     difficulte: brouillon.difficulte,
     statut: brouillon.statut,
   };
