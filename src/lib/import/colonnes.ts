@@ -125,25 +125,42 @@ export type Association = {
   ignorees: string[];
   /** Colonnes obligatoires absentes. L'import ne peut pas démarrer sans. */
   manquantes: Colonne[];
+  /**
+   * Champs que plusieurs en-têtes désignent à la fois. L'import ne peut pas
+   * démarrer non plus : il ne sait pas laquelle lire.
+   */
+  enDouble: { colonne: Colonne; entetes: string[] }[];
 };
 
+/**
+ * **Deux colonnes pour un même champ, c'est deux lectures possibles.** Un
+ * tableau qui porte « thème » et « angle », ou « question » et « énoncé »,
+ * donne deux valeurs pour une seule case. La première lue gagnait, et la
+ * seconde finissait parmi les « colonnes non utilisées » — une ligne discrète
+ * sous l'analyse, pour une question qui pouvait entrer avec le mauvais énoncé.
+ * L'en-tête est désormais refusé, avec les noms en conflit.
+ */
 export function associerColonnes(entetes: string[]): Association {
   const index: Partial<Record<Colonne, number>> = {};
   const ignorees: string[] = [];
+  const parColonne = new Map<Colonne, string[]>();
 
   entetes.forEach((entete, position) => {
     const colonne = COLONNE_PAR_ALIAS.get(normaliserEntete(entete));
 
-    // Première occurrence gagnante : deux colonnes du même nom sont une
-    // maladresse de collage, pas une intention.
-    if (colonne && index[colonne] === undefined) index[colonne] = position;
-    else if (entete.trim().length > 0) ignorees.push(entete);
+    if (colonne) {
+      parColonne.set(colonne, [...(parColonne.get(colonne) ?? []), entete]);
+      if (index[colonne] === undefined) index[colonne] = position;
+    } else if (entete.trim().length > 0) ignorees.push(entete);
   });
 
   return {
     index,
     ignorees,
     manquantes: COLONNES_OBLIGATOIRES.filter((colonne) => index[colonne] === undefined),
+    enDouble: [...parColonne]
+      .filter(([, noms]) => noms.length > 1)
+      .map(([colonne, noms]) => ({ colonne, entetes: noms })),
   };
 }
 

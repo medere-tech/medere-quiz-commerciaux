@@ -474,9 +474,20 @@ export default function PageImport() {
           {collage.etat === 'entete-illisible' && (
             <EtatErreur
               titre="En-tête non reconnu"
-              texte={`Ces colonnes obligatoires n’ont pas été trouvées : ${collage.manquantes
-                .map((colonne) => LIBELLES_COLONNE[colonne])
-                .join(', ')}. La première ligne du tableau doit porter le nom des colonnes.`}
+              texte={[
+                collage.manquantes.length > 0
+                  ? `Ces colonnes obligatoires n’ont pas été trouvées : ${collage.manquantes
+                      .map((colonne) => LIBELLES_COLONNE[colonne])
+                      .join(', ')}. La première ligne du tableau doit porter le nom des colonnes.`
+                  : '',
+                ...collage.enDouble.map(
+                  ({ colonne, entetes }) =>
+                    `Les colonnes ${entetes.map((nom) => `« ${nom} »`).join(' et ')} désignent toutes ` +
+                    `le champ « ${LIBELLES_COLONNE[colonne]} » : gardez-en une seule.`,
+                ),
+              ]
+                .filter(Boolean)
+                .join(' ')}
               action={<BoutonEnteteModele />}
             />
           )}
