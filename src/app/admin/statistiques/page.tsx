@@ -36,6 +36,7 @@ import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
 import { ChargerPlus } from '@/composants/admin/ChargerPlus';
 import { LIBELLES_TYPE } from '@/lib/questions/modele';
+import { formationPrincipale } from '@/lib/formations/transverse';
 
 /**
  * 09 · Statistiques.
@@ -330,7 +331,7 @@ export default function PageStatistiques() {
                         question={question}
                         formation={
                           chargement.formations.find(
-                            (candidate) => candidate.id === question.formationIds[0],
+                            (candidate) => candidate.id === formationPrincipale(question.formationIds),
                           ) ?? null
                         }
                         onOuvrir={() => routeur.push(`/admin/questions/${question.id}` as Route)}

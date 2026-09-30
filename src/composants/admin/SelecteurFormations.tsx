@@ -5,6 +5,11 @@ import { useMemo, useState } from 'react';
 import { Champ, Etiquette, EtiquetteStatut, Meta } from '@/composants/ds/primitives';
 import { Icone } from '@/composants/ds/Icone';
 import type { Formation } from '@/lib/formations/depot';
+import {
+  ID_FORMATION_TRANSVERSE,
+  ORIGINE_FORMATION_TRANSVERSE,
+  PUBLIC_FORMATION_TRANSVERSE,
+} from '@/lib/formations/transverse';
 
 /**
  * Rattachement d'une question à ses formations.
@@ -195,8 +200,9 @@ export function SelecteurFormations({
                     {formation.nom}
                   </span>
                   <Meta style={{ fontSize: 12 }}>
-                    {formation.numeroActionDpc}
-                    {formation.cibles.length > 0 ? ` · ${formation.cibles.join(', ')}` : ''}
+                    {formation.id === ID_FORMATION_TRANSVERSE
+                      ? `${ORIGINE_FORMATION_TRANSVERSE} · ${PUBLIC_FORMATION_TRANSVERSE}`
+                      : `${formation.numeroActionDpc}${formation.cibles.length > 0 ? ` · ${formation.cibles.join(', ')}` : ''}`}
                   </Meta>
                 </span>
                 {!formation.actif && <Etiquette>Inactive</Etiquette>}

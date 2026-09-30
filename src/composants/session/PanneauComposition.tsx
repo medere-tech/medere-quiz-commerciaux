@@ -8,6 +8,7 @@ import { Etape } from '@/composants/session/Etape';
 import { identiteVisuelle } from '@/lib/formations/depot';
 import type { Formation } from '@/lib/formations/depot';
 import type { QuestionListee } from '@/lib/questions/lecture';
+import { formationPrincipale } from '@/lib/formations/transverse';
 import {
   DESCRIPTION_SEANCE_MAX,
   dureeAnnonceeMinutes,
@@ -186,7 +187,7 @@ export function PanneauComposition({
             <ul className="ordre-liste">
               {montrees.map((identifiant, index) => {
                 const question = parId.get(identifiant);
-                const formationId = question?.formationIds[0];
+                const formationId = question ? formationPrincipale(question.formationIds) : undefined;
                 const formation = formationId ? formationsParId.get(formationId) : undefined;
                 const visuel = formation ? identiteVisuelle(formation) : null;
                 const enonce = question?.enonce ?? 'Question retirée de la banque';

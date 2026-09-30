@@ -34,6 +34,12 @@ import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
 import { ChargerPlus } from '@/composants/admin/ChargerPlus';
 import { Collage } from '@/composants/session/Collage';
 import { Picto } from '@/composants/ds/Picto';
+import {
+  ID_FORMATION_TRANSVERSE,
+  NOM_FORMATION_TRANSVERSE,
+  ORIGINE_FORMATION_TRANSVERSE,
+  PUBLIC_FORMATION_TRANSVERSE,
+} from '@/lib/formations/transverse';
 
 /**
  * 11 · Formations.
@@ -622,7 +628,10 @@ export default function PageFormations() {
         sous={
           chargement
             ? 'Lecture du référentiel.'
-            : `${total} formations, dont ${actives} au catalogue. Le référentiel vient d'Airtable : il se consulte ici, il se corrige là-bas.`
+            : // La formation transverse est comptée ici comme une autre : elle est
+              // active, mais ne se vend pas et ne vient pas d'Airtable. D'où
+              // « actives » plutôt que « au catalogue », et l'exception nommée.
+              `${total} formations, dont ${actives} actives. Elles viennent d'Airtable, où elles se corrigent, sauf « ${NOM_FORMATION_TRANSVERSE} », qui regroupe les questions sur le DPC et n'existe qu'ici.`
         }
         actions={
           <Bouton
@@ -817,7 +826,11 @@ export default function PageFormations() {
                     color: 'var(--neutral-60)',
                   }}
                 >
-                  {formation.cibles.length > 0 ? formation.cibles.join(', ') : 'Public non renseigné'}
+                  {formation.id === ID_FORMATION_TRANSVERSE
+                    ? PUBLIC_FORMATION_TRANSVERSE
+                    : formation.cibles.length > 0
+                      ? formation.cibles.join(', ')
+                      : 'Public non renseigné'}
                 </span>
 
                 {/*
@@ -893,7 +906,11 @@ export default function PageFormations() {
                     flexWrap: 'wrap',
                   }}
                 >
-                  <Meta style={{ fontSize: 12 }}>N° {formation.numeroActionDpc || '-'}</Meta>
+                  <Meta style={{ fontSize: 12 }}>
+                    {formation.id === ID_FORMATION_TRANSVERSE
+                      ? ORIGINE_FORMATION_TRANSVERSE
+                      : `N° ${formation.numeroActionDpc || '-'}`}
+                  </Meta>
                   {formation.format && <Meta style={{ fontSize: 12 }}>{formation.format}</Meta>}
                   {formation.dureeTotale && (
                     <Meta style={{ fontSize: 12 }}>{formation.dureeTotale} h</Meta>

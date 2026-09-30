@@ -19,6 +19,7 @@ import {
 import { baseDeDonnees } from '@/lib/firebase/firestore';
 import { enFormation, type Formation } from '@/lib/formations/lecture';
 import { SYNCHRONISATION_FORMATIONS } from '@/lib/formations/chemins';
+import { ID_FORMATION_TRANSVERSE } from '@/lib/formations/transverse';
 
 export type { Formation } from '@/lib/formations/lecture';
 
@@ -135,7 +136,20 @@ const IDENTITE_PAR_DEFAUT = IDENTITES['médecin généraliste'] as {
   couleur: string;
 };
 
+/**
+ * La formation transverse n'a pas de public : elle prendrait la forme par
+ * défaut, celle du médecin généraliste, que portent déjà cent formations.
+ *
+ * **Choix provisoire, à trancher par le design.** Les sept formes du jeu sont
+ * toutes employées par au moins une formation active. On retient donc le
+ * couple le moins confondable parmi ceux que le dépôt contient déjà : la
+ * forme 5, portée par une seule formation active (en rose), déclinée en
+ * jaune — `forme-5-FECA45`, jusqu'ici décor de l'écran de fin de série.
+ */
+const IDENTITE_TRANSVERSE = { fichier: 'forme-5-FECA45.svg', couleur: 'var(--specialty-dentist)' };
+
 export function identiteVisuelle(formation: Formation): { fichier: string; couleur: string } {
+  if (formation.id === ID_FORMATION_TRANSVERSE) return IDENTITE_TRANSVERSE;
   const premiere = (formation.cibles[0] ?? '').toLowerCase();
   return IDENTITES[premiere] ?? IDENTITE_PAR_DEFAUT;
 }

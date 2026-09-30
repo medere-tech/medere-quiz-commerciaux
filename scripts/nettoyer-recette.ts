@@ -26,7 +26,9 @@
  * **Ce à quoi il ne touche pas, et pourquoi :**
  *
  *   - `formations` — le miroir Airtable. Il se reconstruit par synchronisation,
- *     et Airtable est en lecture seule : rien à effacer ici.
+ *     et Airtable est en lecture seule : rien à effacer ici. Seule exception, la
+ *     formation transverse, qui ne vient pas d'Airtable : elle se recrée par
+ *     `npm run formations:transverse`.
  *   - Les comptes Firebase Authentication. Effacer le document `users/{uid}`
  *     remet la progression à zéro ; effacer le compte déconnecterait aussi les
  *     administrateurs et ferait perdre les custom claims, qui ne se
@@ -786,7 +788,8 @@ async function principal(): Promise<void> {
   console.log(
     '\nTerminé.\n' +
       'Rappel : les comptes Firebase Authentication et leurs custom claims sont intacts, ' +
-      'et `formations` aussi — il se reconstruit par synchronisation Airtable.',
+      'et `formations` aussi — il se reconstruit par synchronisation Airtable, ' +
+      'sauf la formation transverse : `npm run formations:transverse`.',
   );
 }
 

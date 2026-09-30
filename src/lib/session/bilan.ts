@@ -13,6 +13,7 @@
 
 import type { Formation } from '@/lib/formations/depot';
 import type { QuestionListee } from '@/lib/questions/lecture';
+import { formationPrincipale } from '@/lib/formations/transverse';
 import { LIBELLES_TYPE } from '@/lib/questions/modele';
 import type { LigneBilan } from '@/lib/session/depot';
 
@@ -44,7 +45,7 @@ export function lignesTrebuchees(
     .filter((ligne) => ligne.reponses > 0)
     .map((ligne) => {
       const question = parId.get(ligne.questionId);
-      const formationId = question?.formationIds[0];
+      const formationId = question ? formationPrincipale(question.formationIds) : undefined;
       return {
         questionId: ligne.questionId,
         enonce: question?.enonce ?? 'Question retirée de la banque',

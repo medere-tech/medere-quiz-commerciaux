@@ -6,6 +6,7 @@ import {
   type EnregistrementAirtable,
   type Formation,
 } from '@/lib/airtable/contrat';
+import { estFormationTransverse } from '@/lib/formations/transverse';
 
 /**
  * Conversion et validation des enregistrements Airtable.
@@ -188,6 +189,37 @@ export function desactiveraitToutLeCatalogue(
   formationsEnregistrees: number,
 ): boolean {
   return formationsRecues === 0 && formationsEnregistrees > 0;
+}
+
+/** Ce que la synchronisation sait d'un document déjà présent dans `formations`. */
+export type FormationEnregistree = { id: string; actif: unknown; transverse?: unknown };
+
+/**
+ * Les documents qu'Airtable ne connaît pas : eux seuls sont comparés au miroir.
+ *
+ * La formation transverse n'a jamais été dans Airtable et n'y sera jamais.
+ * Comptée ici, elle serait « disparue » à chaque passage : désactivée chaque
+ * nuit par la tâche planifiée, et, dans le garde-fou, prise pour un catalogue
+ * encore peuplé alors qu'Airtable n'aurait rien renvoyé.
+ */
+export function formationsDuMiroir<T extends FormationEnregistree>(existantes: readonly T[]): T[] {
+  return existantes.filter((formation) => !estFormationTransverse(formation.id, formation));
+}
+
+/**
+ * Ce qui a disparu d'Airtable et doit passer à `actif: false` — jamais être
+ * supprimé, des questions y sont rattachées. Une formation déjà inactive n'est
+ * pas réécrite ; la formation transverse n'est jamais concernée.
+ *
+ * Prédicat isolé pour être éprouvé sans réseau ni base.
+ */
+export function formationsADesactiver<T extends FormationEnregistree>(
+  existantes: readonly T[],
+  vuesDansAirtable: ReadonlySet<string>,
+): T[] {
+  return formationsDuMiroir(existantes).filter(
+    (formation) => !vuesDansAirtable.has(formation.id) && formation.actif !== false,
+  );
 }
 
 export function convertirEnregistrements(

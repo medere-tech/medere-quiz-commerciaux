@@ -22,6 +22,7 @@ import { identiteVisuelle } from '@/lib/formations/depot';
 import { avancementParFormation, maitrise } from '@/lib/serie/maitrise';
 import { libelleSeuilsEtoiles } from '@/lib/serie/verdict';
 import { LIBELLE_PONDERATION, TAILLE_SERIE } from '@/lib/serie/tirage';
+import { ID_FORMATION_TRANSVERSE, PUBLIC_FORMATION_TRANSVERSE } from '@/lib/formations/transverse';
 
 /**
  * 01 · Accueil.
@@ -321,7 +322,9 @@ export function Accueil({
                       {formation.nom}
                     </span>
                     <Meta style={{ fontSize: 12 }}>
-                      {formation.cibles.join(', ') || 'Public non précisé'}
+                      {formation.id === ID_FORMATION_TRANSVERSE
+                        ? PUBLIC_FORMATION_TRANSVERSE
+                        : formation.cibles.join(', ') || 'Public non précisé'}
                     </Meta>
                   </span>
                   <span className="colonne-fixe colonne-jauge" style={{ flex: 'none', width: 132 }}>

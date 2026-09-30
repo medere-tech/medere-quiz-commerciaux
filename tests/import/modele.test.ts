@@ -153,6 +153,24 @@ describe('exemplesDeQuestions', () => {
     }
   });
 
+  it('garde l’exemple sur la durée quand le référentiel la donne en nombre nu', () => {
+    // Le vrai catalogue : des durées « 8 », « 10 », « 11 », en heures. Sans
+    // exemple sur la durée, l'IA ne saurait pas produire ce format-là.
+    const reel = [
+      formation({ id: 'recD8', nom: 'Endométriose', numeroActionDpc: '92622626016', dureeTotale: '8' }),
+      formation({ id: 'recD10', nom: 'Diabète', numeroActionDpc: '92622626017', dureeTotale: '10' }),
+      formation({ id: 'recD11', nom: 'Asthme', numeroActionDpc: '92622626018', dureeTotale: '11' }),
+    ];
+    const duree = exemplesDeQuestions(reel).find((ligne) => ligne.enonce === 'Quelle durée lui annoncez-vous ?');
+
+    expect(duree?.reponses).toBe('8 h|10 h|11 h');
+    expect(duree?.bonnesReponses).toBe('8 h');
+
+    const analyse = analyserLigne({ numero: 2, valeurs: duree! }, indexerFormations(reel));
+    expect(analyse.erreurs).toEqual([]);
+    expect(analyse.question!.bonnesReponses.map((id) => analyse.question!.options[id])).toEqual(['8 h']);
+  });
+
   it('ne propose jamais un nombre nu, que l’import lirait comme un numéro', () => {
     for (const ligne of exemplesDeQuestions(CATALOGUE)) {
       for (const proposition of ligne.reponses.split('|').filter(Boolean)) {

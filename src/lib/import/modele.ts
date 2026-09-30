@@ -1,5 +1,6 @@
 import type { Formation } from '@/lib/formations/lecture';
 import { ANGLES, DESCRIPTIONS_ANGLE } from '@/lib/questions/angles';
+import { ID_FORMATION_TRANSVERSE, NOM_FORMATION_TRANSVERSE } from '@/lib/formations/transverse';
 import { LIBELLES_DIFFICULTE, PLAFONDS } from '@/lib/questions/modele';
 import { COLONNES_MODELE, type Colonne } from '@/lib/import/colonnes';
 import { FORMATS_PROPOSES, SEPARATEUR_VALEURS } from '@/lib/import/lignes';
@@ -87,7 +88,8 @@ const DESCRIPTIONS: Record<Colonne, DescriptionColonne> = {
     contenu:
       `Le numéro d’action DPC de la formation, recopié du catalogue. Plusieurs se séparent ` +
       `par « ${SEPARATEUR_VALEURS} ». Le nom est accepté, mais deux formations peuvent le ` +
-      `partager : le numéro ne se trompe pas.`,
+      `partager : le numéro ne se trompe pas. Une question sur les règles générales du DPC, ` +
+      `qui ne relève d’aucune formation, se rattache à « ${ID_FORMATION_TRANSVERSE} ».`,
   },
   theme: {
     obligatoire: 'oui',
@@ -112,6 +114,19 @@ const DESCRIPTIONS: Record<Colonne, DescriptionColonne> = {
   },
 };
 
+/**
+ * Le catalogue tel qu'on le donne à lire : la formation transverse en tête,
+ * puis les formations vendues dans l'ordre reçu. En tête, elle se voit avant
+ * qu'on cherche où ranger une question sur le DPC ; noyée à la lettre D, elle
+ * passerait pour une formation parmi d'autres.
+ */
+export function ordonnerCatalogue(formations: Formation[]): Formation[] {
+  return [
+    ...formations.filter((formation) => formation.id === ID_FORMATION_TRANSVERSE),
+    ...formations.filter((formation) => formation.id !== ID_FORMATION_TRANSVERSE),
+  ];
+}
+
 /** Ce qu'on écrit dans « formations » : le numéro DPC, ou l'identifiant à défaut. */
 export function referenceFormation(formation: Formation): string {
   return formation.numeroActionDpc || formation.id;
@@ -135,20 +150,30 @@ const utilisable = (valeur: string) =>
  * Une proposition ne peut pas être un nombre nu. L'import lit une bonne
  * réponse numérique comme un **numéro de proposition** : « 8 » parmi
  * « 10|11|8 » désigne la huitième, qui n'existe pas — et « 1 » parmi « 3|1|2 »
- * désigne la première, « 3 », sans un mot. Le référentiel donne la durée en
- * nombre nu et ne dit pas son unité : on ne l'invente pas, on ne la propose
- * pas. Constaté sur le vrai catalogue, que le catalogue de test ne reproduisait
- * pas.
+ * désigne la première, « 3 », sans un mot. Constaté sur le vrai catalogue,
+ * dont les durées sont des nombres nus, et que le catalogue de test ne
+ * reproduisait pas.
  */
 const proposable = (valeur: string) => utilisable(valeur) && !/^\s*\d+([.,]\d+)?\s*$/.test(valeur);
+
+/**
+ * La durée telle qu'on l'écrit dans une proposition : « 8 h ».
+ *
+ * `dureeTotale` est stockée brute, en heures — l'unité est une décision
+ * d'affichage (README, section 6), et l'écran des formations l'affiche déjà
+ * ainsi. Une durée déjà rédigée (« 7 heures ») reste telle quelle.
+ */
+const libelleDuree = (duree: string) =>
+  /^\s*\d+([.,]\d+)?\s*$/.test(duree) ? `${duree.trim()} h` : duree.trim();
 
 /** « Autres » n'est pas un public qu'on peut nommer dans une question. */
 const publicNomme = (cible: string) => utilisable(cible) && cible.trim().toLowerCase() !== 'autres';
 
 const libelleBloc = (bloc: string) => (/^\d+$/.test(bloc.trim()) ? `Bloc ${bloc.trim()}` : bloc.trim());
 
+/** Ordre de lecture : « 8 h » avant « 10 h », « Bloc 2 » avant « Bloc 10 ». */
 const trier = (valeurs: Iterable<string>) =>
-  [...new Set(valeurs)].sort((a, b) => a.localeCompare(b, 'fr'));
+  [...new Set(valeurs)].sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
 
 /**
  * Une ou deux questions par format, chacune tirée d'une formation qui a les
@@ -259,10 +284,12 @@ export function exemplesDeQuestions(formations: Formation[]): LigneModele[] {
   }
 
   // --- Mise en situation : la durée.
-  const toutesLesDurees = trier(formations.map((formation) => formation.dureeTotale).filter(proposable));
-  const avecDuree = choisir((formation) => proposable(formation.dureeTotale));
+  const toutesLesDurees = trier(
+    formations.map((formation) => libelleDuree(formation.dureeTotale)).filter(proposable),
+  );
+  const avecDuree = choisir((formation) => proposable(libelleDuree(formation.dureeTotale)));
   if (avecDuree && toutesLesDurees.length >= 2) {
-    const juste = avecDuree.dureeTotale.trim();
+    const juste = libelleDuree(avecDuree.dureeTotale);
     const leurres = toutesLesDurees.filter((duree) => duree !== juste).slice(0, 2);
     ajouter({
       format: 'mise en situation',
@@ -393,8 +420,11 @@ export function consignesPourIa(formations: Formation[], maintenant: Date): stri
     '## Ce qu’il ne faut pas faire',
     '',
     '- N’inventez aucune formation. La colonne `formations` ne contient que des numéros du ' +
-      'catalogue ci-dessous. Une question qui ne se rattache à aucune formation du catalogue ' +
-      'ne s’écrit pas.',
+      'catalogue ci-dessous.',
+    `- Une question sur les règles générales du DPC — obligation triennale, prise en charge, ` +
+      `RPPS — ne relève d’aucune formation : rattachez-la à \`${ID_FORMATION_TRANSVERSE}\`, ` +
+      `« ${NOM_FORMATION_TRANSVERSE} ». Une question qui porte aussi sur une formation cite les ` +
+      `deux. Tout autre sujet sans formation ne s’écrit pas.`,
     '- N’inventez aucun fait. Tout ce que la question affirme vient de l’argumentaire fourni.',
     '- N’inventez pas d’argumentaire. Laissez la colonne vide quand la question n’appelle ' +
       'rien à dire au téléphone.',
@@ -409,11 +439,12 @@ export function consignesPourIa(formations: Formation[], maintenant: Date): stri
     ...(exemples.length > 0 ? ['```csv', csv(exemples), '```', ''] : []),
     '## Catalogue des formations actives',
     '',
-    'Recopiez le numéro de la première colonne dans `formations`.',
+    'Recopiez le numéro de la première colonne dans `formations`. La première ligne n’est pas ' +
+      'une formation vendue : elle reçoit les questions sur les règles générales du DPC.',
     '',
     '| Numéro à recopier | Formation |',
     '| --- | --- |',
-    ...formations.map(
+    ...ordonnerCatalogue(formations).map(
       (formation) =>
         `| ${celluleMarkdown(referenceFormation(formation))} | ${celluleMarkdown(formation.nom)} |`,
     ),
@@ -493,7 +524,10 @@ export function classeurModele(formations: Formation[]): Uint8Array {
       nom: NOMS_FEUILLES.formations,
       lignes: [
         ['Numéro à recopier', 'Formation'],
-        ...formations.map((formation) => [referenceFormation(formation), formation.nom]),
+        ...ordonnerCatalogue(formations).map((formation) => [
+          referenceFormation(formation),
+          formation.nom,
+        ]),
       ],
       largeurs: [22, 80],
     },

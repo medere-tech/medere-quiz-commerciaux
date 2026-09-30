@@ -881,6 +881,17 @@ En revanche, `dureeTotale` est stockée brute — `"7"`, `"11"`. L'unité est un
 
 Création des nouvelles, mise à jour des existantes par `airtableId`, passage à `actif: false` pour celles qui ont disparu de la réponse. **Jamais de suppression**, pour ne pas casser les questions rattachées. L'écriture est complète et non fusionnée : le document reflète exactement Airtable, sans champ résiduel d'une version précédente du modèle.
 
+### La formation transverse : « DPC et réglementation »
+
+Certaines questions ne relèvent d'aucune formation du catalogue — l'obligation triennale, le forfait ANDPC, le RPPS — et servent pourtant à tous les commerciaux. Plutôt que de rendre `formationIds` facultatif, ce qui aurait obligé seize modules à décider quoi faire d'une question sans formation, elles se rattachent à un document réservé : `formations/transverse-dpc`, marqué `transverse: true`.
+
+- **Il ne vient pas d'Airtable**, qui reste en lecture seule. `npm run formations:transverse -- --faire` le crée, et le réécrit à l'identique autant de fois qu'on le lance. C'est aussi le geste à refaire si la base est un jour vidée : contrairement au reste de `formations`, il ne se reconstruit pas par synchronisation.
+- **La synchronisation ne le désactive pas.** Sans exemption, il aurait « disparu d'Airtable » à chaque passage. `formationsADesactiver` et `formationsDuMiroir` l'écartent de la désactivation et du garde-fou. Vérifié sur la base réelle : avec l'ancien code, une synchronisation le désactivait ; avec le nouveau, elle n'y touche pas.
+- **Un écran qui ne montre qu'une formation prend la première formation vendue**, et la transverse seulement quand elle est seule : `formationPrincipale`. C'est une règle, pas une convention d'ordre dans `formationIds` — un ordre à maintenir à l'enregistrement se casserait à la première modification faite sans le savoir.
+- **Récompenses.** Elle compte pour « Toutes les formations au-dessus de 80 % », qui mesure une couverture : ne pas maîtriser les règles du DPC est un trou réel. Elle ne compte pas pour « Une formation entièrement maîtrisée », qui récompense de savoir vendre quelque chose.
+- **Sa forme est provisoire.** Les sept formes du jeu sont toutes portées par au moins une formation active ; la transverse prend `forme-5-FECA45` — la forme 5, qu'une seule formation active porte, déclinée en jaune. À trancher par le design.
+- Les règles Firestore décrivent le modèle d'une formation synchronisée et ne connaissent pas le champ `transverse`. Elles ne gênent rien — le document est écrit par le SDK Admin, et aucun écran n'écrit dans `formations` —, mais une retouche manuelle de ce document depuis un client serait refusée.
+
 ### Déclenchement
 
 | Appelant | Méthode | Authentification |
@@ -1943,6 +1954,14 @@ optimisé réuni.** Les scripts de l'application, eux, sont à 372,8 ko sur un
 écran authentifié. Tant qu'on n'a pas mesuré la seconde visite, on ne sait pas
 lequel des trois mérite le travail.
 
+**Un test de minutage instable sous charge.** `tests/questions/comptages.test.ts`,
+« arrête d’émettre dès que l’écran est quitté », est tombé une fois le
+29 septembre 2026, pendant que le serveur de développement, l'émulateur et un
+build tournaient ensemble. Il est passé cinq fois sur cinq seul, puis dans la
+suite complète. Candidat, pas encore corrigé : un test qui dépend de la charge
+de la machine finira par tomber en intégration continue et par être relancé
+sans qu'on regarde pourquoi.
+
 ---
 
 ### Reste à faire, hors dépôt
@@ -1955,6 +1974,14 @@ console accepte de la créer.
 Les trois autres gestes de mise en service — déploiement des fonctions,
 nettoyage des données de recette, rotation de la clé de service — sont prêts et
 documentés ; ils se font le jour de l'ouverture.
+
+**Après le déploiement du lot de la formation transverse : relancer
+`npm run formations:transverse -- --faire`.** Le document
+`formations/transverse-dpc` a été créé le 29 septembre 2026 dans la base
+partagée, avant que le code qui l'exempte soit en production. La tâche
+planifiée de 4 h UTC, qui tourne encore avec l'ancien code, le désactive à
+chaque passage. Le script le remet à `actif: true` ; une fois le nouveau code
+déployé, plus rien ne le désactive.
 
 ---
 
