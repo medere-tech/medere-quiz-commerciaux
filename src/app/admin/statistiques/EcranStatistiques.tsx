@@ -205,11 +205,13 @@ export function EcranStatistiques({
 
       <div className="grille-chiffres">
         <Chiffre libelle="Réponses enregistrées" valeur={String(resume.reponses)} note="depuis la mise en service" />
+        {/* Sans réponse, un taux n'est pas nul : il n'existe pas. « 0 % » dirait
+            que tout est juste, avant que personne ait joué. */}
         <Chiffre
           libelle="Taux d’échec moyen"
-          valeur={`${resume.tauxEchecMoyen} %`}
-          note="toutes questions confondues"
-          alerte={resume.tauxEchecMoyen > 50}
+          valeur={resume.reponses === 0 ? '—' : `${resume.tauxEchecMoyen} %`}
+          note={resume.reponses === 0 ? 'aucune réponse pour l’instant' : 'toutes questions confondues'}
+          alerte={resume.reponses > 0 && resume.tauxEchecMoyen > 50}
         />
         {/* « Servies » désigne ici ce qui sort aux commerciaux — publiées et à
             relire. Le second chiffre parle de tirage, pour que le même mot ne

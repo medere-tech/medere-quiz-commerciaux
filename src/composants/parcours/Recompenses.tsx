@@ -366,9 +366,13 @@ function CarteRegularite({
           color: 'var(--neutral-70)',
         }}
       >
-        {serie === 0
-          ? `votre record est de ${assiduite.record}`
-          : `d’affilée · votre record est de ${assiduite.record}`}
+        {/* Un record de zéro n'est pas un record : avant le premier jour joué,
+            on dit ce qui le fera naître plutôt que de citer un passé vide. */}
+        {assiduite.record === 0
+          ? 'le compte démarre à la première série terminée'
+          : serie === 0
+            ? `votre record est de ${assiduite.record} jour${assiduite.record > 1 ? 's' : ''}`
+            : `d’affilée · votre record est de ${assiduite.record} jour${assiduite.record > 1 ? 's' : ''}`}
       </span>
 
       <div className="recompenses-semaine">

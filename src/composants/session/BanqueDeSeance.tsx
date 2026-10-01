@@ -133,7 +133,8 @@ export function BanqueDeSeance({
                 cette banque contient aussi les questions à relire — ce sont
                 celles qui font trébucher, donc la matière d'un jeudi. Dire
                 « publiées » désignerait un sous-ensemble de ce qui est compté. */}
-            {questions.length} servies, {choisies.length} retenues
+            {questions.length} servie{questions.length > 1 ? 's' : ''}, {choisies.length}{' '}
+            retenue{choisies.length > 1 ? 's' : ''}
           </Meta>
         }
       >
@@ -194,8 +195,12 @@ export function BanqueDeSeance({
       <div className="banque-zone">
         {groupes.length === 0 ? (
           <Meta style={{ fontSize: 'var(--body-sm-size)' }}>
-            Aucune question publiée sous ce filtre. Élargissez la formation ou le format, ou
-            publiez des questions depuis la banque.
+            {/* Une banque vide n'est pas un filtre trop étroit : conseiller
+                d'« élargir » quand rien n'est publié envoie chercher au mauvais
+                endroit. */}
+            {questions.length === 0
+              ? 'Aucune question n’est encore publiée. Publiez-en depuis la banque pour composer une séance.'
+              : 'Aucune question publiée sous ce filtre. Élargissez la formation ou le format, ou publiez des questions depuis la banque.'}
           </Meta>
         ) : (
           groupes.map(({ formation: groupe, questions: lignes, total }) => {
@@ -287,11 +292,15 @@ export function BanqueDeSeance({
             Afficher 50 questions de plus
           </Bouton>
         )}
-        <Meta style={{ fontSize: 13 }}>
-          {triees.length > combien
-            ? 'Triées par taux d’échec décroissant.'
-            : `${triees.length} question${triees.length > 1 ? 's' : ''}, triées par taux d’échec décroissant.`}
-        </Meta>
+        {/* Rien à trier : « 0 question, triées par taux d'échec » décrivait un
+            ordre sur une liste vide. */}
+        {triees.length > 0 && (
+          <Meta style={{ fontSize: 13 }}>
+            {triees.length > combien
+              ? 'Triées par taux d’échec décroissant.'
+              : `${triees.length} question${triees.length > 1 ? 's' : ''}, triées par taux d’échec décroissant.`}
+          </Meta>
+        )}
       </div>
     </div>
   );

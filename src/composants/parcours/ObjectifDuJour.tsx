@@ -39,11 +39,27 @@ const NOMS_JOURS = [
   'dimanche',
 ] as const;
 
-export function ObjectifDuJour({ assiduite }: { assiduite: Assiduite }) {
+export function ObjectifDuJour({
+  assiduite,
+  disponibles,
+}: {
+  assiduite: Assiduite;
+  /** Questions servies : l'objectif ne peut pas promettre plus que la banque. */
+  disponibles: number;
+}) {
   const aujourdhui = clefDuJour(new Date());
   const jours = semaineAffichee(assiduite, aujourdhui);
   const serie = serieAffichee(assiduite, aujourdhui);
   const faitAujourdhui = assiduite.dernierJour === aujourdhui;
+  /* « À reprendre » suppose une série qui a existé. Sans aucun jour joué —
+     le premier jour de tout le monde —, il n'y a rien à reprendre, seulement
+     à commencer. */
+  const dejaJoue = assiduite.record > 0;
+  const objectif = faitAujourdhui
+    ? 'C’est fait pour aujourd’hui'
+    : disponibles === 0
+      ? 'En attente des premières questions'
+      : `Une série de ${Math.min(TAILLE_SERIE, disponibles)}, avant midi`;
 
   return (
     <Carte rayon="var(--radius-xl)" rembourrage="0" elevation="petite" style={{ overflow: 'hidden' }}>
@@ -61,7 +77,7 @@ export function ObjectifDuJour({ assiduite }: { assiduite: Assiduite }) {
               textWrap: 'pretty',
             }}
           >
-            {faitAujourdhui ? 'C’est fait pour aujourd’hui' : `Une série de ${TAILLE_SERIE}, avant midi`}
+            {objectif}
           </span>
         </span>
 
@@ -110,7 +126,7 @@ export function ObjectifDuJour({ assiduite }: { assiduite: Assiduite }) {
                 color: 'var(--text-heading)',
               }}
             >
-              {serie === 0 ? 'À reprendre' : `${serie} jour${serie > 1 ? 's' : ''}`}
+              {serie > 0 ? `${serie} jour${serie > 1 ? 's' : ''}` : dejaJoue ? 'À reprendre' : 'À commencer'}
             </span>
             <Meta style={{ fontSize: 12 }}>
               {serie === 0
