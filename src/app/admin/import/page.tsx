@@ -250,6 +250,9 @@ export default function PageImport() {
   const doublons = analyses.filter((analyse) =>
     analyse.avertissements.some((a) => a.genre === 'doublon'),
   ).length;
+  const horsAngle = analyses.filter((analyse) =>
+    analyse.avertissements.some((a) => a.genre === 'angle-hors-liste'),
+  ).length;
 
   const affichees = analyses.filter((analyse) => {
     if (filtre === 'pretes') return analyse.question !== null;
@@ -368,6 +371,8 @@ export default function PageImport() {
         style={{ gridTemplateColumns: 'minmax(320px, 380px) 1fr' }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          <ModeleATelecharger />
+
           <DepotFichier
             nom={fichierDepose}
             erreur={erreurFichier}
@@ -386,7 +391,7 @@ export default function PageImport() {
             onChange={coller}
             lignes={10}
             mono
-            placeholder={`${ENTETE_MODELE}\nchoix multiples\tQuels publics… ?\t\tInfirmiers|Kinés\t1\tParce que…\tPlaies et cicatrisation\tpublics`}
+            placeholder={`${ENTETE_MODELE}\nchoix multiples\tQuels publics… ?\t\tInfirmiers|Kinés\t1\tParce que…\t\tPlaies et cicatrisation\tPublic et conditions`}
           />
 
           <Analyse
@@ -395,6 +400,7 @@ export default function PageImport() {
             aCorriger={enErreur.length}
             sansDifficulte={sansDifficulte}
             doublons={doublons}
+            horsAngle={horsAngle}
             collage={collage}
           />
 
@@ -468,9 +474,20 @@ export default function PageImport() {
           {collage.etat === 'entete-illisible' && (
             <EtatErreur
               titre="En-tête non reconnu"
-              texte={`Ces colonnes obligatoires n’ont pas été trouvées : ${collage.manquantes
-                .map((colonne) => LIBELLES_COLONNE[colonne])
-                .join(', ')}. La première ligne du tableau doit porter le nom des colonnes.`}
+              texte={[
+                collage.manquantes.length > 0
+                  ? `Ces colonnes obligatoires n’ont pas été trouvées : ${collage.manquantes
+                      .map((colonne) => LIBELLES_COLONNE[colonne])
+                      .join(', ')}. La première ligne du tableau doit porter le nom des colonnes.`
+                  : '',
+                ...collage.enDouble.map(
+                  ({ colonne, entetes }) =>
+                    `Les colonnes ${entetes.map((nom) => `« ${nom} »`).join(' et ')} désignent toutes ` +
+                    `le champ « ${LIBELLES_COLONNE[colonne]} » : gardez-en une seule.`,
+                ),
+              ]
+                .filter(Boolean)
+                .join(' ')}
               action={<BoutonEnteteModele />}
             />
           )}
@@ -530,12 +547,125 @@ function BoutonEnteteModele() {
   );
 }
 
+type FormeModele = 'ia' | 'tableur';
+
+/**
+ * Le modèle, en deux fichiers : l'un pour une IA, l'autre pour un tableur.
+ *
+ * **Un bouton, pas un lien.** Un `<Link>` vers la route la préchargerait dès
+ * qu'il paraît à l'écran — le fichier serait fabriqué, catalogue relu, à
+ * chaque visite de l'import. Et une ancre nue suivrait une erreur jusque dans
+ * une page de JSON. Le bouton demande le fichier au clic, et dit ce qui a
+ * échoué sans quitter l'écran.
+ */
+function ModeleATelecharger() {
+  const [enCours, setEnCours] = useState<FormeModele>();
+  const [erreur, setErreur] = useState<string>();
+
+  async function telecharger(forme: FormeModele) {
+    setEnCours(forme);
+    setErreur(undefined);
+
+    try {
+      const reponse = await fetch(`/api/import/modele?forme=${forme}`, { cache: 'no-store' });
+      if (!reponse.ok) {
+        const corps = (await reponse.json().catch(() => ({}))) as { erreur?: unknown };
+        setErreur(
+          typeof corps.erreur === 'string'
+            ? corps.erreur
+            : 'Le modèle n’a pas pu être préparé. Réessayez dans un instant.',
+        );
+        return;
+      }
+
+      const nom =
+        /filename="([^"]+)"/.exec(reponse.headers.get('content-disposition') ?? '')?.[1] ??
+        (forme === 'ia' ? 'consignes-questions-medere.md' : 'modele-questions-medere.xlsx');
+      const adresse = URL.createObjectURL(await reponse.blob());
+      const ancre = document.createElement('a');
+      ancre.href = adresse;
+      ancre.download = nom;
+      ancre.click();
+      URL.revokeObjectURL(adresse);
+    } catch (cause) {
+      // Seule cause nommable ici : la requête n'est pas partie ou n'est pas
+      // revenue. Tout autre échec remonte.
+      if (!(cause instanceof TypeError)) throw cause;
+      setErreur('Le serveur n’a pas répondu. Vérifiez votre connexion, puis réessayez.');
+    } finally {
+      setEnCours(undefined);
+    }
+  }
+
+  return (
+    <Carte rayon="var(--radius-lg)" rembourrage="18px 20px" elevation="petite">
+      <span
+        style={{
+          display: 'block',
+          fontSize: 'var(--body-sm-size)',
+          fontWeight: 'var(--weight-semibold)',
+          color: 'var(--text-heading)',
+        }}
+      >
+        Modèle à remplir
+      </span>
+      <p
+        style={{
+          margin: '6px 0 14px',
+          fontSize: 'var(--body-sm-size)',
+          lineHeight: 1.55,
+          color: 'var(--neutral-70)',
+          textWrap: 'pretty',
+        }}
+      >
+        Colonnes, valeurs acceptées, exemples importables et catalogue des formations actives,
+        tel qu’il est aujourd’hui.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        <Bouton
+          variante="secondaire"
+          pleineLargeur
+          disabled={enCours !== undefined}
+          iconeGauche={<Icone nom="book" taille={16} />}
+          onClick={() => void telecharger('ia')}
+        >
+          {enCours === 'ia' ? 'Préparation…' : 'Consignes pour une IA (.md)'}
+        </Bouton>
+        <Bouton
+          variante="secondaire"
+          pleineLargeur
+          disabled={enCours !== undefined}
+          iconeGauche={<Icone nom="table" taille={16} />}
+          onClick={() => void telecharger('tableur')}
+        >
+          {enCours === 'tableur' ? 'Préparation…' : 'Classeur à remplir (.xlsx)'}
+        </Bouton>
+      </div>
+      {erreur && (
+        <span
+          role="alert"
+          style={{
+            display: 'block',
+            marginTop: 'var(--space-2)',
+            fontSize: 'var(--body-xs-size)',
+            lineHeight: 1.45,
+            color: 'var(--status-danger-texte)',
+          }}
+        >
+          {erreur}
+        </span>
+      )}
+    </Carte>
+  );
+}
+
 function Analyse({
   lues,
   pretes,
   aCorriger,
   sansDifficulte,
   doublons,
+  horsAngle,
   collage,
 }: {
   lues: number;
@@ -543,6 +673,7 @@ function Analyse({
   aCorriger: number;
   sansDifficulte: number;
   doublons: number;
+  horsAngle: number;
   collage: ResultatCollage;
 }) {
   const chiffres: { valeur: number; libelle: string; alerte?: boolean }[] = [
@@ -603,6 +734,13 @@ function Analyse({
         <Meta style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
           {`${doublons} énoncé${doublons > 1 ? 's' : ''} déjà vu${doublons > 1 ? 's' : ''} : ` +
             `l’import les créera quand même, en double.`}
+        </Meta>
+      )}
+      {horsAngle > 0 && (
+        <Meta style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+          {`${horsAngle} question${horsAngle > 1 ? 's' : ''} hors des cinq angles de ` +
+            `l’argumentaire : elle${horsAngle > 1 ? 's' : ''} entrer${horsAngle > 1 ? 'ont' : 'a'} ` +
+            `sous l’angle écrit.`}
         </Meta>
       )}
       {collage.etat === 'lu' && collage.ignorees.length > 0 && (

@@ -24,7 +24,13 @@ export type Provenance =
 
 export type ResultatCollage =
   | { etat: 'vide' }
-  | { etat: 'entete-illisible'; manquantes: Colonne[]; entetes: string[] }
+  | {
+      etat: 'entete-illisible';
+      manquantes: Colonne[];
+      /** Champs que plusieurs colonnes désignent : aucune n'est choisie. */
+      enDouble: { colonne: Colonne; entetes: string[] }[];
+      entetes: string[];
+    }
   | {
       etat: 'lu';
       provenance: Provenance;
@@ -40,8 +46,13 @@ export function lireGrille(
 ): ResultatCollage {
   const association = associerColonnes(entetes);
 
-  if (association.manquantes.length > 0) {
-    return { etat: 'entete-illisible', manquantes: association.manquantes, entetes };
+  if (association.manquantes.length > 0 || association.enDouble.length > 0) {
+    return {
+      etat: 'entete-illisible',
+      manquantes: association.manquantes,
+      enDouble: association.enDouble,
+      entetes,
+    };
   }
 
   const nommees: LigneImport[] = lignes.map((ligne) => {

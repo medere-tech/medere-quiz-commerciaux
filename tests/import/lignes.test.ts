@@ -203,6 +203,60 @@ describe('analyserLigne — traduction', () => {
     expect(analyse.question?.sourceFiche).toBe('Argumentaire DPC');
     expect(analyse.question?.sourceVersion).toBe('v2');
   });
+
+  it('importe l’argumentaire, que l’import ignorait', () => {
+    const analyse = analyserLigne(
+      ligneCorrecte({ argumentaire: 'Demandez qui assiste le praticien au fauteuil.' }),
+      index,
+    );
+
+    expect(analyse.question?.argumentaire).toBe('Demandez qui assiste le praticien au fauteuil.');
+  });
+
+  it('applique à l’argumentaire le plafond de l’éditeur', () => {
+    const analyse = analyserLigne(
+      ligneCorrecte({ argumentaire: 'a'.repeat(PLAFONDS.argumentaire + 1) }),
+      index,
+    );
+
+    expect(analyse.erreurs.map((e) => e.colonne)).toContain('argumentaire');
+  });
+});
+
+describe('analyserLigne — l’angle', () => {
+  const horsListe = (analyse: ReturnType<typeof analyserLigne>) =>
+    analyse.avertissements.some((a) => a.genre === 'angle-hors-liste');
+
+  it('ramène une variante à sa forme canonique, sans avertir', () => {
+    for (const [ecrit, attendu] of [
+      ['publics', 'Public et conditions'],
+      ['l’expert', 'Expert'],
+      ['FORMATRICE', 'Expert'],
+      ['bloc de certification', 'Certification'],
+      ['arguments de vente', 'Arguments de vente'],
+      ['contenu', 'Contenu'],
+    ] as const) {
+      const analyse = analyserLigne(ligneCorrecte({ theme: ecrit }), index);
+
+      expect(analyse.question?.theme, ecrit).toBe(attendu);
+      expect(horsListe(analyse), ecrit).toBe(false);
+    }
+  });
+
+  it('accepte un angle hors liste tel qu’écrit, en le disant', () => {
+    const analyse = analyserLigne(ligneCorrecte({ theme: 'Réglementation DPC' }), index);
+
+    expect(analyse.erreurs).toEqual([]);
+    expect(analyse.question?.theme).toBe('Réglementation DPC');
+    expect(horsListe(analyse)).toBe(true);
+  });
+
+  it('refuse toujours un angle vide', () => {
+    const analyse = analyserLigne(ligneCorrecte({ theme: '' }), index);
+
+    expect(analyse.erreurs.map((e) => e.colonne)).toContain('theme');
+    expect(horsListe(analyse)).toBe(false);
+  });
 });
 
 describe('analyserLigne — la validation reste celle de l’éditeur', () => {
@@ -305,6 +359,30 @@ describe('lireCollage', () => {
     expect(resultat.etat).toBe('lu');
   });
 
+  it('range une colonne « argumentaire » dans l’argumentaire, jamais dans la fiche source', () => {
+    // Le mot conduisait à `sourceFiche` : le texte de vente d'une IA y
+    // atterrissait sans un mot.
+    const resultat = lireCollage(
+      `${entete}\tArgumentaire\nvf\tQ ?\tOui|Non\t1\tParce que\trecAAA\tpublics\tDites-le ainsi.`,
+    );
+
+    expect(resultat.etat).toBe('lu');
+    if (resultat.etat !== 'lu') return;
+    expect(resultat.lignes[0]?.valeurs.argumentaire).toBe('Dites-le ainsi.');
+    expect(resultat.lignes[0]?.valeurs.sourceFiche).toBe('');
+  });
+
+  it('reconnaît « angle » comme l’ancienne colonne « thème »', () => {
+    const resultat = lireCollage(
+      'format\tenonce\treponses\tbonnesReponses\texplication\tformations\tAngle\n' +
+        'vf\tQ ?\tOui|Non\t1\tParce que\trecAAA\tExpert',
+    );
+
+    expect(resultat.etat).toBe('lu');
+    if (resultat.etat !== 'lu') return;
+    expect(resultat.lignes[0]?.valeurs.theme).toBe('Expert');
+  });
+
   it('refuse en bloc quand l’en-tête ne dit pas ce que contiennent les colonnes', () => {
     const resultat = lireCollage('colonne1\tcolonne2\nvaleur\tvaleur');
 
@@ -382,5 +460,124 @@ describe('avertissements — signaler sans bloquer', () => {
       ligne.avertissements.filter((a) => a.genre === 'doublon'),
     );
     expect(doublons).toEqual([]);
+  });
+});
+
+/**
+ * Une valeur qui admet deux lectures est refusée, jamais tranchée.
+ *
+ * Chacun de ces cas passait sans un mot : la question entrait en banque, et
+ * la lecture retenue pouvait être la mauvaise — une mauvaise réponse marquée
+ * juste, une formation suspendue à la place de l'active.
+ */
+describe('analyserLigne — une valeur à deux lectures est refusée', () => {
+  const bonnes = (analyse: ReturnType<typeof analyserLigne>) =>
+    analyse.question?.bonnesReponses.map((id) => analyse.question!.options[id]) ?? null;
+  const erreurSur = (analyse: ReturnType<typeof analyserLigne>, colonne: string) =>
+    analyse.erreurs.find((e) => e.colonne === colonne)?.message ?? '';
+
+  it('refuse un nombre qui est à la fois un numéro et le libellé d’une autre proposition', () => {
+    // « 1 » : numéro de « 3 », libellé de la deuxième. L'ancien import
+    // retenait « 3 » et marquait juste la mauvaise réponse.
+    const analyse = analyserLigne(ligneCorrecte({ reponses: '3|1|2', bonnesReponses: '1' }), index);
+
+    expect(analyse.question).toBeNull();
+    expect(erreurSur(analyse, 'bonnesReponses')).toContain('numéro');
+    expect(erreurSur(analyse, 'bonnesReponses')).toContain('libellé');
+  });
+
+  it('accepte un nombre dont les deux lectures désignent la même proposition', () => {
+    const analyse = analyserLigne(ligneCorrecte({ reponses: '1|2|3', bonnesReponses: '2' }), index);
+
+    expect(bonnes(analyse)).toEqual(['2']);
+  });
+
+  it('accepte un nombre qui n’est le libellé d’aucune proposition', () => {
+    const analyse = analyserLigne(
+      ligneCorrecte({ reponses: '8 heures|10 heures|11 heures', bonnesReponses: '1' }),
+      index,
+    );
+
+    expect(bonnes(analyse)).toEqual(['8 heures']);
+  });
+
+  it('refuse un libellé porté par deux propositions', () => {
+    const analyse = analyserLigne(ligneCorrecte({ reponses: 'Oui|Non|Oui', bonnesReponses: 'Oui' }), index);
+
+    expect(analyse.question).toBeNull();
+    expect(erreurSur(analyse, 'bonnesReponses')).toContain('2 propositions portent ce libellé');
+  });
+
+  it('refuse une virgule qui fait lire une proposition entière et une liste', () => {
+    const analyse = analyserLigne(
+      ligneCorrecte({
+        reponses: 'Médecins, pharmaciens|Médecins|Pharmaciens',
+        bonnesReponses: 'Médecins, pharmaciens',
+      }),
+      index,
+    );
+
+    expect(analyse.question).toBeNull();
+    expect(erreurSur(analyse, 'bonnesReponses')).toContain('à la fois une proposition entière');
+  });
+
+  it('garde une virgule dans le libellé quand la barre sépare les réponses', () => {
+    // Avec « | », la virgule n'est plus un séparateur : l'ancien import
+    // découpait sur les deux, et lisait ici trois réponses au lieu de deux.
+    const analyse = analyserLigne(
+      ligneCorrecte({
+        reponses: 'Médecins, pharmaciens|Médecins|Pharmaciens|Infirmiers',
+        bonnesReponses: 'Médecins, pharmaciens|Infirmiers',
+      }),
+      index,
+    );
+
+    expect(bonnes(analyse)).toEqual(['Médecins, pharmaciens', 'Infirmiers']);
+  });
+
+  it('lit toujours une liste à virgules quand elle n’a qu’une lecture', () => {
+    const analyse = analyserLigne(
+      ligneCorrecte({ reponses: 'Médecins|Pharmaciens|Infirmiers', bonnesReponses: 'Médecins, Infirmiers' }),
+      index,
+    );
+
+    expect(bonnes(analyse)).toEqual(['Médecins', 'Infirmiers']);
+  });
+
+  it('refuse un nom de formation partagé, en donnant les numéros et la suspendue', () => {
+    const homonymes = indexerFormations([
+      ...FORMATIONS,
+      { ...FORMATIONS[0]!, id: 'recZZZ', numeroActionDpc: '92622525999', actif: false },
+    ]);
+    const analyse = analyserLigne(ligneCorrecte({ formations: 'Urgences au cabinet dentaire' }), homonymes);
+
+    expect(analyse.question).toBeNull();
+    const message = erreurSur(analyse, 'formations');
+    expect(message).toContain('92622525478');
+    expect(message).toContain('92622525999 (suspendue)');
+  });
+
+  it('accepte le numéro d’une formation dont le nom est partagé', () => {
+    const homonymes = indexerFormations([
+      ...FORMATIONS,
+      { ...FORMATIONS[0]!, id: 'recZZZ', numeroActionDpc: '92622525999', actif: false },
+    ]);
+    const analyse = analyserLigne(ligneCorrecte({ formations: '92622525478' }), homonymes);
+
+    expect(analyse.question?.formationIds).toEqual(['recAAA']);
+  });
+});
+
+describe('lireCollage — deux colonnes pour un même champ', () => {
+  it('refuse l’en-tête plutôt que de lire la première', () => {
+    const resultat = lireCollage(
+      'format\tenonce\treponses\tbonnesReponses\texplication\tformations\ttheme\tangle\n' +
+        'vf\tQ ?\tOui|Non\t1\tParce que\trecAAA\tpublics\tExpert',
+    );
+
+    expect(resultat.etat).toBe('entete-illisible');
+    if (resultat.etat !== 'entete-illisible') return;
+    expect(resultat.manquantes).toEqual([]);
+    expect(resultat.enDouble).toEqual([{ colonne: 'theme', entetes: ['theme', 'angle'] }]);
   });
 });

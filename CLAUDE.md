@@ -34,7 +34,7 @@ firebase deploy --only firestore:rules
 
 **Aucun secret côté navigateur.** Le jeton Airtable et les clés de service ne sortent pas du serveur. Tout passe par une route serveur.
 
-**Les scores individuels sont privés.** Les réponses vivent sous `users/{uid}/reponses`. Personne d'autre que le propriétaire n'y accède, y compris les administrateurs. Les statistiques passent exclusivement par la collection agrégée `questionStats`, qui ne contient aucun identifiant d'utilisateur.
+**Les données d'un commercial sont lisibles par lui-même et par l'équipe pédagogique, jamais par un autre commercial.** L'équipe pédagogique, ce sont les administrateurs — la liste tenue par `ADMIN_EMAILS`, et aucun autre mécanisme. Leur lecture passe **par le serveur** (`src/lib/serveur/maitrise-equipe.ts`, SDK Admin, derrière `exigerAdmin`), jamais par une ouverture des règles : les règles Firestore continuent de fermer `users/{uid}` à tout autre client que son propriétaire, administrateurs compris, et c'est la base qui garantit qu'aucun commercial ne lit un autre commercial. `questionStats` reste anonyme, et le podium de régularité ne publie toujours que les trois plus réguliers.
 
 **Le rôle administrateur est un custom claim**, jamais un champ Firestore. Un champ `isAdmin` dans un document utilisateur est une faille, pas une autorisation.
 
@@ -280,6 +280,28 @@ faux : le vrai `useSearchParams` de Next 16.3.4 ne provoque aucun rendu dans ce
 cas. Les tests passaient, **le filtre était cassé en silence sur quatre
 écrans** — l'adresse changeait, l'écran ne bougeait pas, et le choix suivant,
 reparti d'une adresse périmée, effaçait le précédent. Seul le navigateur l'a vu.
+
+**Constaté le 30 septembre, et c'est le plus grave : une fixture qui pose ce
+que le vrai chemin oublie.** Les règles exigent, à chaque mise à jour de
+`users/{uid}`, un avatar et un nom de séance. La connexion n'en posait aucun.
+La fixture `utilisateur()`, elle, posait les deux — si bien que **tous** les
+tests partaient d'un compte que la vraie connexion ne produisait jamais. Sur
+l'émulateur, avec un compte tel que la connexion le crée, trois des sept
+écritures du premier jour tombaient : les deux crédits de série et le nom de
+séance mémorisé. Dix commerciaux se seraient inscrits le lundi sans pouvoir
+finir une série, et personne n'aurait compris pourquoi — les réponses, elles,
+passaient. Les comptes de recette ne l'ont jamais montré : ils avaient tous
+rejoint une séance, seul endroit qui écrivait ces deux champs.
+
+D'où deux règles de plus :
+
+- **Une fixture qui imite un document écrit par le serveur est construite par
+  le code du serveur.** Le compte neuf vient de `documentUtilisateurNeuf`, la
+  fonction même de la route de connexion — pas d'un objet recopié à la main.
+- **Le premier jour se joue de bout en bout.** `tests/depot/compte-neuf.test.ts`
+  part d'un compte neuf et exerce, par le vrai dépôt et sous les vraies règles,
+  chaque écriture qu'un commercial fait depuis son navigateur. Une écriture
+  nouvelle côté commercial s'y ajoute.
 
 La règle qui en sort, et qui se vérifie en deux gestes :
 

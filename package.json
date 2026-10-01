@@ -24,6 +24,7 @@
     "enonces:normaliser": "node --env-file=.env.local scripts/normaliser-enonces.ts",
     "sessions:completer": "node --env-file=.env.local scripts/completer-sessions.ts",
     "recette:nettoyer": "node --env-file=.env.local scripts/nettoyer-recette.ts",
+    "formations:transverse": "node --env-file=.env.local scripts/creer-formation-transverse.ts",
     "regles:verifier": "node --env-file-if-exists=.env.local scripts/verifier-regles.ts",
     "fonctions:deploy": "node scripts/deployer-fonctions.mjs"
   },

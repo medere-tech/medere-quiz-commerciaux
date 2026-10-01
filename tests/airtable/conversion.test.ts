@@ -6,8 +6,11 @@ import { CHAMPS, PLAFONDS, type EnregistrementAirtable } from '@/lib/airtable/co
 import {
   convertirEnregistrements,
   desactiveraitToutLeCatalogue,
+  formationsADesactiver,
+  formationsDuMiroir,
   normaliserUrl,
 } from '@/lib/airtable/conversion';
+import { ID_FORMATION_TRANSVERSE } from '@/lib/formations/transverse';
 
 import { connecte, creerEnvironnement, NOEMIE } from '../regles/aide';
 
@@ -497,5 +500,49 @@ describe('Accord entre la validation serveur et les règles Firestore', () => {
         syncLe: SYNC_LE,
       }),
     );
+  });
+});
+
+/**
+ * La formation transverse n'a jamais été dans Airtable. Sans exemption, la
+ * synchronisation la désactiverait à chaque passage — chaque nuit, par la
+ * tâche planifiée — et le garde-fou la compterait comme un catalogue peuplé.
+ */
+describe('Formation transverse : la synchronisation ne la touche pas', () => {
+  const existantes = [
+    { id: 'recAAA', actif: true },
+    { id: 'recBBB', actif: true },
+    { id: 'recCCC', actif: false },
+    { id: ID_FORMATION_TRANSVERSE, actif: true, transverse: true },
+  ];
+
+  it('ne la désactive pas, alors qu’Airtable ne la renvoie jamais', () => {
+    const aDesactiver = formationsADesactiver(existantes, new Set(['recAAA']));
+
+    expect(aDesactiver.map((formation) => formation.id)).toEqual(['recBBB']);
+  });
+
+  it('la reconnaît à son drapeau autant qu’à son identifiant', () => {
+    const aDesactiver = formationsADesactiver(
+      [{ id: 'autre-transverse', actif: true, transverse: true }],
+      new Set(),
+    );
+
+    expect(aDesactiver).toEqual([]);
+  });
+
+  it('ne la compte pas dans le miroir, pour que le garde-fou reste juste', () => {
+    // Seule la transverse en base, Airtable vide : première synchronisation
+    // d'une base neuve, pas un catalogue qu'on s'apprête à vider.
+    const seule = formationsDuMiroir([{ id: ID_FORMATION_TRANSVERSE, actif: true, transverse: true }]);
+
+    expect(desactiveraitToutLeCatalogue(0, seule.length)).toBe(false);
+    expect(formationsDuMiroir(existantes)).toHaveLength(3);
+  });
+
+  it('continue de désactiver ce qui a disparu d’Airtable, et pas ce qui est déjà inactif', () => {
+    const aDesactiver = formationsADesactiver(existantes, new Set());
+
+    expect(aDesactiver.map((formation) => formation.id)).toEqual(['recAAA', 'recBBB']);
   });
 });

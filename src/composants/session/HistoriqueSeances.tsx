@@ -16,7 +16,7 @@ import { chargerBilan, type LigneBilan, type Session } from '@/lib/session/depot
  * disparaissait entièrement à la fin de la séance : ni les questions posées, ni
  * les taux. Préparer le jeudi revenait à se souvenir.
  *
- * **Les scores individuels restent privés.** Le bilan est écrit par la Cloud
+ * **Le bilan d'une séance ne nomme personne.** Il est écrit par la Cloud
  * Function, agrégé, sans aucun identifiant — deux compteurs par question. Ce
  * n'est pas une convention d'affichage : la lecture nominative des votes
  * s'éteint avec la séance, les règles le vérifient, et cinq tests le tiennent.

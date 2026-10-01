@@ -17,6 +17,13 @@ export default defineConfig({
       'firebase-admin/firestore': fileURLToPath(
         new URL('./node_modules/firebase-admin/lib/firestore/index.js', import.meta.url),
       ),
+      /*
+       * `server-only` lève à l'import, sauf sous la condition `react-server`,
+       * où il se résout vers `empty.js`. C'est ce que fait Next pour un module
+       * serveur : on reproduit la résolution réelle, pas un faux. Les tests des
+       * modules serveur peuvent ainsi les importer tels quels.
+       */
+      'server-only': fileURLToPath(new URL('./node_modules/server-only/empty.js', import.meta.url)),
     },
   },
   test: {

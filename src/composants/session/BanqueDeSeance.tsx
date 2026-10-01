@@ -9,6 +9,7 @@ import { Etape } from '@/composants/session/Etape';
 import { identiteVisuelle } from '@/lib/formations/depot';
 import type { Formation } from '@/lib/formations/depot';
 import type { QuestionListee } from '@/lib/questions/lecture';
+import { formationPrincipale } from '@/lib/formations/transverse';
 import { LIBELLES_TYPE, TYPES_QUESTION } from '@/lib/questions/modele';
 
 /**
@@ -118,7 +119,7 @@ export function BanqueDeSeance({
   const groupes = useMemo(() => {
     const parFormation = new Map<string, QuestionListee[]>();
     for (const question of visibles) {
-      const cle = question.formationIds[0] ?? '';
+      const cle = formationPrincipale(question.formationIds) ?? '';
       const liste = parFormation.get(cle);
       if (liste) liste.push(question);
       else parFormation.set(cle, [question]);
@@ -127,7 +128,7 @@ export function BanqueDeSeance({
       formation: formations.find((candidate) => candidate.id === id) ?? null,
       questions: liste,
       /** Combien la formation en compte, servies, tous filtres confondus. */
-      total: questions.filter((question) => (question.formationIds[0] ?? '') === id).length,
+      total: questions.filter((question) => (formationPrincipale(question.formationIds) ?? '') === id).length,
     }));
   }, [visibles, formations, questions]);
 

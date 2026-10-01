@@ -39,6 +39,14 @@ describe('Validation — un brouillon conforme', () => {
     expect(resultat.question.contexte).toBeNull();
   });
 
+  it('écrit un angle reconnu sous sa forme canonique, et garde tel quel un angle hors liste', () => {
+    const reconnu = validerQuestion(brouillon({ theme: '  l’experte ' }));
+    const libre = validerQuestion(brouillon({ theme: 'reglementaire' }));
+
+    expect(reconnu.valide && reconnu.question.theme).toBe('Expert');
+    expect(libre.valide && libre.question.theme).toBe('reglementaire');
+  });
+
   it('conserve le contexte d’une mise en situation', () => {
     const resultat = validerQuestion(
       brouillon({ type: 'scenario', contexte: 'Un dentiste vient de terminer Parodontie.' }),
@@ -95,7 +103,7 @@ describe('Validation — les autres champs', () => {
     expect(messagePour(erreurs({ enonce: '' }), 'enonce')).toContain('obligatoire');
   });
 
-  it('refuse un thème vide', () => {
+  it('refuse un angle vide', () => {
     expect(messagePour(erreurs({ theme: '' }), 'theme')).toContain('obligatoire');
   });
 

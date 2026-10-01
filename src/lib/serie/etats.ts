@@ -29,6 +29,30 @@ export type EtatComplet = EtatQuestion & {
  * jamais été vue : c'est le poids le plus fort après un échec, et **son
  * absence est l'information**.
  */
+/**
+ * Un document `users/{uid}/etats/{questionId}` vers le modèle, tel que le SDK
+ * Admin le rend. Une seule conversion pour les deux lecteurs serveur — le
+ * parcours du commercial et le suivi de l'équipe pédagogique : deux
+ * conversions d'un même document finiraient par ne plus dire la même
+ * maîtrise.
+ */
+export function enEtatComplet(id: string, donnees: Record<string, unknown>): EtatComplet {
+  const reussies = typeof donnees.reussies === 'number' ? donnees.reussies : 0;
+  const tentatives = typeof donnees.tentatives === 'number' ? donnees.tentatives : 0;
+  const majLe = donnees.majLe as { toMillis?: () => number } | undefined;
+
+  return {
+    id,
+    reussies,
+    tentatives,
+    derniereRatee: donnees.derniereRatee === true,
+    dejaVue: tentatives > 0,
+    /* Le SDK Admin rend un `Timestamp` qui porte `toMillis`, comme le SDK
+       client : la forme lue par l'écran est la même des deux côtés. */
+    vueLeMs: typeof majLe?.toMillis === 'function' ? majLe.toMillis() : null,
+  };
+}
+
 export function etatsDesQuestions(
   identifiants: string[],
   etats: Map<string, EtatComplet>,

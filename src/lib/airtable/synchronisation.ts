@@ -1,10 +1,13 @@
 import 'server-only';
 
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type DocumentReference } from 'firebase-admin/firestore';
 
 import {
   convertirEnregistrements,
   desactiveraitToutLeCatalogue,
+  formationsADesactiver,
+  formationsDuMiroir,
+  type FormationEnregistree,
   type Rejet,
 } from '@/lib/airtable/conversion';
 import { lireFormations } from '@/lib/airtable/client';
@@ -118,16 +121,27 @@ export async function synchroniserFormations(
 
   const existantes = await base.collection(COLLECTION).get();
   const identifiantsExistants = new Set(existantes.docs.map((document) => document.id));
+  const enregistrees: (FormationEnregistree & { ref: DocumentReference })[] = existantes.docs.map(
+    (document) => ({
+      id: document.id,
+      actif: document.get('actif'),
+      transverse: document.get('transverse'),
+      ref: document.ref,
+    }),
+  );
+  // La formation transverse ne vient pas d'Airtable : elle ne compte pas dans
+  // le miroir. Voir `formationsDuMiroir`.
+  const duMiroir = formationsDuMiroir(enregistrees).length;
 
   // Garde-fou : une réponse vide désactiverait tout le catalogue d'un coup.
   // Une table momentanément filtrée, une vue modifiée, un incident côté
   // Airtable — et plus une seule formation ne serait proposée aux commerciaux.
   // Aucune suppression n'aurait eu lieu, mais le résultat visible serait le
   // même. On préfère ne rien faire et le dire.
-  if (desactiveraitToutLeCatalogue(formations.length, existantes.size)) {
+  if (desactiveraitToutLeCatalogue(formations.length, duMiroir)) {
     throw new ErreurSynchronisation(
       `Airtable n'a renvoyé aucune formation exploitable alors que ` +
-        `${existantes.size} sont enregistrées. La synchronisation est ` +
+        `${duMiroir} sont enregistrées. La synchronisation est ` +
         `interrompue sans rien modifier : désactiver tout le catalogue sur ` +
         `une réponse vide serait pire que de ne pas se synchroniser. ` +
         `Vérifiez la table Formations, puis relancez.` +
@@ -162,14 +176,12 @@ export async function synchroniserFormations(
     await executerSiPlein();
   }
 
-  // Ce qui a disparu d'Airtable est désactivé, jamais supprimé.
+  // Ce qui a disparu d'Airtable est désactivé, jamais supprimé. La formation
+  // transverse, qui n'y a jamais été, est laissée telle quelle.
   const vues = new Set(formations.map((formation) => formation.airtableId));
   let desactivees = 0;
 
-  for (const document of existantes.docs) {
-    if (vues.has(document.id)) continue;
-    if (document.get('actif') === false) continue;
-
+  for (const document of formationsADesactiver(enregistrees, vues)) {
     lot.update(document.ref, { actif: false, syncLe: FieldValue.serverTimestamp() });
     desactivees += 1;
     compteur += 1;

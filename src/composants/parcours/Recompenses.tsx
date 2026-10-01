@@ -40,7 +40,8 @@ import {
  *
  * - **La régularité, pas la maîtrise.** C'est ce que l'outil cherche à
  *   encourager, et être peu régulier ne dit pas qu'on est mauvais. Le taux de
- *   maîtrise ne sort jamais de `users/{uid}`.
+ *   maîtrise n'est montré à aucun autre commercial : seule l'équipe
+ *   pédagogique le lit, par le serveur, pour accompagner chacun.
  * - **Le podium, pas le classement.** Sur une équipe de dix, un classement
  *   complet expose publiquement ceux qui rament — et ce sont eux qui ont le
  *   plus besoin de l'outil.
@@ -434,7 +435,7 @@ function BlocEquipe({
         * personnes jouent. Le rang de chacun lui est réservé.
         */}
       <Meta style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
-        Les plus réguliers de l’équipe. Les scores restent privés.
+        Les plus réguliers de l’équipe. Les scores ne sont pas visibles entre commerciaux.
       </Meta>
 
       <Carte

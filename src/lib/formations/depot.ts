@@ -112,33 +112,9 @@ export async function chargerFormations(): Promise<Formation[]> {
   return instantane.docs.map((document) => enFormation(document.id, document.data()));
 }
 
-/**
- * Teinte et forme de la marque associées à une formation, dérivées de son
- * public. Le repère d'une formation est sa forme, jamais une puce colorée —
- * c'est une règle du système de design, pas une préférence.
- *
- * Les sept formes sont celles du système, livrées déjà teintées, dans
- * `public/formes/`.
- */
-const IDENTITES: Record<string, { fichier: string; couleur: string }> = {
-  'médecin généraliste': { fichier: 'forme-1-006E90.svg', couleur: 'var(--specialty-general)' },
-  'chirurgien dentiste': { fichier: 'forme-2-FECA45.svg', couleur: 'var(--specialty-dentist)' },
-  pédiatre: { fichier: 'forme-3-17BEBB.svg', couleur: 'var(--specialty-pediatrician)' },
-  radiologue: { fichier: 'forme-4-F19953.svg', couleur: 'var(--specialty-radiologist)' },
-  gynécologue: { fichier: 'forme-5-D87DA9.svg', couleur: 'var(--specialty-gynecologist)' },
-  psychiatre: { fichier: 'forme-6-9F84BD.svg', couleur: 'var(--specialty-psychiatrist)' },
-  autres: { fichier: 'forme-7-2DA131.svg', couleur: 'var(--specialty-others)' },
-};
-
-const IDENTITE_PAR_DEFAUT = IDENTITES['médecin généraliste'] as {
-  fichier: string;
-  couleur: string;
-};
-
-export function identiteVisuelle(formation: Formation): { fichier: string; couleur: string } {
-  const premiere = (formation.cibles[0] ?? '').toLowerCase();
-  return IDENTITES[premiere] ?? IDENTITE_PAR_DEFAUT;
-}
+/* Déplacée dans un module pur : voir `identite.ts`. Réexportée ici pour que
+ * les écrans existants ne changent pas d'import. */
+export { identiteVisuelle } from '@/lib/formations/identite';
 
 /**
  * Compte rendu de la dernière synchronisation Airtable.

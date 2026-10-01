@@ -1,4 +1,5 @@
 import type { Formation } from '@/lib/formations/depot';
+import { formationPrincipale } from '@/lib/formations/transverse';
 import type { Question } from '@/lib/questions/depot';
 import type { StatsQuestion } from '@/lib/statistiques/modele';
 
@@ -72,7 +73,7 @@ export function classer(
 
     const ligne: LigneStat = {
       question,
-      formation: parFormation.get(question.formationIds[0] ?? '') ?? null,
+      formation: parFormation.get(formationPrincipale(question.formationIds) ?? '') ?? null,
       tentatives: stat.tentatives,
       echecs: stat.echecs,
       tauxEchec: tauxEchec(stat.echecs, stat.tentatives),

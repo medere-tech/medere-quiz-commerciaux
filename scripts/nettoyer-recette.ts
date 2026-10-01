@@ -26,7 +26,9 @@
  * **Ce à quoi il ne touche pas, et pourquoi :**
  *
  *   - `formations` — le miroir Airtable. Il se reconstruit par synchronisation,
- *     et Airtable est en lecture seule : rien à effacer ici.
+ *     et Airtable est en lecture seule : rien à effacer ici. Seule exception, la
+ *     formation transverse, qui ne vient pas d'Airtable : elle se recrée par
+ *     `npm run formations:transverse`.
  *   - Les comptes Firebase Authentication. Effacer le document `users/{uid}`
  *     remet la progression à zéro ; effacer le compte déconnecterait aussi les
  *     administrateurs et ferait perdre les custom claims, qui ne se
@@ -40,10 +42,12 @@
  *   node --env-file=.env.local scripts/nettoyer-recette.ts --seances --confirmer=EFFACER
  *   node --env-file=.env.local scripts/nettoyer-recette.ts --orphelins
  *   node --env-file=.env.local scripts/nettoyer-recette.ts --references
+ *   node --env-file=.env.local scripts/nettoyer-recette.ts --table-rase
  *
  * Périmètres (aucun n'est activé quand on en nomme au moins un ; tous le sont
  * quand on n'en nomme aucun, sauf `--questions`, toujours explicite) :
- *   --progression   réponses, états, étoiles, séries terminées, prix
+ *   --progression   réponses, états, étoiles, séries terminées, prix, assiduité,
+ *                   récompenses, et le podium de régularité (classements/)
  *   --seances       toutes les séances collectives et leur contenu
  *   --statistiques  questionStats et ses marqueurs d'événements
  *   --synchros      le journal des synchronisations Airtable
@@ -75,7 +79,7 @@
 import { createInterface } from 'node:readline/promises';
 
 import { cert, initializeApp, type App } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
+import { getAuth, type UserRecord } from 'firebase-admin/auth';
 import {
   FieldValue,
   getFirestore,
@@ -83,6 +87,8 @@ import {
   type Firestore,
   type Timestamp,
 } from 'firebase-admin/firestore';
+
+import { documentUtilisateurNeuf } from '../src/lib/auth/document-utilisateur.ts';
 
 const PERIMETRES = [
   'progression',
@@ -211,14 +217,29 @@ async function planProgression(db: Firestore): Promise<Plan & { remisesAZero: st
 
     const etoiles = typeof donnees.etoiles === 'number' ? donnees.etoiles : 0;
     const series = typeof donnees.seriesTerminees === 'number' ? donnees.seriesTerminees : 0;
+    const assiduite = donnees.assiduite !== undefined;
+    const recompenses = Object.keys((donnees.recompenses as object | undefined) ?? {}).length;
 
-    if (comptes === 0 && etoiles === 0 && series === 0) continue;
+    if (comptes === 0 && etoiles === 0 && series === 0 && !assiduite && recompenses === 0) continue;
 
     remisesAZero.push(utilisateur.id);
     lignes.push(
       `  ${String(donnees.email ?? utilisateur.id).padEnd(34)} ${String(comptes).padStart(4)} document(s) · ` +
-        `${etoiles} étoile(s) · ${series} série(s) terminée(s)`,
+        `${etoiles} étoile(s) · ${series} série(s) terminée(s) · ` +
+        `${assiduite ? 'assiduité' : 'sans assiduité'} · ${recompenses} récompense(s)`,
     );
+  }
+
+  /*
+   * **Le podium de régularité part avec la progression.** Il est calculé à
+   * partir de l'assiduité : l'effacer d'un côté et le garder de l'autre
+   * laisserait un commercial arriver sur un podium de comptes de recette.
+   * La Cloud Function le republiera, vide, dès la remise à zéro des comptes.
+   */
+  const classements = await sousArbre(db.collection('classements'));
+  if (classements.length > 0) {
+    chemins.push(...classements);
+    lignes.push(`  classements/ — podium de régularité et rangs personnels : ${classements.length} document(s)`);
   }
 
   return { chemins, lignes, remisesAZero };
@@ -618,20 +639,208 @@ async function recoudre(db: Firestore, recoutures: Recouture[]): Promise<void> {
   }
 }
 
+/**
+ * Remet un compte à l'état d'avant sa première série.
+ *
+ * `assiduite` et `recompenses` étaient oubliés : un commercial serait arrivé
+ * avec la série de jours et les badges de la recette. Ils sont retirés plutôt
+ * que mis à zéro — un compte neuf ne les porte pas, et l'application sait lire
+ * leur absence. Le nom de séance et l'avatar restent : ce sont des réglages,
+ * pas de la progression.
+ */
 async function remettreAZero(db: Firestore, uids: string[]): Promise<void> {
   const lot = db.batch();
   for (const uid of uids) {
     lot.update(db.collection('users').doc(uid), {
       etoiles: 0,
       seriesTerminees: 0,
+      assiduite: FieldValue.delete(),
+      recompenses: FieldValue.delete(),
     });
   }
   await lot.commit();
 }
 
+/* ------------------------------------------------------------- table rase */
+
+/**
+ * `--table-rase` : on repart d'une base vide, avec les comptes administrateur
+ * et rien d'autre.
+ *
+ * **Ce qui part.** Toutes les collections racine de Firestore, et tout ce
+ * qu'elles contiennent — parcourues, pas énumérées : une collection qu'on
+ * aurait oublié de nommer partirait quand même, ce qui est le sens d'une
+ * table rase. Les documents `users/` des administrateurs partent aussi, avec
+ * leurs réponses, leurs états, leurs prix. Les comptes Authentication qui ne
+ * sont pas dans `ADMIN_EMAILS` sont supprimés.
+ *
+ * **Ce qui reste.**
+ *   - Les comptes Authentication listés dans `ADMIN_EMAILS`, et leur rôle.
+ *     Leurs documents `users/{uid}` sont **recréés neufs**, par la fonction
+ *     qu'emploie la connexion : un administrateur déjà connecté garde une
+ *     session valable quatorze jours, et un document absent ferait refuser
+ *     toutes ses écritures jusqu'à sa reconnexion.
+ *   - `formations`. Ce n'est pas une donnée de l'application mais le miroir
+ *     d'Airtable, qui se reconstruirait à l'identique par synchronisation. Le
+ *     vider ne gagnerait rien et casserait l'import tant qu'une synchronisation
+ *     n'est pas passée : chaque formation citée serait « inconnue ».
+ *
+ * **Mot de confirmation distinct.** `--confirmer=TABLE-RASE`, pas `EFFACER` :
+ * une commande de nettoyage partiel rejouée depuis l'historique ne doit pas
+ * pouvoir devenir une table rase par une option ajoutée en bout de ligne.
+ */
+const MOT_TABLE_RASE = 'TABLE-RASE';
+const COLLECTIONS_GARDEES = ['formations'];
+
+type PlanTableRase = {
+  chemins: string[];
+  lignes: string[];
+  administrateurs: UserRecord[];
+  comptesASupprimer: UserRecord[];
+};
+
+async function planTableRase(db: Firestore): Promise<PlanTableRase> {
+  const adresses = (process.env.ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((adresse) => adresse.trim().toLowerCase())
+    .filter(Boolean);
+
+  const comptes: UserRecord[] = [];
+  let page: string | undefined;
+  do {
+    const lot = await getAuth(application()).listUsers(1000, page);
+    comptes.push(...lot.users);
+    page = lot.pageToken;
+  } while (page);
+
+  const administrateurs = comptes.filter((compte) => adresses.includes((compte.email ?? '').toLowerCase()));
+  const comptesASupprimer = comptes.filter((compte) => !administrateurs.includes(compte));
+
+  const chemins: string[] = [];
+  const lignes: string[] = [];
+
+  for (const collection of await db.listCollections()) {
+    if (COLLECTIONS_GARDEES.includes(collection.id)) {
+      const nombre = (await collection.count().get()).data().count;
+      lignes.push(`  ${collection.id.padEnd(20)} GARDÉE — ${nombre} document(s), miroir d'Airtable`);
+      continue;
+    }
+    const sous = await sousArbre(collection);
+    chemins.push(...sous);
+    lignes.push(`  ${collection.id.padEnd(20)} ${String(sous.length).padStart(6)} document(s), sous-collections comprises`);
+  }
+
+  return { chemins, lignes, administrateurs, comptesASupprimer };
+}
+
+async function tableRase(db: Firestore, confirmation: string | undefined): Promise<void> {
+  const plan = await planTableRase(db);
+  const adressesListees = (process.env.ADMIN_EMAILS ?? '').split(',').filter((a) => a.trim()).length;
+
+  console.log('TABLE RASE — tout part, sauf les comptes administrateur et le miroir Airtable\n');
+  console.log('FIRESTORE');
+  console.log(plan.lignes.length > 0 ? plan.lignes.join('\n') : '  (base déjà vide)');
+  console.log();
+  console.log('COMPTES AUTHENTICATION GARDÉS — administrateurs (ADMIN_EMAILS)');
+  console.log(
+    plan.administrateurs.length > 0
+      ? plan.administrateurs.map((compte) => `  ${compte.email} — document users/ recréé neuf`).join('\n')
+      : '  (aucun)',
+  );
+  if (plan.administrateurs.length < adressesListees) {
+    console.log(`  ${adressesListees - plan.administrateurs.length} adresse(s) de ADMIN_EMAILS sans compte : elles en auront un à leur première connexion.`);
+  }
+  console.log();
+  console.log('COMPTES AUTHENTICATION SUPPRIMÉS');
+  console.log(
+    plan.comptesASupprimer.length > 0
+      ? plan.comptesASupprimer.map((compte) => `  ${compte.email ?? compte.uid}`).join('\n')
+      : '  (aucun)',
+  );
+  console.log();
+  console.log(
+    `TOTAL : ${plan.chemins.length} document(s) Firestore à supprimer, ` +
+      `${plan.comptesASupprimer.length} compte(s) à supprimer, ` +
+      `${plan.administrateurs.length} compte(s) administrateur remis à neuf.`,
+  );
+
+  // Garde-fou : sans administrateur gardé, plus personne ne pourrait ouvrir
+  // le back-office ni relancer quoi que ce soit depuis l'application.
+  if (plan.administrateurs.length === 0) {
+    console.log('\nAucun compte administrateur trouvé dans ADMIN_EMAILS. Rien n’a été touché.');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (confirmation !== MOT_TABLE_RASE) {
+    console.log(
+      `\nESSAI À BLANC — rien n'a été touché.\n` +
+        `Pour exécuter : ajoutez --confirmer=${MOT_TABLE_RASE} à la même commande.\n` +
+        `Firestore n'a pas de corbeille, et les comptes supprimés ne reviennent pas.`,
+    );
+    return;
+  }
+
+  const console_ = createInterface({ input: process.stdin, output: process.stdout });
+  const saisi = await console_.question(
+    `\nTapez le nom du projet pour confirmer (${process.env.FIREBASE_ADMIN_PROJECT_ID}) : `,
+  );
+  console_.close();
+  if (saisi.trim() !== process.env.FIREBASE_ADMIN_PROJECT_ID) {
+    console.log('Nom du projet non confirmé. Rien n’a été touché.');
+    process.exitCode = 1;
+    return;
+  }
+
+  if (plan.comptesASupprimer.length > 0) {
+    console.log(`\nSuppression de ${plan.comptesASupprimer.length} compte(s) Authentication.`);
+    await getAuth(application()).deleteUsers(plan.comptesASupprimer.map((compte) => compte.uid));
+  }
+
+  console.log('\nSuppression Firestore :');
+  await effacer(db, plan.chemins);
+
+  // Création, pas mise à jour : la Cloud Function du podium ne se déclenche
+  // que sur une mise à jour, et il n'y a plus rien à classer.
+  for (const compte of plan.administrateurs) {
+    await db
+      .collection('users')
+      .doc(compte.uid)
+      .set(
+        documentUtilisateurNeuf(
+          {
+            email: (compte.email ?? '').toLowerCase(),
+            nom: compte.displayName ?? compte.email ?? '',
+            photoURL: compte.photoURL ?? '',
+            admin: true,
+          },
+          FieldValue.serverTimestamp(),
+        ),
+      );
+  }
+  console.log(`${plan.administrateurs.length} document(s) administrateur recréé(s).`);
+
+  console.log(
+    '\nTerminé. La base ne contient plus que les comptes administrateur et `formations`.\n' +
+      'Si la formation transverse manque : `npm run formations:transverse -- --faire`.',
+  );
+}
+
 /* ------------------------------------------------------------- programme */
 
 async function principal(): Promise<void> {
+  if (argument('table-rase') !== undefined) {
+    const autres = [...PERIMETRES, 'questions'].filter((nom) => argument(nom) !== undefined);
+    if (autres.length > 0) {
+      console.log(`--table-rase efface déjà tout : retirez ${autres.map((nom) => `--${nom}`).join(', ')}.`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`Projet : ${process.env.FIREBASE_ADMIN_PROJECT_ID}\n`);
+    await tableRase(base(), argument('confirmer'));
+    return;
+  }
+
   const nommes = PERIMETRES.filter((perimetre) => argument(perimetre) !== undefined);
   const actifs: Perimetre[] = nommes.length > 0 ? nommes : [...PERIMETRES];
   const questions = argument('questions');
@@ -649,7 +858,7 @@ async function principal(): Promise<void> {
   if (actifs.includes('progression')) {
     const plan = await planProgression(db);
     remisesAZero = plan.remisesAZero;
-    console.log('PROGRESSION — réponses, états, prix, étoiles, séries');
+    console.log('PROGRESSION — réponses, états, prix, étoiles, séries, assiduité, récompenses, podium');
     console.log(plan.lignes.length > 0 ? plan.lignes.join('\n') : '  (rien)');
     console.log();
     chemins.push(...plan.chemins);
@@ -786,7 +995,8 @@ async function principal(): Promise<void> {
   console.log(
     '\nTerminé.\n' +
       'Rappel : les comptes Firebase Authentication et leurs custom claims sont intacts, ' +
-      'et `formations` aussi — il se reconstruit par synchronisation Airtable.',
+      'et `formations` aussi — il se reconstruit par synchronisation Airtable, ' +
+      'sauf la formation transverse : `npm run formations:transverse`.',
   );
 }
 

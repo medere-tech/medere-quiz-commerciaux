@@ -24,6 +24,7 @@ import {
   type Tri,
 } from '@/lib/serie/revision';
 import { ChargerPlus } from '@/composants/admin/ChargerPlus';
+import { formationPrincipale } from '@/lib/formations/transverse';
 
 /**
  * 05 · Questions à revoir.
@@ -114,7 +115,7 @@ export function ARevoir({
           /* La date de dernière vue existe déjà sur l'état — `majLe`, écrite à
              chaque réponse. Rien de nouveau n'est stocké pour l'afficher. */
           vueLeMs: etat.vueLeMs,
-          formation: nomDeFormation.get(question.formationIds[0] ?? '') ?? '',
+          formation: nomDeFormation.get(formationPrincipale(question.formationIds) ?? '') ?? '',
         };
       });
   }, [chargement]);
@@ -231,7 +232,7 @@ export function ARevoir({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {visibles.map(({ question, echecs, vueLeMs }) => {
               const vu = vuQuand(vueLeMs);
-              const formation = formations.get(question.formationIds[0] ?? '');
+              const formation = formations.get(formationPrincipale(question.formationIds) ?? '');
               return (
                 <Carte
                   key={question.id}

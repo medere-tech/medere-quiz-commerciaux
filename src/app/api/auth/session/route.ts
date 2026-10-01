@@ -5,6 +5,11 @@ import { authAdmin, firestoreAdmin } from '@/lib/firebase/admin';
 import { envServeur } from '@/lib/env/serveur';
 import { estDuDomaine } from '@/lib/auth/domaine';
 import { estIdentifiantSansValeur } from '@/lib/auth/identifiant-invalide';
+import {
+  champsDIdentite,
+  champsExigesParDefaut,
+  documentUtilisateurNeuf,
+} from '@/lib/auth/document-utilisateur';
 import { DUREE_SESSION_MS, NOM_COOKIE_SESSION } from '@/lib/auth/session-serveur';
 
 // Le SDK Admin exige l'exécution Node.
@@ -100,24 +105,25 @@ export async function POST(requete: Request): Promise<NextResponse> {
   const documentUtilisateur = firestoreAdmin().collection('users').doc(jeton.uid);
   const existant = await documentUtilisateur.get();
 
-  const champsCommuns = {
+  const identite = {
     email: adresse,
     nom: typeof jeton.name === 'string' ? jeton.name : adresse,
     photoURL: typeof jeton.picture === 'string' ? jeton.picture : '',
-    // Affichage seulement. L'autorisation passe exclusivement par le claim.
-    role: doitEtreAdmin ? 'admin' : 'commercial',
-    vuLe: FieldValue.serverTimestamp(),
+    admin: doitEtreAdmin,
   };
 
   if (existant.exists) {
-    await documentUtilisateur.update(champsCommuns);
-  } else {
-    await documentUtilisateur.set({
-      ...champsCommuns,
-      etoiles: 0,
-      seriesTerminees: 0,
-      creeLe: FieldValue.serverTimestamp(),
+    // Un compte créé avant la correction n'a ni avatar ni nom de séance, et
+    // les règles refusent alors toute mise à jour. On les pose s'ils manquent,
+    // sans toucher à ceux que le commercial a déjà choisis.
+    const exiges = champsExigesParDefaut(identite.nom);
+    await documentUtilisateur.update({
+      ...champsDIdentite(identite, FieldValue.serverTimestamp()),
+      ...(existant.get('nomSession') === undefined ? { nomSession: exiges.nomSession } : {}),
+      ...(existant.get('avatar') === undefined ? { avatar: exiges.avatar } : {}),
     });
+  } else {
+    await documentUtilisateur.set(documentUtilisateurNeuf(identite, FieldValue.serverTimestamp()));
   }
 
   const cookieSession = await auth.createSessionCookie(idToken, {

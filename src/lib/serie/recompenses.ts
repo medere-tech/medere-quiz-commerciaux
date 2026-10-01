@@ -1,4 +1,5 @@
 import type { NomPicto } from '@/composants/ds/Picto';
+import { ID_FORMATION_TRANSVERSE } from '@/lib/formations/transverse';
 import { type Assiduite, semaineDe, serieAffichee } from '@/lib/serie/assiduite';
 
 /**
@@ -208,13 +209,23 @@ export const RECOMPENSES: Recompense[] = [
  * l'assiduité, par `mesurerAssiduite`.
  */
 export function mesurerCatalogue(
-  avancements: { maitrise: { pourcentage: number } }[],
+  avancements: { formation: { id: string }; maitrise: { pourcentage: number } }[],
   situations: { dejaVue: boolean; derniereRatee: boolean }[],
 ): Omit<Mesures, 'serieJours' | 'joursActifsCetteSemaine'> {
   const vues = situations.filter((situation) => situation.dejaVue);
 
+  /*
+   * **La formation transverse compte pour la couverture, pas pour la
+   * maîtrise d'une formation.** « Toutes les formations au-dessus de 80 % »
+   * mesure une couverture : ne pas maîtriser les règles du DPC est un trou
+   * réel, et la récompense doit l'attendre. « Une formation entièrement
+   * maîtrisée » récompense de savoir vendre quelque chose ; le DPC seul ne se
+   * vend pas, il ne la débloque donc pas.
+   */
+  const vendues = avancements.filter((a) => a.formation.id !== ID_FORMATION_TRANSVERSE);
+
   return {
-    formationsMaitrisees: avancements.filter((a) => a.maitrise.pourcentage === 100).length,
+    formationsMaitrisees: vendues.filter((a) => a.maitrise.pourcentage === 100).length,
     formationsSolides: avancements.filter((a) => a.maitrise.pourcentage >= 80).length,
     formationsTotal: avancements.length,
     situationsJustes: vues.filter((situation) => !situation.derniereRatee).length,

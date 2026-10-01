@@ -312,7 +312,7 @@ export default function PageBanque() {
 
     return questions.filter((question) => {
       // Le nom de la formation est le mot que Noémie a en tête — pas le
-      // thème, qu'elle a choisi elle-même il y a trois semaines. Chercher
+      // l'angle, qu'elle a choisi elle-même il y a trois semaines. Chercher
       // « ménopause » sans rien trouver alors que dix questions y sont
       // rattachées, c'est le moment où l'on conclut que l'outil ne marche pas.
       const champs = [
@@ -436,7 +436,7 @@ export default function PageBanque() {
           ref={champRecherche}
           value={recherche}
           onChange={(valeur) => filtrer({ q: valeur })}
-          placeholder="Rechercher : énoncé, thème ou formation"
+          placeholder="Rechercher : énoncé, angle ou formation"
           prefixe={<Icone nom="search" taille={17} couleur="var(--neutral-50)" />}
           suffixe={<Touche>/</Touche>}
           style={{ flex: '1 1 240px', minWidth: 0, maxWidth: 340 }}

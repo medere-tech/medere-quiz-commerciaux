@@ -10,6 +10,7 @@ import {
 import { validerQuestion, type ErreurChamp } from '@/lib/questions/validation';
 import { COLONNES, LIBELLES_COLONNE, normaliserEntete, type Colonne } from '@/lib/import/colonnes';
 import { normaliserEnonce } from '@/lib/texte';
+import { ANGLES, reconnaitreAngle } from '@/lib/questions/angles';
 
 /**
  * D'une ligne de tableau à une question.
@@ -65,7 +66,7 @@ export type LigneImport = {
  * l'outil pour faire ce qu'elle voulait faire.
  */
 export type AvertissementLigne = {
-  genre: 'difficulte-par-defaut' | 'doublon';
+  genre: 'difficulte-par-defaut' | 'doublon' | 'angle-hors-liste';
   message: string;
 };
 
@@ -134,6 +135,7 @@ const COLONNE_PAR_CHAMP: Record<string, Colonne> = {
   ordreOptions: 'reponses',
   bonnesReponses: 'bonnesReponses',
   explication: 'explication',
+  argumentaire: 'argumentaire',
   formationIds: 'formations',
   theme: 'theme',
   difficulte: 'difficulte',
@@ -143,25 +145,37 @@ const COLONNE_PAR_CHAMP: Record<string, Colonne> = {
 
 // --- Référentiel des formations -------------------------------------------
 
-export type IndexFormations = Map<string, Formation>;
+/**
+ * Ce qu'une valeur de la colonne « formations » désigne : une formation, ou
+ * plusieurs quand elle est ambiguë.
+ */
+export type IndexFormations = Map<string, Formation[]>;
 
 /**
  * Noémie écrit un nom de formation, pas un identifiant Airtable. Le nom, le
  * numéro d'action DPC et l'identifiant conduisent tous trois à la même
  * formation : on accepte les trois plutôt que d'imposer celui qu'elle n'a pas
  * sous les yeux.
+ *
+ * **Un nom partagé ne désigne personne.** Le catalogue compte des homonymes,
+ * dont certains opposent une formation active à une formation suspendue.
+ * « La première inscrite gagne » rattachait la question à l'une des deux au
+ * hasard de l'ordre alphabétique des identifiants — parfois à celle qu'on ne
+ * vend plus. Chaque formation qui porte le nom est donc retenue, et la ligne
+ * est refusée avec les numéros entre lesquels choisir.
  */
 export function indexerFormations(formations: Formation[]): IndexFormations {
   const index: IndexFormations = new Map();
+  const ajouter = (cle: string, formation: Formation) => {
+    if (cle.length === 0) return;
+    const deja = index.get(cle) ?? [];
+    if (!deja.some((autre) => autre.id === formation.id)) index.set(cle, [...deja, formation]);
+  };
 
   for (const formation of formations) {
-    index.set(comparable(formation.id), formation);
-    if (formation.numeroActionDpc) index.set(comparable(formation.numeroActionDpc), formation);
-    // Le nom est le moins fiable des trois : deux formations peuvent le
-    // partager. La première inscrite gagne, et l'identifiant reste disponible
-    // pour trancher.
-    const nom = comparable(formation.nom);
-    if (nom.length > 0 && !index.has(nom)) index.set(nom, formation);
+    ajouter(comparable(formation.id), formation);
+    if (formation.numeroActionDpc) ajouter(comparable(formation.numeroActionDpc), formation);
+    ajouter(comparable(formation.nom), formation);
   }
 
   return index;
@@ -244,6 +258,21 @@ export function analyserLigne(
     }
   }
 
+  // --- Angle
+  // Une variante reconnue prend sa forme canonique ; un angle hors liste
+  // passe tel qu'écrit, et le dit. Un angle vide reste une erreur, que la
+  // validation partagée signale.
+  const angleEcrit = valeurs.theme.trim();
+  const angle = reconnaitreAngle(angleEcrit);
+  if (angleEcrit.length > 0 && !angle) {
+    avertissements.push({
+      genre: 'angle-hors-liste',
+      message:
+        `Angle « ${angleEcrit} » hors des cinq de l’argumentaire : la question entre telle quelle. ` +
+        `Si elle relève de l’un d’eux, écrivez plutôt ${ANGLES.map((nom) => `« ${nom} »`).join(', ')}.`,
+    });
+  }
+
   const brouillon: BrouillonQuestion = {
     type: (type ?? 'qcm') as TypeQuestion,
     contexte: valeurs.contexte,
@@ -252,12 +281,9 @@ export function analyserLigne(
     ordreOptions,
     bonnesReponses,
     explication: valeurs.explication,
-    /* L'import ne connaît pas de colonne d'argumentaire : il vient de fiches
-       existantes, et l'angle de vente s'écrit dans l'éditeur, question par
-       question. */
-    argumentaire: '',
+    argumentaire: valeurs.argumentaire,
     formationIds,
-    theme: valeurs.theme,
+    theme: angle ?? valeurs.theme,
     difficulte,
     // Jamais publiée par un import : la relecture n'est pas facultative.
     statut: 'brouillon',
@@ -336,6 +362,23 @@ export function signalerDoublons(
   });
 }
 
+/*
+ * **Une valeur à deux lectures est refusée, jamais tranchée.**
+ *
+ * Une bonne réponse qui désigne la mauvaise proposition ne lève rien : la
+ * question entre en banque, la mauvaise réponse est marquée juste, et le
+ * commercial apprend une erreur qu'il répétera devant un praticien. Aucune
+ * règle de priorité — « le libellé d'abord », « le numéro d'abord » — ne
+ * rattrape ce cas : elle ne fait que choisir laquelle des deux lectures sera
+ * fausse sans le dire. Quand une cellule en admet deux, la ligne est refusée
+ * avec de quoi lever l'ambiguïté.
+ */
+
+type Lecture =
+  | { etat: 'trouvee'; identifiant: string }
+  | { etat: 'absente' }
+  | { etat: 'ambigue'; message: string };
+
 function resoudreBonnesReponses(
   cellule: string,
   libelles: string[],
@@ -345,22 +388,52 @@ function resoudreBonnesReponses(
   const brut = cellule.trim();
   if (brut.length === 0) return [];
 
-  // Un libellé peut contenir une virgule — « Chirurgiens-dentistes, assistants
-  // dentaires » est une seule réponse. On tente donc la cellule entière avant
-  // de la découper : découper d'abord casserait ces libellés-là.
-  const entier = trouverOption(brut, libelles, ordreOptions);
-  if (entier) return [entier];
+  let jetons: string[];
 
-  const jetons = brut
-    .split(/[|,]/)
-    .map((jeton) => jeton.trim())
-    .filter((jeton) => jeton.length > 0);
+  if (brut.includes(SEPARATEUR_VALEURS)) {
+    // Le séparateur officiel est présent : lui seul découpe. Une virgule reste
+    // alors dans le libellé, où elle a sa place.
+    jetons = decouperValeurs(brut);
+  } else {
+    // Sans barre, la virgule est tolérée comme séparateur — mais un libellé
+    // peut en contenir une : « Chirurgiens-dentistes, assistants dentaires »
+    // est une seule réponse. Les deux lectures sont tentées ; si toutes deux
+    // aboutissent, la cellule dit deux choses différentes.
+    const entiere = trouverOption(brut, libelles, ordreOptions);
+    const parVirgule = brut.includes(',')
+      ? brut.split(',').map((jeton) => jeton.trim()).filter((jeton) => jeton.length > 0)
+      : [];
+    const decoupeAboutit =
+      parVirgule.length > 1 &&
+      parVirgule.every((jeton) => trouverOption(jeton, libelles, ordreOptions).etat === 'trouvee');
+
+    if (entiere.etat === 'trouvee' && decoupeAboutit) {
+      signaler(
+        'bonnesReponses',
+        `Bonne réponse « ${brut} » : c'est à la fois une proposition entière et une liste de ` +
+          `${parVirgule.length} propositions. Séparez plusieurs réponses par « ${SEPARATEUR_VALEURS} », ` +
+          `ou désignez-les par leur numéro.`,
+        brut,
+      );
+      return [];
+    }
+    if (entiere.etat === 'trouvee') return [entiere.identifiant];
+    if (entiere.etat === 'ambigue') {
+      signaler('bonnesReponses', entiere.message, brut);
+      return [];
+    }
+    jetons = parVirgule.length > 1 ? parVirgule : [brut];
+  }
 
   const identifiants: string[] = [];
 
   for (const jeton of jetons) {
-    const identifiant = trouverOption(jeton, libelles, ordreOptions);
-    if (!identifiant) {
+    const lecture = trouverOption(jeton, libelles, ordreOptions);
+    if (lecture.etat === 'ambigue') {
+      signaler('bonnesReponses', lecture.message, jeton);
+      continue;
+    }
+    if (lecture.etat === 'absente') {
       signaler(
         'bonnesReponses',
         `Bonne réponse « ${jeton} » : aucune réponse ne porte ce libellé. ` +
@@ -369,26 +442,58 @@ function resoudreBonnesReponses(
       );
       continue;
     }
-    if (!identifiants.includes(identifiant)) identifiants.push(identifiant);
+    if (!identifiants.includes(lecture.identifiant)) identifiants.push(lecture.identifiant);
   }
 
   return identifiants;
 }
 
-/** Une bonne réponse se désigne par son numéro d'affichage ou par son libellé. */
-function trouverOption(
-  jeton: string,
-  libelles: string[],
-  ordreOptions: string[],
-): string | undefined {
-  if (/^\d+$/.test(jeton)) {
-    const position = Number(jeton) - 1;
-    return ordreOptions[position];
+/**
+ * Une bonne réponse se désigne par son numéro d'affichage ou par son libellé.
+ *
+ * Deux lectures possibles, et chacune peut tomber sur plusieurs cibles :
+ *
+ * - un nombre est un numéro, **et** peut être le libellé d'une proposition —
+ *   « 1 » parmi « 3|1|2 » désigne la première par son numéro, la deuxième par
+ *   son libellé ;
+ * - un libellé peut être porté par deux propositions identiques.
+ *
+ * Quand les lectures possibles ne désignent pas toutes la même proposition,
+ * rien n'est choisi.
+ */
+function trouverOption(jeton: string, libelles: string[], ordreOptions: string[]): Lecture {
+  const cherche = comparable(jeton);
+  const parLibelle = libelles.flatMap((libelle, position) =>
+    comparable(libelle) === cherche ? [position] : [],
+  );
+  const parNumero = /^\d+$/.test(jeton.trim()) ? Number(jeton.trim()) - 1 : undefined;
+  const numeroValide = parNumero !== undefined && parNumero >= 0 && parNumero < ordreOptions.length;
+
+  const candidates = new Set([...parLibelle, ...(numeroValide ? [parNumero] : [])]);
+
+  if (candidates.size === 0) return { etat: 'absente' };
+  if (candidates.size === 1) {
+    return { etat: 'trouvee', identifiant: ordreOptions[[...candidates][0]!]! };
   }
 
-  const cherche = comparable(jeton);
-  const position = libelles.findIndex((libelle) => comparable(libelle) === cherche);
-  return position >= 0 ? ordreOptions[position] : undefined;
+  if (parLibelle.length > 1) {
+    return {
+      etat: 'ambigue',
+      message:
+        `Bonne réponse « ${jeton} » : ${parLibelle.length} propositions portent ce libellé ` +
+        `(n° ${parLibelle.map((position) => position + 1).join(', ')}). Rendez-les distinctes, ` +
+        `ou désignez la bonne par son numéro.`,
+    };
+  }
+
+  return {
+    etat: 'ambigue',
+    message:
+      `Bonne réponse « ${jeton} » : c'est le numéro de la proposition « ${libelles[parNumero!]} » ` +
+      `et le libellé de la proposition n° ${parLibelle[0]! + 1}. Écrivez l'unité dans les ` +
+      `propositions (« ${jeton} heures », « bloc ${jeton} ») : un nombre ne désignera plus ` +
+      `qu'un numéro.`,
+  };
 }
 
 function resoudreFormations(
@@ -399,8 +504,8 @@ function resoudreFormations(
   const identifiants: string[] = [];
 
   for (const jeton of decouperValeurs(cellule)) {
-    const formation = formations.get(comparable(jeton));
-    if (!formation) {
+    const trouvees = formations.get(comparable(jeton)) ?? [];
+    if (trouvees.length === 0) {
       signaler(
         'formations',
         `Formation « ${jeton} » inconnue. Reprenez son nom exact ou son numéro d'action DPC, ` +
@@ -409,6 +514,22 @@ function resoudreFormations(
       );
       continue;
     }
+    if (trouvees.length > 1) {
+      signaler(
+        'formations',
+        `« ${jeton} » désigne ${trouvees.length} formations : ` +
+          trouvees
+            .map(
+              (formation) =>
+                `${formation.numeroActionDpc || formation.id}${formation.actif ? '' : ' (suspendue)'}`,
+            )
+            .join(', ') +
+          `. Écrivez le numéro de celle qui convient, ou choisissez-la dans la liste.`,
+        jeton,
+      );
+      continue;
+    }
+    const formation = trouvees[0]!;
     if (!identifiants.includes(formation.id)) identifiants.push(formation.id);
   }
 
