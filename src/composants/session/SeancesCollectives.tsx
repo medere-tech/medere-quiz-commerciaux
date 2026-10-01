@@ -316,7 +316,17 @@ export function SeancesCollectives({ referentiel }: { referentiel: Referentiel }
           )}
 
           <div className="seances-bloc-passees">
-            <TitreSection indice={`${Math.min(passees.length, PASSEES_MONTREES)} dernières`}>
+            {/* Pas d'indice sans séance passée : « 0 dernières » annonçait une
+                liste qui n'existe pas. */}
+            <TitreSection
+              indice={
+                passees.length === 0
+                  ? undefined
+                  : Math.min(passees.length, PASSEES_MONTREES) === 1
+                    ? '1 dernière'
+                    : `${Math.min(passees.length, PASSEES_MONTREES)} dernières`
+              }
+            >
               Séances passées
             </TitreSection>
 

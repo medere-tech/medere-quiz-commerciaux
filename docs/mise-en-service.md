@@ -268,7 +268,9 @@ commercial dans le bloc « Maîtrise par commercial ».
 Puis :
 
 1. Noémie importe sa banque (`/admin/import`) et publie les questions.
-2. Ouvrir l'accès aux commerciaux.
+2. Ouvrir l'accès aux commerciaux — **jamais avant que la banque soit
+   publiée** : l'écran de connexion promet « Votre série du jour vous
+   attend : 10 questions », et ne le vérifie pas.
 
 **Pas de stratégie TTL à poser.** Elle ne servait qu'aux marqueurs de
 dédoublonnage de `questionStats`, qui n'existent plus, et elle n'avait jamais

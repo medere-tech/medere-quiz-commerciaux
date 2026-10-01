@@ -61,6 +61,9 @@ export function Accueil({
 
     return {
       globale: maitrise(etats),
+      /* Le premier jour n'a pas de passé : sans aucune question vue, une phrase
+         sur « votre dernière réponse » décrit quelqu'un d'autre. */
+      vues: etats.filter((etat) => etat.dejaVue).length,
       ratees: etats.filter((etat) => etat.derniereRatee).length,
       avancements,
       mesures: {
@@ -104,8 +107,11 @@ export function Accueil({
   }
 
   const { progression, questions } = chargement.donnees;
-  const { globale, ratees, avancements, mesures } = calculs!;
+  const { globale, vues, ratees, avancements, mesures } = calculs!;
   const disponibles = questions.length;
+  /* Rien de publié : ni maîtrise à mesurer, ni série à lancer. L'écran le dit
+     au lieu d'afficher « 0 % » et « une série de 0 ». */
+  const catalogueVide = disponibles === 0;
 
   /*
    * Les deux gestes de l'écran, écrits une fois. Ils s'affichent sous le titre
@@ -116,13 +122,15 @@ export function Accueil({
     <>
       <Bouton
         taille="lg"
-        disabled={disponibles === 0}
+        disabled={catalogueVide}
         iconeGauche={<Icone nom="play" taille={16} />}
         href={ROUTE_SERIE}
       >
-        {disponibles >= TAILLE_SERIE
-          ? `Lancer une série de ${TAILLE_SERIE}`
-          : `Lancer une série de ${disponibles}`}
+        {catalogueVide
+          ? 'Aucune question à jouer'
+          : disponibles >= TAILLE_SERIE
+            ? `Lancer une série de ${TAILLE_SERIE}`
+            : `Lancer une série de ${disponibles}`}
       </Bouton>
       <Bouton
         taille="lg"
@@ -161,17 +169,32 @@ export function Accueil({
             textWrap: 'pretty',
           }}
         >
-          Bonjour {prenom}, vous maîtrisez{' '}
-          <em style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic', fontWeight: 400 }}>
-            {globale.pourcentage} % du catalogue de questions
-          </em>
-          .
+          {catalogueVide ? (
+            <>
+              Bonjour {prenom},{' '}
+              <em style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic', fontWeight: 400 }}>
+                aucune question
+              </em>{' '}
+              n’est encore publiée.
+            </>
+          ) : (
+            <>
+              Bonjour {prenom}, vous maîtrisez{' '}
+              <em style={{ fontFamily: 'var(--font-display)', fontStyle: 'italic', fontWeight: 400 }}>
+                {globale.pourcentage} % du catalogue de questions
+              </em>
+              .
+            </>
+          )}
         </h1>
 
-        <div style={{ marginTop: 'var(--space-5)', maxWidth: 420 }}>
-          <Jauge valeur={globale.pourcentage} />
-        </div>
+        {!catalogueVide && (
+          <div style={{ marginTop: 'var(--space-5)', maxWidth: 420 }}>
+            <Jauge valeur={globale.pourcentage} />
+          </div>
+        )}
 
+        {!catalogueVide && (
         <p
           style={{
             margin: '14px 0 0',
@@ -183,16 +206,40 @@ export function Accueil({
           {/* « Acquise » se définit ici, une fois, sur le premier écran : c'est la
               dernière réponse qui compte, pas le cumul des réussites. Et une
               question ratée deux fois attend une nouvelle tentative, pas une
-              seconde. */}
-          {globale.maitrisees} question{globale.maitrisees > 1 ? 's' : ''} sur {globale.total}{' '}
-          {globale.maitrisees > 1 ? 'acquises' : 'acquise'}
-          {globale.maitrisees > 1
-            ? ' : vos dernières réponses y étaient justes.'
-            : ' : votre dernière réponse y était juste.'}{' '}
-          {ratees > 0
-            ? `${ratees} attend${ratees > 1 ? 'ent' : ''} une nouvelle tentative.`
-            : 'Aucune question en attente de rattrapage.'}
+              seconde.
+
+              **Trois phrases, parce qu'il y a trois situations.** Avant toute
+              réponse, parler de « votre dernière réponse » décrit un passé qui
+              n'existe pas : la définition se donne alors au futur. Sans
+              question acquise, « 0 question acquise : votre dernière réponse y
+              était juste » se contredit. Le reste du temps, la phrase d'origine. */}
+          {vues === 0 ? (
+            <>
+              {globale.total} question{globale.total > 1 ? 's' : ''} au catalogue, aucune encore
+              vue. Une question est acquise quand votre dernière réponse y est juste.
+            </>
+          ) : globale.maitrisees === 0 ? (
+            <>
+              Aucune question acquise sur {globale.total} pour l’instant : une question l’est
+              quand votre dernière réponse y est juste.{' '}
+              {ratees > 0
+                ? `${ratees} attend${ratees > 1 ? 'ent' : ''} une nouvelle tentative.`
+                : ''}
+            </>
+          ) : (
+            <>
+              {globale.maitrisees} question{globale.maitrisees > 1 ? 's' : ''} sur {globale.total}{' '}
+              {globale.maitrisees > 1 ? 'acquises' : 'acquise'}
+              {globale.maitrisees > 1
+                ? ' : vos dernières réponses y étaient justes.'
+                : ' : votre dernière réponse y était juste.'}{' '}
+              {ratees > 0
+                ? `${ratees} attend${ratees > 1 ? 'ent' : ''} une nouvelle tentative.`
+                : 'Aucune question en attente de rattrapage.'}
+            </>
+          )}
         </p>
+        )}
 
         <span
           style={{
@@ -261,7 +308,7 @@ export function Accueil({
        * qu'on lit après avoir su où l'on en est, et la seule qui donne une
        * raison de revenir demain.
        */}
-      <ObjectifDuJour assiduite={progression.assiduite} />
+      <ObjectifDuJour assiduite={progression.assiduite} disponibles={disponibles} />
 
       {/*
        * Les prix des séances collectives, à côté des étoiles.

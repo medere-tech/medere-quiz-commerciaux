@@ -220,7 +220,7 @@ describe('Le rang de passage', () => {
   it('compte les retenues en tête de l’étape', async () => {
     await monter();
     fireEvent.click(ligne('Durée minimale d’un e-learning indemnisé ?'));
-    expect(await screen.findByText(/4 servies, 1 retenues/)).toBeTruthy();
+    expect(await screen.findByText(/4 servies, 1 retenue$/)).toBeTruthy();
   });
 
   it('décoche et rend son rang', async () => {

@@ -253,3 +253,44 @@ describe('« Retravailler »', () => {
     expect(screen.getAllByRole('link', { name: 'Retravailler' })).toHaveLength(3);
   });
 });
+
+/* -------------------------------------------------------- le premier jour */
+
+/**
+ * **Trois raisons de n'avoir rien à revoir, et l'écran ne doit pas les
+ * confondre.** « Toutes vos dernières tentatives sont justes » prêtait un passé
+ * à quelqu'un qui n'avait jamais répondu — sur le premier écran qu'il ouvre.
+ * Vu sur la base vide au lendemain de la mise en service.
+ */
+describe('Rien à revoir', () => {
+  async function monterSans(questions: Question[]) {
+    const { render } = await import('@testing-library/react');
+    await act(async () => {
+      render(<ARevoir referentiel={{ questions, formations: FORMATIONS }} />);
+    });
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Questions à revoir' })).toBeTruthy());
+  }
+
+  it('avant toute publication, dit qu’il n’y a rien à jouer, sans proposer de série', async () => {
+    etatsSemes = [];
+    await monterSans([]);
+    expect(await screen.findByText(/aucune question n’est encore publiée/i)).toBeTruthy();
+    expect(screen.queryByText(/dernières tentatives/i)).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Lancer une série' })).toBeNull();
+  });
+
+  it('avant la première réponse, ne parle d’aucune tentative', async () => {
+    etatsSemes = [];
+    await monterSans(banque());
+    expect(await screen.findByText(/vous n’avez encore répondu à aucune question/i)).toBeTruthy();
+    expect(screen.queryByText(/dernières tentatives/i)).toBeNull();
+    expect(screen.queryByText(/Tout est acquis/i)).toBeNull();
+    expect(screen.getByRole('link', { name: 'Lancer une série' })).toBeTruthy();
+  });
+
+  it('une fois tout réussi, le dit', async () => {
+    etatsSemes = [{ id: 'q-juste', reussies: 2, tentatives: 2, derniereRatee: false, vueLeMs: Date.now() }];
+    await monterSans(banque());
+    expect(await screen.findByText(/toutes vos dernières tentatives sont justes/i)).toBeTruthy();
+  });
+});

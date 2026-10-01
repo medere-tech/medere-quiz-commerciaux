@@ -168,13 +168,41 @@ export function ARevoir({
     </Bouton>
   );
 
+  /*
+   * **« Rien à revoir » n'a pas la même raison selon le jour.** Avant toute
+   * publication, il n'y a rien à jouer ; avant la première réponse, rien n'a
+   * été raté ; ensuite seulement, tout ce qui a été tenté est juste. Dire
+   * « toutes vos dernières tentatives sont justes » à quelqu'un qui n'a jamais
+   * répondu, c'est lui prêter un passé qu'il n'a pas — et c'est le premier
+   * écran qu'il ouvre.
+   */
+  const catalogueVide = chargement.donnees.questions.length === 0;
+  const jamaisRepondu = !chargement.donnees.etats.some((etat) => etat.dejaVue);
+  const vide = catalogueVide
+    ? {
+        sous: 'Rien à revoir : aucune question n’est encore publiée.',
+        titre: 'Aucune question publiée pour l’instant',
+        texte: 'Les questions que vous raterez s’afficheront ici, dès les premières séries.',
+      }
+    : jamaisRepondu
+      ? {
+          sous: 'Rien à revoir : vous n’avez encore répondu à aucune question.',
+          titre: 'Rien à revoir pour l’instant',
+          texte: 'Les questions que vous raterez s’afficheront ici. Lancez une série pour commencer.',
+        }
+      : {
+          sous: 'Rien à rattraper : toutes vos dernières tentatives sont justes.',
+          titre: 'Tout est acquis pour l’instant',
+          texte: 'Lancez une série ordinaire : le tirage sert en priorité les questions jamais vues.',
+        };
+
   return (
     <div className="page-admin">
       <TitrePage
         titre="Questions à revoir"
         sous={
           aRevoir.length === 0
-            ? 'Rien à rattraper : toutes vos dernières tentatives sont justes.'
+            ? vide.sous
             : `${aRevoir.length} question${aRevoir.length > 1 ? 's' : ''} ratée${aRevoir.length > 1 ? 's' : ''} à la dernière tentative. Elles reviennent en priorité dans vos séries, et sortent de cette liste dès que vous y répondez juste.`
         }
         actions={
@@ -188,13 +216,17 @@ export function ARevoir({
 
       {aRevoir.length === 0 ? (
         <EtatVide
-          icone="check"
-          titre="Tout est acquis pour l’instant"
-          texte="Lancez une série ordinaire : le tirage sert en priorité les questions jamais vues."
+          icone={catalogueVide ? 'layers' : 'check'}
+          titre={vide.titre}
+          texte={vide.texte}
           actions={
-            <Bouton iconeGauche={<Icone nom="play" taille={16} />} href={'/serie' as Route}>
-              Lancer une série
-            </Bouton>
+            // Rien de publié : aucune série ne peut partir, le bouton
+            // mènerait à un écran vide.
+            catalogueVide ? undefined : (
+              <Bouton iconeGauche={<Icone nom="play" taille={16} />} href={'/serie' as Route}>
+                Lancer une série
+              </Bouton>
+            )
           }
         />
       ) : (
