@@ -5,7 +5,6 @@ import { afterAll, afterEach, beforeAll, describe, it } from 'vitest';
 import {
   connecte,
   creerEnvironnement,
-  HIER,
   JORDAN,
   NOEMIE,
   participant,
@@ -65,7 +64,7 @@ describe('La porte', () => {
   it('laisse entrer quand elle est ouverte', async () => {
     await semer({ verrouillee: false, jordanPresent: false });
     await assertSucceeds(
-      setDoc(doc(connecte(env, JORDAN), MARQUEUR), participant({ rejointLe: HIER })),
+      setDoc(doc(connecte(env, JORDAN), MARQUEUR), participant()),
     );
   });
 
@@ -74,7 +73,7 @@ describe('La porte', () => {
   it('REFUS — entrer après le verrouillage', async () => {
     await semer({ verrouillee: true, jordanPresent: false });
     await assertFails(
-      setDoc(doc(connecte(env, JORDAN), MARQUEUR), participant({ rejointLe: HIER })),
+      setDoc(doc(connecte(env, JORDAN), MARQUEUR), participant()),
     );
   });
 
@@ -89,7 +88,7 @@ describe('La porte', () => {
       updateDoc(doc(connecte(env, NOEMIE), SEANCE), { verrouillee: false }),
     );
     await assertSucceeds(
-      setDoc(doc(connecte(env, JORDAN), MARQUEUR), participant({ rejointLe: HIER })),
+      setDoc(doc(connecte(env, JORDAN), MARQUEUR), participant()),
     );
   });
 
@@ -177,7 +176,8 @@ describe('Ceux qui sont déjà là', () => {
   it('corrigent leur nom, porte fermée', async () => {
     await semer({ verrouillee: true, jordanPresent: true });
     await assertSucceeds(
-      setDoc(doc(connecte(env, JORDAN), MARQUEUR), participant({ nom: 'Jordan D.' })),
+      // Comme `rejoindre` : la mise à jour fusionne, sans réécrire l'heure d'arrivée.
+      setDoc(doc(connecte(env, JORDAN), MARQUEUR), { nom: 'Jordan D.' }, { merge: true }),
     );
   });
 
@@ -202,7 +202,7 @@ describe('Ceux qui sont déjà là', () => {
   it('REFUS — réécrire son heure d’arrivée', async () => {
     await semer({ verrouillee: true, jordanPresent: true });
     await assertFails(
-      setDoc(doc(connecte(env, JORDAN), MARQUEUR), participant({ rejointLe: new Date() })),
+      setDoc(doc(connecte(env, JORDAN), MARQUEUR), participant()),
     );
   });
 
@@ -218,7 +218,7 @@ describe('Ceux qui sont déjà là', () => {
     await assertFails(
       setDoc(
         doc(connecte(env, SOPHIE), `${SEANCE}/participants/${SOPHIE.uid}`),
-        participant({ nom: 'Sophie', rejointLe: HIER }),
+        participant({ nom: 'Sophie' }),
       ),
     );
   });

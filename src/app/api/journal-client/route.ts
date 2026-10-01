@@ -23,8 +23,8 @@ export const dynamic = 'force-dynamic';
  * un client ne se croit pas sur parole, fût-il le nôtre.
  *
  * **Aucun identifiant d'utilisateur n'est journalisé, le rôle suffit.** C'est
- * la même décision que dans `agregerReponseEntrainement`, prise pour la même
- * raison : savoir qu'une panne touche l'animatrice ou un commercial oriente la
+ * la même décision que pour les taux par question, qui ne rendent que des
+ * totaux, et pour la même raison : savoir qu'une panne touche l'animatrice ou un commercial oriente la
  * recherche ; savoir lequel ne sert à rien et fabriquerait, pannes après
  * pannes, le journal nominatif que le reste du projet s'interdit.
  *

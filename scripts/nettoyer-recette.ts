@@ -4,8 +4,8 @@
  * **Pourquoi ce script existe.** Sept lots ont été recettés sur la base réelle.
  * Il y reste des réponses, une progression, des étoiles, des prix, des
  * questions d'essai, des séances de recette — dont `CPY68N`, jamais close, que
- * `maSessionEnCours` retrouve et qui s'ouvrirait à la place d'un écran neuf —
- * et un `questionStats` bâti sur tout cela. **Un commercial qui découvre
+ * `maSessionEnCours` retrouve et qui s'ouvrirait à la place d'un écran neuf.
+ * **Un commercial qui découvre
  * l'outil ne doit rien hériter de ces essais** : ni un classement où il est
  * dernier derrière des comptes de test, ni des taux d'échec calculés sur les
  * réponses de l'équipe pédagogique.
@@ -19,9 +19,14 @@
  *      un simple drapeau : un `--confirmer` seul se tape par réflexe à la fin
  *      d'une ligne qu'on a déjà lancée dix fois.
  *   3. **Chaque périmètre s'active séparément.** Rien n'est effacé « aussi, tant
- *      qu'on y est ». En particulier, **aucune question n'est supprimée sans
- *      être nommée** : la banque contient déjà des questions écrites par
- *      Noémie, et seul un humain distingue un essai d'une vraie question.
+ *      qu'on y est ». En particulier, **en nettoyage partiel, aucune question
+ *      n'est supprimée sans être nommée** (`--questions=…`) : seul un humain
+ *      distingue un essai d'une vraie question.
+ *
+ *      **`--table-rase` est l'exception, et elle est voulue** : elle efface
+ *      toutes les collections sauf `formations`, **questions comprises**. La
+ *      banque repart vide, et Noémie importe la sienne sur une base propre —
+ *      sans quoi ses questions se mêleraient à celles de recette.
  *
  * **Ce à quoi il ne touche pas, et pourquoi :**
  *
@@ -49,16 +54,20 @@
  *   --progression   réponses, états, étoiles, séries terminées, prix, assiduité,
  *                   récompenses, et le podium de régularité (classements/)
  *   --seances       toutes les séances collectives et leur contenu
- *   --statistiques  questionStats et ses marqueurs d'événements
  *   --synchros      le journal des synchronisations Airtable
  *   --orphelins     les documents users/ dont le compte Authentication a disparu
- *   --references    les séances et questionStats qui pointent vers une question effacée
+ *   --references    les séances qui pointent vers une question effacée
+ *
+ * Il n'y a plus de périmètre `--statistiques` : depuis le 1er octobre 2026,
+ * les taux d'échec se calculent à la lecture sur les états, qui partent avec
+ * `--progression`. Ce qui resterait d'une ancienne collection `questionStats`
+ * part avec `--table-rase`, qui parcourt toutes les collections.
  *   --questions=…   « toutes », ou des identifiants séparés par des virgules
  *
  * **`--references` ne supprime aucune séance, il la recoud.** C'est le seul
  * périmètre qui *modifie* au lieu d'effacer : il retire d'une séance les
  * identifiants de questions qui n'existent plus, et recale `indexCourant` en
- * conséquence. Les agrégats `questionStats` sans question, eux, sont effacés.
+ * conséquence.
  *
  * Deux séances lui échappent, et il les nomme au lieu de les taire :
  *   - **Celles déjà jouées** — terminées, abandonnées. Leur liste est un
@@ -93,7 +102,6 @@ import { documentUtilisateurNeuf } from '../src/lib/auth/document-utilisateur.ts
 const PERIMETRES = [
   'progression',
   'seances',
-  'statistiques',
   'synchros',
   'orphelins',
   'references',
@@ -275,19 +283,6 @@ async function planSeances(db: Firestore): Promise<Plan> {
   return { chemins, lignes };
 }
 
-/** L'agrégat anonyme et ses marqueurs d'événements. */
-async function planStatistiques(db: Firestore): Promise<Plan> {
-  const chemins = await sousArbre(db.collection('questionStats'));
-  const agregats = chemins.filter((chemin) => chemin.split('/').length === 2);
-
-  return {
-    chemins,
-    lignes: [
-      `  ${agregats.length} agrégat(s) et ${chemins.length - agregats.length} marqueur(s) d’événement`,
-    ],
-  };
-}
-
 /** Le journal des synchronisations Airtable. Aucune donnée métier. */
 async function planSynchros(db: Firestore): Promise<Plan> {
   const chemins = await sousArbre(db.collection('synchronisations'));
@@ -461,14 +456,13 @@ type PlanReferences = Plan & {
  * salle. Depuis le lot 18, le panneau de suppression prévient — mais il ne
  * répare pas ce qui est déjà cassé.
  *
- * Deux dégâts distincts, traités ensemble parce qu'ils ont la même cause :
+ * **Les séances** gardent des identifiants morts. On les retire, et on recale
+ * `indexCourant` : une séance de six questions arrêtée à la cinquième,
+ * réduite à cinq, pointerait au-delà de sa propre liste.
  *
- *   - **Les séances** gardent des identifiants morts. On les retire, et on
- *     recale `indexCourant` : une séance de six questions arrêtée à la
- *     cinquième, réduite à cinq, pointerait au-delà de sa propre liste.
- *   - **`questionStats`** garde un agrégat par question effacée. Il ne casse
- *     rien — l'écran des statistiques joint sur la banque — mais il gonfle une
- *     collection que personne ne relira, et il fausse les comptes bruts.
+ * Les états d'une question effacée, eux, restent sous chaque compte : ils ne
+ * cassent rien, puisque la maîtrise et les taux ne portent que sur les
+ * questions de la banque.
  *
  * **Une séance n'est jamais vidée.** Si la recoudre ne laissait aucune
  * question, on ne la touche pas et on la nomme : une séance sans question est
@@ -537,10 +531,6 @@ async function planReferences(db: Firestore): Promise<PlanReferences> {
     });
   }
 
-  const statsOrphelines = (await db.collection('questionStats').get()).docs
-    .filter((agregat) => !existantes.has(agregat.id))
-    .map((agregat) => `questionStats/${agregat.id}`);
-
   const lignes: string[] = [];
 
   if (recoutures.length > 0) {
@@ -566,11 +556,7 @@ async function planReferences(db: Firestore): Promise<PlanReferences> {
     lignes.push(...histoire);
   }
 
-  if (statsOrphelines.length > 0) {
-    lignes.push(`  ${accord(statsOrphelines.length, 'agrégat')} questionStats sans question`);
-  }
-
-  return { chemins: statsOrphelines, lignes, recoutures, bloquees, histoire };
+  return { chemins: [], lignes, recoutures, bloquees, histoire };
 }
 
 async function auditPrix(
@@ -872,14 +858,6 @@ async function principal(): Promise<void> {
     chemins.push(...plan.chemins);
   }
 
-  if (actifs.includes('statistiques')) {
-    const plan = await planStatistiques(db);
-    console.log('STATISTIQUES — questionStats');
-    console.log(plan.lignes.join('\n'));
-    console.log();
-    chemins.push(...plan.chemins);
-  }
-
   if (actifs.includes('synchros')) {
     const plan = await planSynchros(db);
     console.log('SYNCHRONISATIONS — journal des imports Airtable');
@@ -899,7 +877,7 @@ async function principal(): Promise<void> {
   if (actifs.includes('references')) {
     const plan = await planReferences(db);
     recoutures = plan.recoutures;
-    console.log('RÉFÉRENCES CASSÉES — séances et statistiques qui pointent vers une question effacée');
+    console.log('RÉFÉRENCES CASSÉES — séances qui pointent vers une question effacée');
     console.log(plan.lignes.length > 0 ? plan.lignes.join('\n') : '  (rien)');
     console.log();
     chemins.push(...plan.chemins);

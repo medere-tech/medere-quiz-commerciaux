@@ -22,8 +22,9 @@
 import { cert, initializeApp } from 'firebase-admin/app';
 import { getFirestore, type Firestore, type Timestamp } from 'firebase-admin/firestore';
 
-type Tentative = { correcte: boolean; instant: number };
-type Etat = { reussies: number; tentatives: number; derniereRatee: boolean };
+type Tentative = { id: string; correcte: boolean; instant: number };
+/** `derniereReponse` nomme la réponse la plus récente, comme le fait le lot d'une réponse. */
+type Etat = { reussies: number; tentatives: number; derniereRatee: boolean; derniereReponse: string };
 
 const ECRITURES_PAR_LOT = 400;
 
@@ -63,6 +64,7 @@ export function etatDepuisTentatives(tentatives: Tentative[]): Etat {
     reussies: ordonnees.filter((tentative) => tentative.correcte).length,
     tentatives: ordonnees.length,
     derniereRatee: derniere ? !derniere.correcte : false,
+    derniereReponse: derniere?.id ?? '',
   };
 }
 
@@ -85,7 +87,7 @@ async function principal(): Promise<void> {
       if (typeof donnees.correcte !== 'boolean') continue;
 
       const liste = parQuestion.get(questionId) ?? [];
-      liste.push({ correcte: donnees.correcte, instant: instantDe(donnees.repondueLe) });
+      liste.push({ id: document.id, correcte: donnees.correcte, instant: instantDe(donnees.repondueLe) });
       parQuestion.set(questionId, liste);
       reponsesLues += 1;
     }

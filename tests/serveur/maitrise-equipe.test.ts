@@ -42,6 +42,7 @@ describe('Garanties lues dans le code', () => {
 
     expect(corps.map(([, nom]) => nom)).toEqual([
       'chargerMaitriseEquipe',
+      'chargerTauxQuestions',
       'chargerSuiviCommercial',
       'chargerResultatsQuestion',
     ]);
@@ -63,9 +64,9 @@ describe('Garanties lues dans le code', () => {
     expect(CODE).toMatch(/async function repartitionDesReponses/);
     expect(horsRepartition).not.toMatch(/'reponses'/);
     const collections = [...CODE.matchAll(/\.collection(?:Group)?\(\s*'([^']+)'/g)].map((m) => m[1]);
-    // Les comptes et leurs états ; la question elle-même et son agrégat
-    // anonyme, pour l'écran d'une question. Rien d'autre.
-    for (const nom of collections) expect(['users', 'etats', 'questions', 'questionStats', 'reponses']).toContain(nom);
+    // Les comptes et leurs états ; la question elle-même, pour l'écran d'une
+    // question. Plus d'agrégat stocké : les taux se calculent sur les états.
+    for (const nom of collections) expect(['users', 'etats', 'questions', 'reponses']).toContain(nom);
   });
 
   it('n’est importé que par les routes du back-office', () => {
@@ -137,7 +138,7 @@ vi.mock(import('@/lib/auth/session-serveur'), async (original) => {
   };
 });
 
-const { chargerMaitriseEquipe, chargerResultatsQuestion, chargerSuiviCommercial } = await import(
+const { chargerMaitriseEquipe, chargerResultatsQuestion, chargerSuiviCommercial, chargerTauxQuestions } = await import(
   '@/lib/serveur/maitrise-equipe'
 );
 
@@ -161,7 +162,7 @@ afterAll(async () => {
 const HIER = Timestamp.fromDate(new Date('2026-09-29T10:00:00Z'));
 
 async function vider(base: Firestore): Promise<void> {
-  for (const collection of ['users', 'questions', 'formations', 'questionStats']) {
+  for (const collection of ['users', 'questions', 'formations']) {
     await base.recursiveDelete(base.collection(collection));
   }
 }
@@ -188,14 +189,19 @@ async function semer(base: Firestore): Promise<void> {
   // Mixte, transverse citée en premier : sa formation principale est la parodontie.
   await base.doc('questions/q3').set(question('Obligation triennale ?', [ID_FORMATION_TRANSVERSE, 'recPARO']));
   await base.doc('questions/brouillon').set(question('Pas servie', ['recPARO'], 'brouillon'));
-  await base.doc('questionStats/q2').set({ tentatives: 4, echecs: 3, majLe: HIER });
-  // Léa a répondu deux fois à q2, Marc une fois ; Noémie aussi, mais elle
-  // appartient à l'équipe pédagogique : sa réponse ne compte pas.
-  const reponse = (optionsChoisies: string[]) => ({ questionId: 'q2', optionsChoisies, correcte: optionsChoisies[0] === 'o1', origine: 'entrainement', repondueLe: HIER });
-  await base.doc('users/uid-lea/reponses/r1').set(reponse(['o2']));
-  await base.doc('users/uid-lea/reponses/r2').set(reponse(['o1']));
-  await base.doc('users/uid-marc/reponses/r1').set(reponse(['o2']));
-  await base.doc('users/uid-noemie/reponses/r1').set(reponse(['o1']));
+  // **Chaque réponse a son état, et chaque état ses réponses** : c'est ce que
+  // produit le vrai chemin, qui les écrit dans le même lot. Une fixture qui
+  // poserait l'un sans l'autre testerait une base que l'application ne
+  // fabrique jamais.
+  //
+  // Léa a répondu une fois à q1 (juste), deux fois à q2 (fausse, puis juste).
+  // Noémie a tout juste, mais elle appartient à l'équipe pédagogique : rien
+  // d'elle ne compte. Marc n'a jamais joué.
+  const reponse = (questionId: string, optionsChoisies: string[]) => ({ questionId, optionsChoisies, correcte: optionsChoisies[0] === 'o1', origine: 'entrainement', repondueLe: HIER });
+  await base.doc('users/uid-lea/reponses/r0').set(reponse('q1', ['o1']));
+  await base.doc('users/uid-lea/reponses/r1').set(reponse('q2', ['o2']));
+  await base.doc('users/uid-lea/reponses/r2').set(reponse('q2', ['o1']));
+  for (const id of ['q1', 'q2', 'q3']) await base.doc(`users/uid-noemie/reponses/r-${id}`).set(reponse(id, ['o1']));
 
   const compte = (uid: string, email: string, nom: string) =>
     base.doc(`users/${uid}`).set({ email, nom, etoiles: 0, seriesTerminees: 0 });
@@ -228,6 +234,7 @@ describe('Sans le rôle', () => {
     etat.admin = false;
 
     await expect(chargerMaitriseEquipe()).rejects.toThrow('équipe pédagogique');
+    await expect(chargerTauxQuestions()).rejects.toThrow('équipe pédagogique');
     await expect(chargerSuiviCommercial('uid-lea')).rejects.toThrow('équipe pédagogique');
     await expect(chargerResultatsQuestion('q1')).rejects.toThrow('équipe pédagogique');
     expect(etat.lectures).toBe(0);
@@ -340,23 +347,24 @@ describe('Une question, commercial par commercial', () => {
     ]);
   });
 
-  it('porte l’explication, la formation et les compteurs anonymes de questionStats', async () => {
+  it('porte l’explication, la formation et le taux tiré des états des commerciaux', async () => {
     const resultats = (await chargerResultatsQuestion('q2'))!;
 
     expect(resultats.explication).toBe('Explication de « Parodontie : faux ? ».');
     expect(resultats.formation?.nom).toBe('Parodontie');
-    expect(resultats.stats).toEqual({ tentatives: 4, echecs: 3 });
+    expect(resultats.stats).toEqual({ tentatives: 2, echecs: 1 });
     expect(resultats.modifieeLeMs).toBe(HIER.toMillis());
-    expect((await chargerResultatsQuestion('q1'))!.stats).toBeNull();
+    // q3 n'a été jouée que par Noémie : pour l'équipe, personne n'y a répondu.
+    expect((await chargerResultatsQuestion('q3'))!.stats).toBeNull();
   });
 
   it('compte les options cochées par les commerciaux, sans dire qui', async () => {
     const resultats = (await chargerResultatsQuestion('q2'))!;
 
-    expect(resultats.reponsesComptees).toBe(3);
+    expect(resultats.reponsesComptees).toBe(2);
     expect(resultats.repartition).toEqual([
       { optionId: 'o1', libelle: 'Vrai', juste: true, nombre: 1 },
-      { optionId: 'o2', libelle: 'Faux', juste: false, nombre: 2 },
+      { optionId: 'o2', libelle: 'Faux', juste: false, nombre: 1 },
     ]);
     const texte = JSON.stringify(resultats);
     expect(texte).not.toMatch(/optionsChoisies|repondueLe/);
@@ -364,5 +372,46 @@ describe('Une question, commercial par commercial', () => {
 
   it('ne rend rien pour une question qui n’est pas servie', async () => {
     expect(await chargerResultatsQuestion('brouillon')).toBeNull();
+  });
+
+  it('compte la même population dans le taux et dans la répartition', async () => {
+    // Le défaut du 1er octobre 2026 : « aucune réponse » dans la répartition,
+    // « 14 réponses » dans le taux, sur le même écran. Les deux chiffres
+    // doivent compter les mêmes réponses, question par question.
+    for (const id of ['q1', 'q2', 'q3']) {
+      const resultats = (await chargerResultatsQuestion(id))!;
+      expect(`${id} : ${resultats.stats?.tentatives ?? 0}`).toBe(`${id} : ${resultats.reponsesComptees}`);
+    }
+  });
+});
+
+describe('Les taux par question', () => {
+  const trier = <T extends { questionId: string }>(stats: T[]) =>
+    [...stats].sort((a, b) => a.questionId.localeCompare(b.questionId));
+
+  it('additionnent les états des seuls commerciaux, sans nom', async () => {
+    // Noémie a répondu juste aux trois questions : rien d'elle n'entre.
+    expect(trier(await chargerTauxQuestions())).toEqual([
+      { questionId: 'q1', tentatives: 1, echecs: 0 },
+      { questionId: 'q2', tentatives: 2, echecs: 1 },
+    ]);
+  });
+
+  it('sont les mêmes sur la liste, la composition de séance et l’écran d’une question', async () => {
+    const liste = trier((await chargerMaitriseEquipe()).parQuestion);
+    expect(liste).toEqual(trier(await chargerTauxQuestions()));
+
+    const q2 = liste.find((ligne) => ligne.questionId === 'q2');
+    expect((await chargerResultatsQuestion('q2'))!.stats).toEqual({
+      tentatives: q2?.tentatives,
+      echecs: q2?.echecs,
+    });
+  });
+
+  it('partent avec le compte : un commercial supprimé ne compte plus', async () => {
+    // Le défaut d'un compteur qui ne fait que monter. Ici, rien n'est stocké :
+    // effacer le compte efface sa contribution.
+    await etat.base!.recursiveDelete(etat.base!.doc('users/uid-lea'));
+    expect(await chargerTauxQuestions()).toEqual([]);
   });
 });

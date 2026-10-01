@@ -1,4 +1,4 @@
-import { assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
+import { assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -87,15 +87,31 @@ describe('Une série, le premier jour', () => {
   });
 
   it('crédite sa première série : étoiles, assiduité, récompenses', async () => {
-    await enregistrerReponse(JORDAN.uid, 'q-vf', ['a'], true);
-    await assertSucceeds(crediterSerie(JORDAN.uid, 3, { parfaite: true, catalogue: CATALOGUE_VIDE }));
+    const reponse = await enregistrerReponse(JORDAN.uid, 'q-vf', ['a'], true);
+    await assertSucceeds(
+      crediterSerie(JORDAN.uid, 3, reponse, { parfaite: true, catalogue: CATALOGUE_VIDE }),
+    );
 
     expect(await relire(`users/${JORDAN.uid}`)).toMatchObject({ etoiles: 3, seriesTerminees: 1 });
   });
 
-  it('crédite une deuxième série le même jour', async () => {
-    await crediterSerie(JORDAN.uid, 1, { parfaite: false, catalogue: CATALOGUE_VIDE });
-    await assertSucceeds(crediterSerie(JORDAN.uid, 2, { parfaite: false, catalogue: CATALOGUE_VIDE }));
+  it('crédite une deuxième série le même jour, sur une réponse nouvelle', async () => {
+    const premiere = await enregistrerReponse(JORDAN.uid, 'q-vf', ['a'], true);
+    await crediterSerie(JORDAN.uid, 1, premiere, { parfaite: false, catalogue: CATALOGUE_VIDE });
+    const seconde = await enregistrerReponse(JORDAN.uid, 'q-vf', ['b'], false);
+    await assertSucceeds(
+      crediterSerie(JORDAN.uid, 2, seconde, { parfaite: false, catalogue: CATALOGUE_VIDE }),
+    );
+  });
+
+  it('REFUS — créditer une série sans avoir répondu depuis le crédit précédent', async () => {
+    // Le défaut d'avant le 1er octobre 2026 : une boucle de crédits depuis la
+    // console fabriquait des séries terminées et une assiduité sans jouer.
+    const reponse = await enregistrerReponse(JORDAN.uid, 'q-vf', ['a'], true);
+    await crediterSerie(JORDAN.uid, 3, reponse, { parfaite: true, catalogue: CATALOGUE_VIDE });
+    await assertFails(
+      crediterSerie(JORDAN.uid, 3, reponse, { parfaite: true, catalogue: CATALOGUE_VIDE }),
+    );
   });
 });
 

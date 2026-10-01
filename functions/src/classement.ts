@@ -3,9 +3,9 @@
  *
  * **Le tableau meurt avec la séance, le trophée reste.** Le classement est
  * nominatif et lisible par ceux qui étaient là ; le prix est privé, durable, et
- * ne s'agrège à rien. Rien de ce qui est calculé ici n'entre dans
- * `questionStats` : les statistiques disent quelles questions font trébucher
- * l'équipe, jamais qui a gagné.
+ * ne s'agrège à rien. Rien de ce qui est calculé ici n'entre dans les
+ * statistiques : elles disent quelles questions font trébucher l'équipe,
+ * jamais qui a gagné.
  *
  * **Aucun client n'écrit ces documents**, pas même son propriétaire. Un prix
  * qu'on peut s'attribuer ne vaut rien.

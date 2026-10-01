@@ -9,17 +9,15 @@ import { estServie } from '@/lib/questions/modele';
 import { Bouton, Onglets } from '@/composants/ds/primitives';
 import { EtatErreur, Squelettes } from '@/composants/ds/etats';
 import { Icone } from '@/composants/ds/Icone';
-import {
-  BanqueDeSeance,
-  TENTATIVES_FIABLES,
-  type AttributsQuestion,
-} from '@/composants/session/BanqueDeSeance';
+import { BanqueDeSeance, type AttributsQuestion } from '@/composants/session/BanqueDeSeance';
 import { PanneauComposition, CADENCES } from '@/composants/session/PanneauComposition';
 import { SeanceQuiBloque } from '@/composants/session/SeanceQuiBloque';
 import type { Referentiel } from '@/composants/parcours/donnees';
 import { authentification } from '@/lib/firebase/client';
-import { chargerStatistiques } from '@/lib/statistiques/depot';
-import { tauxEchec } from '@/lib/statistiques/analyse';
+// Le seuil de fiabilité n'existe qu'à un endroit : une question à trois
+// réponses sur trois ratées doit apparaître ici comme dans les statistiques.
+import { TENTATIVES_FIABLES, tauxEchec } from '@/lib/statistiques/analyse';
+import type { StatsQuestion } from '@/lib/statistiques/modele';
 import {
   abandonner,
   creerSession,
@@ -64,11 +62,14 @@ const ONGLETS: { valeur: Onglet; libelle: string }[] = [
 
 export function ComposerSeance({
   referentiel,
+  stats: statsEnCours,
   /** Séance préparée à reprendre, ou questions à pré-cocher. */
   reprise,
   ratees,
 }: {
   referentiel: Referentiel;
+  /** Les taux par question, lus par le serveur — les mêmes que les statistiques. */
+  stats: Promise<StatsQuestion[]>;
   reprise?: string;
   ratees?: string[];
 }) {
@@ -119,16 +120,16 @@ export function ComposerSeance({
   );
 
   /*
-   * Deux lectures, en parallèle : les statistiques agrégées pour le taux
-   * d'échec, et les séances de l'animatrice pour savoir ce qui a déjà été
-   * posé. L'une sans l'autre donnerait une banque à moitié renseignée, où
+   * Deux lectures, en parallèle : les taux d'échec, lus par le serveur sur
+   * les états des commerciaux, et les séances de l'animatrice pour savoir ce
+   * qui a déjà été posé. L'une sans l'autre donnerait une banque à moitié renseignée, où
    * l'on ne saurait pas si une colonne manque ou vaut zéro.
    */
   useEffect(() => {
     if (!uid) return;
     let vivant = true;
 
-    Promise.all([chargerStatistiques(), mesSeances(uid)])
+    Promise.all([statsEnCours, mesSeances(uid)])
       .then(([stats, seances]) => {
         if (!vivant) return;
 
@@ -169,7 +170,7 @@ export function ComposerSeance({
     return () => {
       vivant = false;
     };
-  }, [uid, publiees, reprise]);
+  }, [uid, publiees, reprise, statsEnCours]);
 
   const basculer = useCallback((identifiant: string) => {
     setChoisies((actuelles) =>

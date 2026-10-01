@@ -1,6 +1,39 @@
 import { describe, expect, it } from 'vitest';
 
-import { doitCompter, type EtatSession } from '../../functions/src/session';
+import { doitCompter, lireReponse, type EtatSession } from '../../functions/src/session';
+
+describe('lireReponse', () => {
+  it('extrait la question et le verdict, et rien d’autre', () => {
+    expect(
+      lireReponse({
+        questionId: 'q1',
+        correcte: false,
+        optionsChoisies: ['a'],
+        origine: 'session',
+        repondueLe: new Date(),
+      }),
+    ).toEqual({ questionId: 'q1', correcte: false });
+  });
+
+  it('refuse une réponse sans identifiant de question exploitable', () => {
+    expect(lireReponse({ correcte: true })).toBeNull();
+    expect(lireReponse({ questionId: '', correcte: true })).toBeNull();
+    expect(lireReponse({ questionId: '   ', correcte: true })).toBeNull();
+    expect(lireReponse({ questionId: 42, correcte: true })).toBeNull();
+  });
+
+  it('refuse un verdict qui n’est pas un booléen', () => {
+    expect(lireReponse({ questionId: 'q1' })).toBeNull();
+    expect(lireReponse({ questionId: 'q1', correcte: 'faux' })).toBeNull();
+    expect(lireReponse({ questionId: 'q1', correcte: 0 })).toBeNull();
+  });
+
+  it('refuse ce qui n’est pas un document', () => {
+    expect(lireReponse(null)).toBeNull();
+    expect(lireReponse(undefined)).toBeNull();
+    expect(lireReponse('q1')).toBeNull();
+  });
+});
 
 /**
  * Ce que ces tests protègent : le compteur affiché pendant la séance ne compte

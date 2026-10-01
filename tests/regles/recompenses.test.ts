@@ -2,7 +2,7 @@ import { assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebas
 import { doc, updateDoc } from 'firebase/firestore';
 import { afterAll, afterEach, beforeAll, describe, it } from 'vitest';
 
-import { connecte, creerEnvironnement, JORDAN, utilisateur } from './aide';
+import { connecte, creerEnvironnement, credit, JORDAN, semerReponseRecente, utilisateur } from './aide';
 
 /**
  * Les récompenses — les paliers franchis, et le jour où ils l'ont été.
@@ -16,6 +16,10 @@ import { connecte, creerEnvironnement, JORDAN, utilisateur } from './aide';
  * **Le plafond borne la croissance**, et c'est son seul rôle. Les identifiants
  * ne sont pas figés ici : les y inscrire imposerait un déploiement de règles à
  * chaque palier ajouté.
+ *
+ * **Elles ne s'écrivent que dans le crédit d'une série** (depuis le
+ * 1er octobre 2026) : chaque scénario passe par un crédit conforme dont seules
+ * les récompenses varient.
  */
 
 let env: RulesTestEnvironment;
@@ -34,10 +38,11 @@ async function semer(avecRecompenses: boolean) {
       .doc(CHEMIN)
       .set(utilisateur(avecRecompenses ? { recompenses: ACQUISES } : {}));
   });
+  await semerReponseRecente(env, JORDAN.uid);
 }
 
 function ecrire(recompenses: unknown) {
-  return updateDoc(doc(connecte(env, JORDAN), CHEMIN), { recompenses });
+  return updateDoc(doc(connecte(env, JORDAN), CHEMIN), credit({ recompenses }));
 }
 
 beforeAll(async () => {
@@ -53,6 +58,13 @@ afterAll(async () => {
 });
 
 /* ------------------------------------------------------------------ accepté */
+
+describe('Hors d’un crédit de série', () => {
+  it('REFUS — une récompense écrite seule', async () => {
+    await semer(false);
+    await assertFails(updateDoc(doc(connecte(env, JORDAN), CHEMIN), { recompenses: { 'dix-jours': '2026-03-19' } }));
+  });
+});
 
 describe('Ce que les règles acceptent', () => {
   it('une première récompense, sur un compte qui n’en portait pas', async () => {

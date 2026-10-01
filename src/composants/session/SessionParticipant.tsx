@@ -18,6 +18,7 @@ import { Chronometre } from '@/composants/session/Chronometre';
 import { RepartitionLue } from '@/composants/session/RepartitionLue';
 import { RevelationClassement } from '@/composants/session/RevelationClassement';
 import { authentification } from '@/lib/firebase/client';
+import { signalerPanne } from '@/lib/journal/client';
 import { libelleAttendu } from '@/lib/questions/modele';
 import { corriger } from '@/lib/serie/verdict';
 import { TITRE_PAUSE_PARTICIPANT } from '@/lib/session/seance';
@@ -271,9 +272,42 @@ export function SessionParticipant() {
       );
       setVote('envoye');
     } catch (probleme) {
-      // Les règles refusent après la révélation : ce n'est pas une panne.
+      /*
+       * **« Trop tard » seulement si la séance le dit.** Un refus de règle
+       * voulait autrefois toujours dire « la réponse est révélée ». Depuis le
+       * 1er octobre 2026, les règles refusent aussi un non-présent, une
+       * question qui n'est plus celle qui est ouverte, et une réponse dont
+       * l'état ne suit pas. Tout lire comme « trop tard » aurait fait passer
+       * une incompatibilité entre l'application et les règles pour un simple
+       * retard — sans une trace. On relit donc la séance avant de nommer le
+       * refus, comme le fait `rejoindre` ; ce que la relecture n'explique pas
+       * est une panne, et elle se signale.
+       */
       const code = (probleme as { code?: string })?.code;
-      setVote(code === 'permission-denied' ? 'trop-tard' : 'echec');
+      if (code === 'permission-denied') {
+        // `null` : la séance n'est plus en cours — close ou abandonnée —, c'est
+        // un vrai « trop tard ». `undefined` : la relecture a échoué elle aussi,
+        // on ne sait rien, et l'on signale le refus d'origine.
+        let relue: Awaited<ReturnType<typeof chercherSessionParCode>> | undefined;
+        try {
+          relue = await chercherSessionParCode(session.code);
+        } catch {
+          relue = undefined;
+        }
+        const depassee =
+          relue === null ||
+          (relue !== undefined &&
+            (relue.revelee ||
+              relue.statut !== 'encours' ||
+              relue.questionIds[relue.indexCourant] !== question.id));
+        if (depassee) {
+          setVote('trop-tard');
+          return;
+        }
+      }
+      console.error(`Vote non enregistré${code ? ` (${code})` : ''}`, probleme);
+      signalerPanne('ecriture', probleme);
+      setVote('echec');
     }
   }, [uid, session, question, choisies]);
 

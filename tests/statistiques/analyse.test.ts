@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { classer, parFormation, resumer, tauxEchec, TENTATIVES_FIABLES } from '@/lib/statistiques/analyse';
-import { enStats } from '@/lib/statistiques/modele';
+import { agregerEtats } from '@/lib/statistiques/modele';
 import type { Formation } from '@/lib/formations/depot';
 import type { Question } from '@/lib/questions/depot';
 import type { StatsQuestion } from '@/lib/statistiques/modele';
@@ -51,7 +51,7 @@ function formation(id: string, nom: string): Formation {
 }
 
 function stat(questionId: string, tentatives: number, echecs: number): StatsQuestion {
-  return { questionId, tentatives, echecs, majLe: null };
+  return { questionId, tentatives, echecs };
 }
 
 const FORMATIONS = [formation('recA', 'Dermoscopie'), formation('recB', 'Ménopause')];
@@ -217,22 +217,45 @@ describe('resumer', () => {
   });
 });
 
-describe('enStats', () => {
-  it('borne les échecs au nombre de tentatives', () => {
-    // Un agrégat incohérent afficherait un taux supérieur à cent pour cent.
-    expect(enStats('q1', { tentatives: 4, echecs: 9 }).echecs).toBe(4);
+describe('agregerEtats', () => {
+  const etat = (tentatives: number, reussies: number) => ({ tentatives, reussies });
+
+  it('additionne les états de plusieurs comptes, question par question', () => {
+    const lea = new Map([
+      ['q1', etat(3, 1)],
+      ['q2', etat(1, 1)],
+    ]);
+    const yanis = new Map([['q1', etat(2, 0)]]);
+
+    const totaux = agregerEtats([lea, yanis]).sort((a, b) => a.questionId.localeCompare(b.questionId));
+
+    expect(totaux).toEqual([
+      { questionId: 'q1', tentatives: 5, echecs: 4 },
+      { questionId: 'q2', tentatives: 1, echecs: 0 },
+    ]);
   });
 
-  it('tolère un agrégat incomplet', () => {
-    expect(enStats('q1', {})).toEqual({
-      questionId: 'q1',
-      tentatives: 0,
-      echecs: 0,
-      majLe: null,
-    });
+  it('ne rend que des totaux par question, jamais le compte qui les a produits', () => {
+    // Le compte n'est pas transmis à la fonction : elle ne saurait pas le
+    // rendre. On vérifie la forme, pour qu'un champ ajouté « pour déboguer »
+    // fasse tomber ce test.
+    const [total] = agregerEtats([new Map([['q1', etat(2, 1)]])]);
+    expect(Object.keys(total!).sort()).toEqual(['echecs', 'questionId', 'tentatives']);
   });
 
-  it('refuse les valeurs qui ne sont pas des nombres positifs', () => {
-    expect(enStats('q1', { tentatives: -3, echecs: 'beaucoup' }).tentatives).toBe(0);
+  it('ignore un état sans tentative, sans créer de ligne vide', () => {
+    expect(agregerEtats([new Map([['q1', etat(0, 0)]])])).toEqual([]);
+    expect(agregerEtats([])).toEqual([]);
+  });
+
+  it('borne les échecs entre zéro et le nombre de tentatives', () => {
+    // Un état incohérent afficherait un taux supérieur à cent pour cent, ou
+    // négatif. Les règles l'interdisent ; la lecture ne s'y fie pas.
+    expect(agregerEtats([new Map([['q1', etat(3, 5)]])])).toEqual([
+      { questionId: 'q1', tentatives: 3, echecs: 0 },
+    ]);
+    expect(agregerEtats([new Map([['q1', etat(3, -2)]])])).toEqual([
+      { questionId: 'q1', tentatives: 3, echecs: 3 },
+    ]);
   });
 });

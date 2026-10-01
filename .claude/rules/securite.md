@@ -20,7 +20,7 @@ Après attribution d'un claim, la valeur n'apparaît dans les règles qu'au rafr
 
 `users/{uid}/reponses` est lisible et modifiable **par son seul propriétaire**. Aucune exception administrateur, aucune requête de groupe de collections qui contournerait la règle.
 
-Les statistiques passent exclusivement par `questionStats`, écrite par Cloud Function, sans identifiant d'utilisateur. Si une fonctionnalité demandée exige de savoir qui a raté quoi, s'arrêter et le signaler : c'est un changement de politique, pas un détail d'implémentation.
+Les taux par question se calculent côté serveur, à partir des états des commerciaux, agrégés sans identifiant (`agregerEtats`, `src/lib/serveur/maitrise-equipe.ts`). Ce qui en sort est un total par question, jamais une ligne par personne : l'affichage reste anonyme. La maîtrise nominative est réservée à l'équipe pédagogique, par le serveur, depuis la décision du 30 septembre 2026. Toute autre fonctionnalité qui exigerait de savoir qui a raté quoi : s'arrêter et le signaler, c'est un changement de politique, pas un détail d'implémentation.
 
 ## Secrets
 

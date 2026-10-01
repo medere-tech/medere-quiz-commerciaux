@@ -66,6 +66,16 @@ async function semer(): Promise<void> {
   });
 }
 
+/**
+ * Déclare un participant présent, comme l'aurait fait `rejoindre`. Depuis le
+ * 1er octobre 2026, seul un présent vote.
+ */
+async function entrer(uid: string): Promise<void> {
+  await env.withSecurityRulesDisabled(async (contexte) => {
+    await setDoc(doc(contexte.firestore(), `sessions/s1/participants/${uid}`), participant());
+  });
+}
+
 describe('Session collective — accès', () => {
   it('tout commercial du domaine lit la session en cours', async () => {
     await semer();
@@ -278,10 +288,50 @@ describe('Session collective — forme du document', () => {
 describe('Réponses en session — accès', () => {
   it('un participant enregistre sa propre réponse', async () => {
     await semer();
+    await entrer(JORDAN.uid);
     await assertSucceeds(
       setDoc(
         doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-vf`),
         reponseSession(JORDAN.uid, { questionId: 'q-vf' }),
+      ),
+    );
+  });
+
+  it('REFUS — voter sans être entré dans la séance', async () => {
+    // Un non-présent — refusé par le verrou, ou jamais entré — était classé
+    // sous « Participant ».
+    await semer();
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-vf`),
+        reponseSession(JORDAN.uid, { questionId: 'q-vf' }),
+      ),
+    );
+  });
+
+  it('REFUS — répondre à une question qui n’est pas celle qui est ouverte', async () => {
+    // La faille : pendant n'importe quel vote, une réponse juste à n'importe
+    // quelle question comptait au classement. q-qcm est dans la séance, mais
+    // c'est q-vf qui est ouverte.
+    await semer();
+    await entrer(JORDAN.uid);
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-qcm`),
+        reponseSession(JORDAN.uid, { questionId: 'q-qcm', optionsChoisies: ['a', 'c'], correcte: true }),
+      ),
+    );
+  });
+
+  it('REFUS — un départage daté à sa guise', async () => {
+    // `repondueLe` départage les égalités du classement : un instant ancien
+    // les gagnait toutes.
+    await semer();
+    await entrer(JORDAN.uid);
+    await assertFails(
+      setDoc(
+        doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-vf`),
+        reponseSession(JORDAN.uid, { questionId: 'q-vf', repondueLe: new Date('1970-01-02T00:00:00Z') }),
       ),
     );
   });
@@ -363,7 +413,14 @@ describe('Réponses en session — accès', () => {
 describe('Réponses en session — forme et verdict', () => {
   const chemin = (questionId: string) => `sessions/s1/reponses/${JORDAN.uid}_${questionId}`;
 
+  /** Jordan est entré, et la question visée est celle qui est ouverte. */
   async function ecrire(donnees: Document, questionId = 'q-vf') {
+    await entrer(JORDAN.uid);
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await updateDoc(doc(contexte.firestore(), 'sessions/s1'), {
+        indexCourant: questionId === 'q-qcm' ? 1 : 0,
+      });
+    });
     return setDoc(doc(connecte(env, JORDAN), chemin(questionId)), donnees);
   }
 
@@ -540,6 +597,7 @@ describe('Session collective — répartition et fermeture du vote', () => {
 
   it('un commercial vote tant que la réponse n’est pas révélée', async () => {
     await semer();
+    await entrer(JORDAN.uid);
     await assertSucceeds(
       setDoc(
         doc(connecte(env, JORDAN), `sessions/s1/reponses/${JORDAN.uid}_q-vf`),
@@ -820,10 +878,12 @@ describe('Session collective — présence et classement', () => {
         participant({ presence: 'visio' }),
       ),
     );
+    // Comme `rejoindre` : la mise à jour fusionne, sans réécrire l'heure d'arrivée.
     await assertSucceeds(
       setDoc(
         doc(jordan, `sessions/s1/participants/${JORDAN.uid}`),
-        participant({ presence: 'salle' }),
+        { presence: 'salle' },
+        { merge: true },
       ),
     );
   });

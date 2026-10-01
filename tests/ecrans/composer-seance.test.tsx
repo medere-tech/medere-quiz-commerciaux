@@ -26,7 +26,8 @@ import { fausseAuth, fauxRouteur } from '../aide/faux';
  *    jouée ; l'avertissement porterait sur un futur.
  */
 
-const chargerStatistiques = vi.fn<() => Promise<StatsQuestion[]>>();
+/** Les taux que la page serveur passerait en promesse au composant. */
+const chargerTaux = vi.fn<() => Promise<StatsQuestion[]>>();
 const mesSeances = vi.fn<() => Promise<Session[]>>();
 const creerSession = vi.fn<() => Promise<string>>();
 const preparerEtLancer = vi.fn<() => Promise<string>>();
@@ -37,10 +38,6 @@ const pousser = vi.fn();
 
 vi.mock(import('@/lib/firebase/client'), () => ({
   authentification: () => fausseAuth({ uid: 'uid-noemie', displayName: 'Noémie Vasseur' }),
-}));
-
-vi.mock(import('@/lib/statistiques/depot'), () => ({
-  chargerStatistiques: () => chargerStatistiques(),
 }));
 
 vi.mock(import('next/navigation'), () => ({
@@ -111,11 +108,11 @@ const QUESTIONS: QuestionListee[] = [
 const REFERENTIEL = { questions: QUESTIONS, formations: FORMATIONS };
 
 function stat(questionId: string, tentatives: number, echecs: number): StatsQuestion {
-  return { questionId, tentatives, echecs, majLe: null };
+  return { questionId, tentatives, echecs };
 }
 
 beforeEach(() => {
-  chargerStatistiques.mockReset().mockResolvedValue([
+  chargerTaux.mockReset().mockResolvedValue([
     stat('q1', 20, 16),
     stat('q2', 20, 4),
     stat('q3', 20, 12),
@@ -134,7 +131,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 async function monter() {
-  rendre(<ComposerSeance referentiel={REFERENTIEL} />);
+  rendre(<ComposerSeance referentiel={REFERENTIEL} stats={chargerTaux()} />);
   await screen.findByRole('heading', { name: 'Choisissez les questions' });
 }
 
@@ -188,6 +185,19 @@ describe('La banque', () => {
 
     await waitFor(() => expect(screen.queryByText(/Durée minimale/)).toBeNull());
     expect(screen.getByText(/assistants dentaires/)).toBeTruthy();
+  });
+
+  it('montre le taux d’une question ratée trois fois sur trois, comme les statistiques', async () => {
+    // Le seuil vaut 3 partout depuis le 1er octobre 2026 : celui de 5, propre
+    // à cet écran, cachait à Noémie une question que les statistiques
+    // classaient déjà en tête.
+    chargerTaux.mockReset().mockResolvedValue([stat('q2', 3, 3)]);
+    await monter();
+
+    const ligne = screen
+      .getAllByRole('button', { pressed: false })
+      .find((bouton) => bouton.textContent?.includes('présentiel se réserve'));
+    expect(ligne?.textContent).toContain('100 % d’échec');
   });
 });
 

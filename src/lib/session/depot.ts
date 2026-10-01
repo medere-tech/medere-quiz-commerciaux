@@ -423,11 +423,10 @@ export async function rejoindre(
  * la séance mais absente de la progression donnerait un classement juste et un
  * historique faux.
  *
- * **Une seule agrégation.** Seule la réponse personnelle déclenche le calcul
- * de `questionStats` — le déclencheur sur les réponses de séance ne fait que
- * compter les votes. Agréger des deux côtés compterait chaque réponse deux
- * fois : deux événements distincts, donc deux identifiants, que le
- * dédoublonnage ne rattrape pas.
+ * **Une seule trace dans les chiffres.** Seule la réponse personnelle, avec
+ * l'état qui l'accompagne, entre dans la progression et dans les taux de
+ * l'équipe — le déclencheur sur les réponses de séance ne fait que compter les
+ * votes. Compter des deux côtés compterait chaque réponse deux fois.
  *
  * Les règles refusent l'écriture si la bonne réponse est déjà révélée. Ce
  * refus-là n'est pas une panne : il faut le dire à qui a répondu trop tard.
@@ -450,7 +449,8 @@ export async function repondreEnSession(
     repondueLe: serverTimestamp(),
   });
 
-  lot.set(doc(base, 'users', uid, 'reponses', `${questionId}_${Date.now()}`), {
+  const identifiant = `${questionId}_${Date.now()}`;
+  lot.set(doc(base, 'users', uid, 'reponses', identifiant), {
     questionId,
     correcte,
     optionsChoisies,
@@ -465,6 +465,8 @@ export async function repondreEnSession(
       tentatives: increment(1),
       derniereRatee: !correcte,
       majLe: serverTimestamp(),
+      // Voir `enregistrerReponse` : l'état nomme la réponse de ce lot.
+      derniereReponse: identifiant,
     },
     { merge: true },
   );
@@ -1065,7 +1067,7 @@ export async function reprendre(sessionId: string): Promise<void> {
  * questions à revoir comme n'importe quelle réponse d'entraînement. C'est la
  * décision du lot 7, et l'écran du participant la promet en toutes lettres. On
  * ne pourrait d'ailleurs pas l'annuler proprement : les compteurs d'`etats` ne
- * redescendent pas, et `questionStats` a déjà agrégé.
+ * redescendent pas, et les taux de l'équipe se calculent sur eux.
  *
  * **C'est définitif.** Rouvrir une séance abandonnée ferait voter sur des
  * questions auxquelles la moitié de la salle a déjà répondu, et produirait un

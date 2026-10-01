@@ -4,7 +4,9 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import type { Firestore } from 'firebase/firestore';
+import { doc, increment, serverTimestamp, writeBatch, type Firestore } from 'firebase/firestore';
+
+import { clefDuJour } from '@/lib/serie/assiduite';
 
 export const PROJET = 'demo-medere-quiz';
 
@@ -102,7 +104,8 @@ export function reponse(remplacements: Document = {}): Document {
     correcte: false,
     optionsChoisies: ['b'],
     origine: 'entrainement',
-    repondueLe: HIER,
+    // L'application écrit `serverTimestamp()`, et les règles l'exigent.
+    repondueLe: serverTimestamp(),
     ...remplacements,
   };
 }
@@ -114,7 +117,7 @@ export function reponseSession(uid: string, remplacements: Document = {}): Docum
     questionId: 'q1',
     optionsChoisies: ['b'],
     correcte: false,
-    repondueLe: HIER,
+    repondueLe: serverTimestamp(),
     ...remplacements,
   };
 }
@@ -167,7 +170,7 @@ export function participant(remplacements: Document = {}): Document {
     avatar: 'turquoise',
     // En salle ou en visio : la séance est hybride.
     presence: 'salle',
-    rejointLe: HIER,
+    rejointLe: serverTimestamp(),
     ...remplacements,
   };
 }
@@ -177,7 +180,7 @@ export function appel(remplacements: Document = {}): Document {
   return {
     nom: 'Jordan',
     avatar: 'turquoise',
-    demandeLe: HIER,
+    demandeLe: serverTimestamp(),
     ...remplacements,
   };
 }
@@ -225,6 +228,82 @@ export function utilisateur(remplacements: Document = {}): Document {
     // ailleurs. Le nom réel par défaut.
     nomSession: 'Jordan',
     avatar: 'turquoise',
+    ...remplacements,
+  };
+}
+
+let numeroReponse = 0;
+
+/**
+ * **Une réponse s'écrit avec son état, dans un seul lot**, comme le fait
+ * `enregistrerReponse` : les règles refusent l'une sans l'autre depuis le
+ * 1er octobre 2026. L'état nomme la réponse (`derniereReponse`) et ses
+ * compteurs suivent le verdict de la réponse.
+ *
+ * `etat` remplace des champs de l'état écrit, pour éprouver un mensonge : un
+ * pas de trop, un verdict contraire, une autre réponse nommée.
+ */
+export function repondreAvecEtat(
+  base: Firestore,
+  uid: string,
+  donnees: Document = reponse(),
+  etat: Document = {},
+): { id: string; ecriture: Promise<void> } {
+  const questionId = String(donnees.questionId);
+  const correcte = donnees.correcte === true;
+  const id = `${questionId}_essai${(numeroReponse += 1)}`;
+  const lot = writeBatch(base);
+
+  lot.set(doc(base, `users/${uid}/reponses/${id}`), donnees);
+  lot.set(
+    doc(base, `users/${uid}/etats/${questionId}`),
+    {
+      reussies: increment(correcte ? 1 : 0),
+      tentatives: increment(1),
+      derniereRatee: !correcte,
+      majLe: serverTimestamp(),
+      derniereReponse: id,
+      ...etat,
+    },
+    { merge: true },
+  );
+
+  return { id, ecriture: lot.commit() };
+}
+
+/** La réponse sur laquelle s'appuie un crédit de série dans les tests. */
+export const REPONSE_RECENTE = 'q1_recente';
+
+/**
+ * Pose une réponse donnée « à l'instant », comme la dernière d'une série : le
+ * crédit qui la nomme est alors accepté.
+ */
+export async function semerReponseRecente(
+  env: RulesTestEnvironment,
+  uid: string,
+  id = REPONSE_RECENTE,
+): Promise<void> {
+  await env.withSecurityRulesDisabled(async (contexte) => {
+    const base = contexte.firestore() as unknown as Firestore;
+    await writeBatch(base).set(doc(base, `users/${uid}/reponses/${id}`), reponse()).commit();
+  });
+}
+
+/**
+ * Le crédit d'une série, tel que `crediterSerie` l'écrit, sur un compte
+ * `utilisateur()` (quatre étoiles, deux séries) sans assiduité : une série de
+ * plus, trois étoiles, le premier jour d'assiduité — le jour de Paris, calculé
+ * par la fonction même du navigateur —, et la réponse qui le justifie.
+ */
+export function credit(remplacements: Document = {}): Document {
+  const jour = clefDuJour(new Date());
+  return {
+    etoiles: 7,
+    seriesTerminees: 3,
+    assiduite: { dernierJour: jour, serie: 1, record: 1, semaine: [jour] },
+    serieCloseSur: REPONSE_RECENTE,
+    creditLe: serverTimestamp(),
+    vuLe: serverTimestamp(),
     ...remplacements,
   };
 }

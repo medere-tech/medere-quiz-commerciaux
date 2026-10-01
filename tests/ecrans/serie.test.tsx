@@ -81,6 +81,11 @@ vi.mock(import('next/navigation'), () => ({
 
 vi.mock(import('@/lib/navigation/intention'), () => fausseIntention());
 
+/* Le journal des pannes : une écriture refusée doit y être versée, pas
+   seulement affichée. */
+const signalerPanne = vi.fn<typeof import('@/lib/journal/client').signalerPanne>();
+vi.mock(import('@/lib/journal/client'), () => ({ signalerPanne }));
+
 const { Serie } = await import('@/composants/parcours/Serie');
 
 /** Assez de questions pour une série entière, toutes du même moule. */
@@ -137,8 +142,11 @@ function optionsAffichees(): string[] {
 }
 
 beforeEach(() => {
+  signalerPanne.mockReset();
   adresse = fausseRequete();
-  enregistrerReponse.mockResolvedValue(undefined);
+  /* Le vrai rend l'identifiant de la réponse écrite, que le crédit nomme. */
+  let numeroReponse = 0;
+  enregistrerReponse.mockImplementation(async (_uid, questionId) => `${questionId}_${++numeroReponse}`);
   /* Le vrai `crediterSerie` rend les récompenses **nouvellement** obtenues, et
      la fin de série les annonce. Le faux rendait `undefined` : l'écran aurait
      appelé `.includes` dessus le jour où une récompense serait tombée. */
@@ -264,6 +272,8 @@ describe('la correction', () => {
     // ne lui laisse pas croire que sa réponse compte.
     expect(await screen.findByText(/n’a pas pu être enregistrée/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /question suivante|continuer|suivante/i })).toBeTruthy();
+    // Et le refus ne reste pas qu'à l'écran : un `catch` muet l'aurait effacé.
+    expect(signalerPanne).toHaveBeenCalledWith('ecriture', expect.anything());
   });
 
   it('passe à la question suivante et remet le choix à zéro', async () => {
@@ -278,6 +288,25 @@ describe('la correction', () => {
 
     await waitFor(() => expect(enonceAffiche()).not.toBe(premier));
     expect(screen.getByText(/0 cochée|plusieurs réponses attendues/i)).toBeTruthy();
+  });
+
+  it('crédite la série en nommant sa dernière réponse enregistrée', async () => {
+    // Les règles refusent un crédit qui ne s'appuie pas sur une réponse donnée
+    // depuis le crédit précédent : l'écran doit nommer la dernière écrite.
+    await ouvrirLaSerie(banque(2));
+
+    for (let tour = 0; tour < 2; tour += 1) {
+      fireEvent.click(screen.getByText(optionsAffichees()[0]!));
+      fireEvent.click(screen.getByRole('button', { name: /valider/i }));
+      const suite = await screen.findByRole('button', {
+        name: /question suivante|continuer|suivante|terminer|bilan|résultat/i,
+      });
+      fireEvent.click(suite);
+    }
+
+    await waitFor(() => expect(crediterSerie).toHaveBeenCalledTimes(1));
+    const derniere = await enregistrerReponse.mock.results[1]!.value;
+    expect(crediterSerie.mock.calls[0]![2]).toBe(derniere);
   });
 });
 

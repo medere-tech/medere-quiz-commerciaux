@@ -1,6 +1,6 @@
 {
   "name": "medere-quiz-fonctions",
-  "description": "Agrégation anonyme des réponses vers questionStats.",
+  "description": "Compteur et classement des séances collectives, podium de régularité.",
   "private": true,
   "main": "lib/index.js",
   "engines": {

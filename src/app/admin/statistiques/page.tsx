@@ -6,18 +6,20 @@ import { EcranStatistiques } from './EcranStatistiques';
 /**
  * 09 · Statistiques.
  *
- * La page lit, côté serveur, la maîtrise de chaque commercial pour le bloc
- * « Maîtrise par commercial ». Le reste de l'écran — les taux anonymes de
- * `questionStats` — continue de se lire dans le navigateur.
+ * La page lit, côté serveur, les états des commerciaux. Une seule lecture en
+ * tire deux choses : la maîtrise de chacun, pour le bloc « Maîtrise par
+ * commercial », et les taux d'échec par question, pour la liste — des totaux
+ * sans nom (`agregerEtats`). La banque et les formations continuent de se lire
+ * dans le navigateur.
  *
- * **La page n'attend pas cette lecture.** Elle part au navigateur en
- * promesse, que seul le bloc lit, sous `Suspense` : les lectures du navigateur
- * démarrent sans attendre le serveur, et le bloc se remplit quand sa donnée
- * arrive. L'attendre ici faisait payer à tout l'écran le prix d'un bloc.
+ * **La page n'attend pas cette lecture.** Elle part au navigateur en deux
+ * promesses : le bloc lit la sienne sous `Suspense`, la liste attend la sienne
+ * avec la banque. L'attendre ici ferait payer au titre et à la navigation le
+ * prix d'une lecture qu'ils n'affichent pas.
  *
- * **Seul ce que le bloc affiche part au navigateur** : l'identifiant, le nom
- * et le pourcentage. Le détail par formation reste sur le serveur tant qu'aucun
- * écran ne le montre.
+ * **Seul ce que l'écran affiche part au navigateur** : l'identifiant, le nom
+ * et le pourcentage de chaque commercial, et les totaux par question. Le
+ * détail par formation reste sur le serveur tant qu'aucun écran ne le montre.
  */
 export default async function PageStatistiques() {
   // Pas d'administrateur connecté : la disposition rend l'écran de connexion
@@ -25,13 +27,15 @@ export default async function PageStatistiques() {
   const session = await lireSession();
   if (!session?.admin) return null;
 
-  const equipe = chargerMaitriseEquipe().then(({ commerciaux }) =>
+  const lecture = chargerMaitriseEquipe();
+  const equipe = lecture.then(({ commerciaux }) =>
     commerciaux.map((commercial) => ({
       uid: commercial.uid,
       nom: commercial.nom,
       pourcentage: commercial.maitrise.pourcentage,
     })),
   );
+  const stats = lecture.then(({ parQuestion }) => parQuestion);
 
-  return <EcranStatistiques equipe={equipe} />;
+  return <EcranStatistiques equipe={equipe} stats={stats} />;
 }
