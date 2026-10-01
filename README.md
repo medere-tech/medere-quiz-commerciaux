@@ -34,7 +34,8 @@ Navigateur (Next.js, App Router)
           ├── /api/airtable/sync   (jeton serveur, lecture seule, cache)
           └── /api/admin/*          (vérification du custom claim côté serveur)
 
-Cloud Function : onCreate sur les réponses → incrémente questionStats
+Cloud Functions : compteur et classement des séances, podium de régularité
+Taux d'échec : calculés à la lecture, côté serveur, sur les états des commerciaux
 ```
 
 Le client parle directement à Firestore pour tout ce qui est couvert par les règles de sécurité. Les routes serveur ne servent qu'à ce qui exige un secret ou une vérification de rôle.
@@ -122,13 +123,6 @@ users/{uid}/etats/{questionId}     // résumé, une par question rencontrée
   derniereRatee : boolean
   majLe : timestamp
 
-questionStats/{questionId}         // agrégat anonyme, écrit par Cloud Function
-  tentatives, echecs : number
-  majLe : timestamp
-
-questionStats/{questionId}/evenements/{evenementId}
-  expireLe : timestamp             // marqueur de dédoublonnage, fermé à tout client
-
 sessions/{sessionId}
   code : string                    // court, lisible à voix haute
   questionIds : string[]
@@ -161,46 +155,90 @@ Mesuré sur la base réelle, avec 158 réponses sur 14 questions : 270 ms pour
 lire les réponses, 119 ms pour lire les états. Sur l'émulateur, à la
 volumétrie de deux ans (5 000 réponses, 300 questions) : 712 ms contre 33 ms.
 
-Les réponses restent la source de vérité — c'est d'elles que la Cloud Function
-tire `questionStats`, et c'est d'elles que `npm run etats:reprise` reconstruit
-les états si l'un d'eux dérive. **Ce que les règles ne vérifient pas :** que
-l'état corresponde aux réponses. Il faudrait relire l'historique à chaque
-écriture. Elles vérifient la forme, la propriété, et qu'un compteur ne monte
-que d'un pas à la fois ; la portée d'un mensonge est bornée à l'affichage du
-menteur, puisque `questionStats` est alimentée par les réponses, elles-mêmes
-validées verdict compris.
+Les réponses restent la source de vérité : c'est d'elles que
+`npm run etats:reprise` reconstruit les états si l'un d'eux dérive.
 
-**Les essais de l'équipe pédagogique ne s'agrègent pas.** Noémie doit pouvoir
-parcourir le quiz comme un commercial — c'est elle qui écrit les explications
-affichées après chaque réponse, et sans les voir en situation elle travaille à
-l'aveugle. Mais elle relit alors des questions qu'elle vient d'écrire, donc
-elle y répond juste, donc elle ferait baisser le taux d'échec précisément des
-questions qu'elle inspecte. Le biais est orienté, pas aléatoire, et il touche
-l'écran qui sert à décider quoi réécrire. La Cloud Function écarte donc les
-comptes portant le custom claim `admin` : l'identifiant sert à décider, jamais
-à écrire, et `questionStats` continue de ne porter aucun `uid`. Ses réponses
-restent enregistrées sous son compte — sa progression, ses questions à revoir —,
-c'est ce qui rend l'aperçu fidèle.
+### Une source pour les taux
 
-**`questionStats` contient aujourd'hui des données de recette.** Quatorze
-questions, 173 réponses, toutes venues du seul compte qui ait jamais ouvert
-l'application, et qui est administrateur. Elles sont conservées volontairement :
-ce sont les seules qui permettent de voir l'écran de statistiques rempli avant
-la mise en service. **Elles partiront au nettoyage général, avec le reste des
-données de test**, et `questionStats` avec elles. Le recomptage historique
-(`npm run stats:reprise`) sait les écarter — il vide donc la collection tant
-que personne d'autre n'a répondu : ne pas le lancer avant le nettoyage.
+**Les taux d'échec par question se calculent à partir des états des
+commerciaux, agrégés sans identifiant.** Le serveur additionne `tentatives`
+et `reussies` sur les comptes suivis (`agregerEtats`, dans
+`src/lib/statistiques/modele.ts`), et n'en rend que des totaux par question.
+La liste des statistiques, l'écran d'une question et la composition d'une
+séance lisent ce même chiffre, sur la même population que la maîtrise et que
+la répartition des réponses. L'affichage reste anonyme : c'est ce qui compte
+dans la règle.
 
-**Pourquoi l'agrégat porte des marqueurs d'événements.** Cloud Functions
-garantit une livraison *au moins une fois* : le même événement peut être remis
-deux fois, et un compteur incrémenté deux fois pour une seule réponse
-discrédite tout l'écran de statistiques. La fonction pose donc, dans la même
-transaction que l'incrément, un marqueur portant l'identifiant de l'événement ;
-si le marqueur existe déjà, elle ne touche à rien. Ces documents ne servent
-qu'à cela : aucune règle ne déclare leur chemin, ils sont donc fermés à tous
-les clients, administrateur compris. Ils portent `expireLe` pour qu'une
-stratégie TTL les reprenne — la fenêtre de reprise de Cloud Functions v2 étant
-de vingt-quatre heures, sept jours de conservation suffisent largement.
+**Pourquoi plus de `questionStats`.** Jusqu'au 1er octobre 2026, une Cloud
+Function incrémentait un agrégat à chaque réponse. Ce compteur ne faisait que
+monter : un compte supprimé, un commercial passé administrateur, une réponse
+effacée par un nettoyage y restaient comptés. Ce jour-là, l'écran d'une
+question annonçait « aucune réponse enregistrée » dans sa répartition et
+« 64 % — 14 réponses » dans son taux. Reproduit sur la base : les 14 agrégats
+existants comptaient des réponses qui n'y étaient plus.
+
+Recompter les réponses à chaque ouverture aurait été juste, mais pas tenable :
+leur nombre grossit sans fin — de l'ordre de 22 000 au bout d'un an, soit
+autant de lectures facturées à chaque ouverture de l'écran, pour un quota
+gratuit de 50 000 par jour. Les états, eux, plafonnent au nombre de
+commerciaux par le nombre de questions vues, ils concordent avec les réponses
+(vérifié question par question sur la base, 36 sur 36), et l'écran des
+statistiques les lisait déjà pour la maîtrise : **les taux ne coûtent aucune
+lecture de plus.** Mesuré sur la base réelle : 549 réponses lues en 70 à
+95 ms, 36 états en 32 à 43 ms.
+
+**Ce qui en découle :**
+
+- **Un compte supprimé emporte sa contribution**, puisque ses états partent
+  avec lui. Un commercial ajouté à `ADMIN_EMAILS` sort des taux tout de suite.
+- **Les essais de l'équipe pédagogique ne comptent pas.** Noémie parcourt le
+  quiz pour relire ses explications en situation ; ses réponses, justes par
+  construction, feraient baisser le taux des questions qu'elle inspecte. Elle
+  est écartée par la liste `ADMIN_EMAILS`, la même qui définit qui est suivi.
+- **La table rase remet les taux à zéro**, puisqu'elle efface les comptes et
+  leurs états. C'est voulu : un commercial qui découvre l'outil n'hérite
+  d'aucun taux calculé sur des essais.
+
+### Ce qu'un client écrit, et ce qui le garantit
+
+**Une source unique n'a de valeur que si elle est fiable.** En faisant des
+états la source des taux, le 1er octobre 2026, on a rendu visible une faille
+qui ne l'était pas : un état mensonger, qui ne faussait que l'affichage de son
+auteur, faussait désormais les taux de l'équipe et la maîtrise que Noémie lit
+pour accompagner quelqu'un. Une source falsifiable est pire que deux sources
+divergentes : on ne voit plus l'écart.
+
+Toutes les écritures client ont donc été relues avec une seule question : **un
+document que le commercial écrit est-il lié, par les règles, à ce dont il est
+censé découler ?** Voici ce que la relecture a trouvé, et ce qui le tient
+désormais. Chaque correction a ses tests de règles, sur l'émulateur, et le
+premier jour d'un compte neuf (`tests/depot/compte-neuf.test.ts`) les exerce
+par le vrai code.
+
+| Écriture | Ce qu'on pouvait falsifier | Ce qui le tient |
+|---|---|---|
+| **État d'une question** | Des réussites sans répondre, qui faussaient les taux et la maîtrise lue par l'équipe pédagogique. | L'état nomme sa réponse (`derniereReponse`). Elle doit naître dans le même lot, porter sur la même question, et ses compteurs suivent son verdict, recalculé par les règles (`getAfter`). Deux lectures de règle par réponse. |
+| **Réponse individuelle** | Des réponses sans état, en nombre illimité : la répartition d'une question divergeait de son taux. | La réponse n'est acceptée que si l'état du même lot la nomme. Une réponse par état et par lot. |
+| **Vote en séance** | Une réponse juste à **n'importe quelle** question de la banque, pendant n'importe quel vote, comptée au classement — le Diamant à qui le voulait. Un non-présent pouvait aussi voter. | La question doit être celle de `indexCourant`, et l'auteur présent. En défense, `classerSessionTerminee` ne compte que les questions de la séance. |
+| **Horodatages** (`repondueLe`, `majLe`, `vuLe`, `rejointLe`, `demandeLe`) | Un instant passé au choix : gagner toutes les égalités d'un classement, se dater une « dernière activité ». | `== request.time` : l'application n'écrit jamais que l'heure du serveur. |
+| **Étoiles, séries terminées, récompenses** | N'importe quelle écriture du document — changer son nom de séance — les emportait au passage ; une boucle depuis la console fabriquait des séries terminées, que l'équipe pédagogique lit. | Elles ne bougent que dans le crédit d'une série, qui nomme une réponse (`serieCloseSur`) donnée depuis le crédit précédent (`creditLe`). Une lecture de règle par série. |
+| **Assiduité** | Une première écriture à cinq cents jours, puis un jour de plus par écriture, en quelques secondes — sur le podium de régularité, lisible par tout le domaine. | Le jour est celui du serveur (date de Paris à UTC+1 ou +2), la série ne bouge pas le même jour, n'avance que d'un cran et seulement si moins de quatre jours séparent les deux dates, la première vaut un, la semaine ne gagne que le jour du jour. |
+
+**Ce qui reste, dit franchement :**
+
+- **Un crédit suffit d'une réponse.** Les règles ne comptent pas qu'une série
+  avait dix questions : le pire est une série terminée par réponse réellement
+  donnée, jamais sans jouer. Le rattrapage d'une seule question, légitime, a
+  la même forme. Le seul moyen d'aller plus loin serait de sortir le crédit
+  vers une route serveur qui recompte les réponses.
+- **Le calendrier ouvré n'est pas dans les règles.** Un lundi puis un jeudi —
+  deux jours ouvrés manqués, trois jours d'écart — passerait pour une série
+  continue : un cran gagné, sur un jour réellement joué.
+- **Un verdict juste reste à portée** de qui lit la question : les bonnes
+  réponses sont lisibles par le domaine, parce que le parcours corrige dans le
+  navigateur. Les règles garantissent la cohérence du verdict, pas le mérite.
+- **Le nom de séance est libre** : prendre le prénom d'un collègue reste
+  possible. C'est un choix de produit, pas une règle.
 
 **Node 22, déclaré et vérifié.** `engines.node` vaut `22.x` à la racine comme
 dans `functions/`. Ce n'est pas une préférence : `firebase-admin` déclare
@@ -342,15 +380,21 @@ contrôle avant commit est `npm run build && npm run typecheck`**, et le second
 échoue clairement si les dépendances de `functions/` ne sont pas installées —
 un `npm install --prefix functions` suffit.
 
-**Déployer l'agrégation, et purger ses marqueurs.** Six gestes, et **l'ordre
-n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
+**Déployer les fonctions, et préparer la mise en service.** Trois gestes, dans
+cet ordre.
 
 1. `npm run fonctions:deploy` — les fonctions se déploient depuis
    `functions/`, en `europe-west1`. **Pas `firebase deploy --only functions`
    directement** : le script desserre le délai de découverte, voir ci-dessous.
-2. **Nettoyage des données de recette**, avant d'ouvrir l'application aux
-   commerciaux : les réponses de test et `questionStats` partent ensemble. Voir
-   section 3, « `questionStats` contient aujourd'hui des données de recette ».
+   **Au premier déploiement après le 1er octobre 2026**, la CLI signale que
+   `agregerReponseEntrainement` existe en production mais plus dans le code,
+   et demande s'il faut la supprimer : répondre oui (ou passer
+   `npm run fonctions:deploy -- --force`). Tant qu'elle tourne, elle continue
+   d'écrire dans `questionStats`, que plus rien ne lit.
+2. **Nettoyage des données de recette** (`npm run recette:nettoyer --
+   --table-rase`), avant d'ouvrir l'application aux commerciaux. Il efface les
+   comptes et leurs états, donc les taux repartent de zéro, et il emporte ce
+   qui reste de l'ancienne collection `questionStats`.
 3. **Rotation de la clé du compte de service**, en même temps que le nettoyage
    et avant l'ouverture aux commerciaux. Console Google Cloud → IAM et
    administration → Comptes de service → le compte de l'application → Clés :
@@ -377,23 +421,6 @@ n'est pas indicatif** : les deux derniers ne peuvent pas être faits plus tôt.
    de cette ligne. La nuance ne se voit pas à l'écran, et c'est précisément ce
    qui la rend dangereuse. Fermer l'onglet, ou au minimum déplacer le curseur
    hors de la ligne, avant de lancer une session.
-
-4. **Le premier commercial répond.** C'est la condition des deux gestes
-   suivants, et elle n'a rien d'une formalité — voir plus bas.
-5. `npm run stats:reprise -- --faire` — reconstruit les compteurs à partir des
-   réponses en base. Il ne sert qu'à rattraper les réponses écrites pendant que
-   la fonction était absente ou en panne. **Lancé avant l'étape 4, il vide
-   `questionStats` au lieu de la reconstruire** : il écarte les comptes
-   administrateurs, et il n'y a alors rien d'autre à compter. L'essai à blanc,
-   sans `--faire`, montre l'écart avant d'écrire — le lire.
-6. **Une stratégie TTL sur les marqueurs**, à créer une fois en console :
-   *Firestore → Time-to-live (TTL) → Créer une stratégie*. Groupe de
-   collections `evenements`, champ d'horodatage `expireLe`. Le groupe de
-   collections, pas un chemin : les marqueurs vivent sous
-   `questionStats/{questionId}/evenements`, et une stratégie TTL se déclare
-   toujours au niveau du groupe. En ligne de commande, l'équivalent est
-   `gcloud firestore fields ttls update expireLe --collection-group=evenements
-   --enable-ttl --project=<id>`.
 
 **Le délai de découverte, et un message qui ment.** Avant de déployer, la CLI
 démarre un runtime local, charge le module compilé et lui demande la liste des
@@ -424,34 +451,7 @@ une vraie panne de chargement produit une sortie d'erreur, pas une attente.
 Avant de conclure à un problème de code sur ce message, relancer la découverte
 seule et lire son journal — c'est la seule source qui distingue les deux causes.
 
-**Pourquoi le TTL ne peut pas être posé le jour du déploiement.** La console
-Firestore ne propose que les groupes de collections **qui existent déjà**, et
-`evenements` n'existe qu'à partir du premier marqueur écrit. Or le marqueur
-est posé dans la transaction d'agrégation, et l'agrégation s'arrête avant
-pour un compte administrateur : tant que seule l'équipe pédagogique a répondu,
-le groupe reste vide et la stratégie est impossible à créer. **Le TTL se pose
-une fois qu'un vrai commercial a répondu au moins une fois, et pas avant.**
-
-C'est une conséquence directe de l'exclusion des administrateurs, et elle est
-sans gravité : aucun marqueur n'existe, donc rien ne s'accumule. Mais le geste
-est facile à croire fait et à oublier — d'où sa place dans cette liste plutôt
-que dans une note.
-
-Sans cette stratégie, les marqueurs s'accumulent indéfiniment : environ vingt-
-six mille documents par an à raison de dix commerciaux et cinquante réponses
-par semaine. Rien ne casse, mais la base enfle pour rien. La suppression est
-asynchrone et gratuite en lecture ; seules les suppressions se facturent, au
-tarif d'une suppression ordinaire.
-
-**La reprise d'historique.** La fonction n'agrège que les réponses créées
-après son déploiement. `npm run stats:reprise` reconstruit les compteurs à
-partir des réponses déjà en base — sans quoi l'écran de statistiques
-s'ouvrirait vide alors que l'équipe a déjà répondu des centaines de fois. Le
-script recalcule chaque agrégat en entier, donc il est rejouable ; c'est aussi
-ce qui interdit de le lancer en routine, un incrément arrivé entre sa lecture
-et son écriture serait perdu.
-
-**Pourquoi les réponses sont sous le document utilisateur.** C'est ce qui rend l'isolation des scores applicable par les règles de sécurité, et pas seulement par un filtre d'affichage : aucun client ne lit les données d'un autre, administrateurs compris. `questionStats`, qui ne contient aucun identifiant, porte les statistiques par question.
+**Pourquoi les réponses sont sous le document utilisateur.** C'est ce qui rend l'isolation des scores applicable par les règles de sécurité, et pas seulement par un filtre d'affichage : aucun client ne lit les données d'un autre, administrateurs compris. Les statistiques par question se calculent côté serveur, sur les états des commerciaux, et n'en sortent qu'en totaux sans identifiant — voir « Une source pour les taux », section 3.
 
 **Le nominatif a été ouvert à l'équipe pédagogique le 30 septembre 2026**, par décision managériale explicite de Noémie et Harry — voir la section 8, « Décision du 30 septembre 2026 ». Il passe par le serveur, pas par les règles : ce qui est dit ci-dessus reste vrai pour tout client.
 
@@ -596,7 +596,7 @@ Deux mécanismes complémentaires, activés en console. Ils ne se remplacent pas
 
 - `formations`, `questions` — lecture par tout utilisateur authentifié du domaine ; écriture réservée au custom claim administrateur.
 - `users/{uid}` et `users/{uid}/reponses` — lecture et écriture par le propriétaire uniquement. **Aucune exception administrateur.**
-- `questionStats` — lecture par l'administrateur ; écriture réservée aux Cloud Functions.
+- `questionStats` — retirée le 1er octobre 2026 : plus aucune règle, donc fermée à tout client. Les taux se calculent côté serveur sur les états.
 - `sessions` — lecture par tout utilisateur authentifié ; écriture réservée à l'animateur. Chaque participant n'écrit que sa propre réponse.
 - Restriction de domaine vérifiée côté serveur, pas seulement dans l'interface.
 
@@ -796,7 +796,7 @@ désormais sur les statuts servis, jamais sur `publiee` seul.
 **Le marquage est manuel, et le signal automatique.** L'écran des statistiques
 classe par taux d'échec et pose sur chaque ligne un bouton « Marquer à relire » :
 la décision se prend là où le signal existe. Il n'est **pas** écrit par une
-fonction automatique — `questionStats` est un cumul depuis la mise en service,
+fonction automatique — un taux d'échec est un cumul depuis la mise en service,
 sans fenêtre glissante : une question qui aurait franchi le seuil une fois
 resterait marquée pour toujours, et se remarquerait toute seule après chaque
 réécriture.
@@ -983,7 +983,7 @@ Trois étapes, pas une : déposer le `.ttf` dans `polices-source/`, l'ajouter à
 `/admin/questions` — banque filtrable par formation, type et statut, avec recherche sur l'énoncé.
 `/admin/questions/[id]` — éditeur adapté aux trois types. Le champ contexte n'apparaît que pour les mises en situation. L'explication est obligatoire : la validation refuse un enregistrement sans elle.
 `/admin/import` — **la fonction la plus importante du back-office.** Les questions sont produites en lot avec une IA, elles ne seront jamais saisies une par une. Collage de tableur ou CSV, prévisualisation ligne par ligne avec erreurs localisées, correction dans la prévisualisation, import. Tout arrive en brouillon. Un import partiellement invalide importe les lignes correctes et détaille les autres, il n'échoue pas en bloc.
-`/admin/statistiques` — questions classées par taux d'échec, depuis `questionStats` uniquement. Aucun nom d'utilisateur sur cet écran.
+`/admin/statistiques` — questions classées par taux d'échec, calculé sur les états des commerciaux et rendu en totaux sans nom. Le bloc « Maîtrise par commercial », seul nominatif, est réservé à l'équipe pédagogique (décision du 30 septembre 2026).
 `/admin/session` — vue animateur.
 
 Les routes `/admin` sont protégées côté serveur par le custom claim, pas par une redirection côté client.
@@ -1033,7 +1033,7 @@ Toutes trois passent désormais par `laPlusRecemmentLancee`, qui trie sur `ouver
 
 **Aux points, et rien d'autre.** Premier, Diamant ; deuxième, Or ; troisième, Argent ; sans condition de score — dans une finale de cent mètres, le premier prend l'or même s'il court en seize secondes. À égalité, la vitesse départage : on somme les instants de réponse. Le quatrième et les suivants n'ont pas de distinction, et **personne ne le sait** — mais chacun retrouve son rang dans son historique.
 
-**Aucun client n'écrit ces documents**, pas même leur propriétaire : `allow write: if false`. Seule la Cloud Function `classerSessionTerminee` écrit, à partir des réponses. Un prix qu'on peut s'attribuer ne vaut rien. Rien n'entre dans `questionStats` : les statistiques disent quelles questions font trébucher l'équipe, jamais qui a gagné.
+**Aucun client n'écrit ces documents**, pas même leur propriétaire : `allow write: if false`. Seule la Cloud Function `classerSessionTerminee` écrit, à partir des réponses. Un prix qu'on peut s'attribuer ne vaut rien. Rien du classement n'entre dans les statistiques : elles disent quelles questions font trébucher l'équipe, jamais qui a gagné.
 
 **Le nom d'affichage** se choisit au moment de rejoindre, pas dans un écran de réglages — personne n'ouvrirait un réglage avant le jeudi. Il est prérempli avec le choix de la fois précédente, borné à 32 caractères parce qu'il s'affiche sur un mur, et c'est **le participant lui-même qui le publie** : sans cela l'animatrice ne pourrait pas nommer les votes, `users/{uid}` lui étant fermé sans exception.
 
@@ -1840,8 +1840,10 @@ individuelles, **commerciaux qui n'ont pas encore joué comptés à zéro** — 
 
 - **Aucun commercial ne voit les scores d'un autre.** C'est la base qui le
   tient, pas ce fichier.
-- **`questionStats` reste anonyme**, et l'écran des statistiques continue de
-  dire ce qui fait trébucher l'équipe sans nom.
+- **Les taux par question restent anonymes**, et l'écran des statistiques
+  continue de dire ce qui fait trébucher l'équipe sans nom. Depuis le
+  1er octobre 2026, ils se calculent sur les états plutôt que dans
+  `questionStats` — voir « Une source pour les taux », section 3.
 - **Le podium de régularité reste ce qu'il est** : trois noms, la régularité et
   non la maîtrise, le rang de chacun réservé à lui seul.
 
@@ -2079,14 +2081,11 @@ sans qu'on regarde pourquoi.
 
 ### Reste à faire, hors dépôt
 
-Un seul geste, et il ne peut pas être fait plus tôt : la stratégie TTL sur
-`questionStats/{questionId}/evenements` (section 4, geste 6) attend qu'un vrai
-commercial ait répondu — le groupe de collections doit exister pour que la
-console accepte de la créer.
-
-Les trois autres gestes de mise en service — déploiement des fonctions,
-nettoyage des données de recette, rotation de la clé de service — sont prêts et
-documentés ; ils se font le jour de l'ouverture.
+Les trois gestes de mise en service — déploiement des fonctions (qui supprime
+l'ancienne agrégation), nettoyage des données de recette, rotation de la clé de
+service — sont prêts et documentés ; ils se font le jour de l'ouverture. La
+stratégie TTL sur les marqueurs d'agrégation n'a plus lieu d'être : il n'y a
+plus de marqueurs.
 
 **Après le déploiement du lot de la formation transverse : relancer
 `npm run formations:transverse -- --faire`.** Le document

@@ -30,6 +30,7 @@ import { Marque } from '@/composants/ds/Coquille';
 import type { Question } from '@/lib/questions/depot';
 import { libelleAttendu } from '@/lib/questions/modele';
 import { crediterSerie, enregistrerReponse } from '@/lib/serie/depot';
+import { signalerPanne } from '@/lib/journal/client';
 import { mesurerCatalogue, RECOMPENSES } from '@/lib/serie/recompenses';
 import { avancementParFormation } from '@/lib/serie/maitrise';
 import {
@@ -137,6 +138,10 @@ export function Serie({
   const [enregistrement, setEnregistrement] = useState(false);
   const [erreurEcriture, setErreurEcriture] = useState<string>();
   const creditee = useRef(false);
+  /* La dernière réponse enregistrée : le crédit de fin de série la nomme, et
+     les règles refusent un crédit qui ne s'appuie sur aucune réponse
+     nouvelle. */
+  const derniereReponse = useRef<string | null>(null);
 
   const parIdentifiant = useMemo(() => {
     if (chargement.etat !== 'pret') return new Map<string, Question>();
@@ -171,6 +176,7 @@ export function Serie({
   const recommencer = useCallback(
     (mode: 'ordinaire' | 'rattrapage') => {
       creditee.current = false;
+      derniereReponse.current = null;
       setPosition(0);
       setChoisies([]);
       setPassages([]);
@@ -221,10 +227,21 @@ export function Serie({
     setErreurEcriture(undefined);
 
     try {
-      await enregistrerReponse(chargement.donnees.uid, question.id, choisies, correction.correcte);
-    } catch {
+      derniereReponse.current = await enregistrerReponse(
+        chargement.donnees.uid,
+        question.id,
+        choisies,
+        correction.correcte,
+      );
+    } catch (panne: unknown) {
       // La correction s'affiche quand même : refuser d'avancer parce qu'une
-      // écriture a échoué punirait le commercial d'une panne de réseau.
+      // écriture a échoué punirait le commercial d'une panne de réseau. Mais
+      // le refus ne reste pas qu'à l'écran : un refus de règle signale une
+      // application et des règles qui ne s'accordent plus, et il doit se voir
+      // dans la console comme dans le journal du serveur.
+      const code = (panne as { code?: string })?.code;
+      console.error(`Réponse non enregistrée${code ? ` (${code})` : ''}`, panne);
+      signalerPanne('ecriture', panne);
       setErreurEcriture(
         'Cette réponse n’a pas pu être enregistrée. Elle ne comptera pas dans vos statistiques.',
       );
@@ -273,7 +290,10 @@ export function Serie({
         );
 
         try {
-          const gagnees = await crediterSerie(chargement.donnees.uid, etoiles, {
+          // Aucune réponse de la série n'a pu être enregistrée : il n'y a rien
+          // sur quoi appuyer le crédit, et les règles le refuseraient.
+          if (derniereReponse.current === null) throw new Error('aucune réponse enregistrée');
+          const gagnees = await crediterSerie(chargement.donnees.uid, etoiles, derniereReponse.current, {
             parfaite: justes === ordre.length,
             catalogue: mesurerCatalogue(
               avancementParFormation(formations, questions, apres),
@@ -281,7 +301,10 @@ export function Serie({
             ),
           });
           setNouvellesRecompenses(gagnees);
-        } catch {
+        } catch (panne: unknown) {
+          const code = (panne as { code?: string })?.code;
+          console.error(`Série non créditée${code ? ` (${code})` : ''}`, panne);
+          signalerPanne('ecriture', panne);
           setErreurEcriture('Vos étoiles n’ont pas pu être enregistrées. Vos réponses, si.');
         }
       }

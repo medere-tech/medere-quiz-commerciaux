@@ -1,14 +1,12 @@
 import { deleteApp, initializeApp, type App } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 /**
- * Les trois Cloud Functions, exercées de bout en bout.
+ * Les Cloud Functions des séances, exercées de bout en bout.
  *
  * **Ce que ces tests couvrent, et que rien ne couvrait.** Le calcul est déjà
- * testé — `classer`, `bilanDesReponses`, `doitCompter`, `agreger` ont leurs
- * fichiers. Ce qui manquait est ce qu'il y a autour : **le déclenchement** et
+ * testé — `classer`, `bilanDesReponses`, `doitCompter` ont leurs fichiers. Ce qui manquait est ce qu'il y a autour : **le déclenchement** et
  * **l'écriture**. Un chemin de déclencheur mal écrit, un champ oublié dans le
  * document produit, une condition de passage inversée — rien de tout cela
  * n'apparaît dans un test de fonction pure, et rien ne l'aurait signalé avant
@@ -17,8 +15,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
  *
  * On n'appelle donc pas les fonctions : **on écrit dans Firestore et on attend
  * ce qui doit en sortir**, exactement comme en production. L'émulateur
- * `functions` charge le module compilé et enregistre les vrais déclencheurs ;
- * l'émulateur `auth` sert les custom claims que lit l'agrégation.
+ * `functions` charge le module compilé et enregistre les vrais déclencheurs.
+ * Le déclencheur d'agrégation vers `questionStats`, retiré le 1er octobre
+ * 2026, n'a plus de test : les taux se calculent à la lecture, sur les états.
  *
  * **Lenteur assumée, et pourquoi.** Le premier déclenchement paie un démarrage
  * à froid de plusieurs secondes — treize, mesurées ici. Les attentes sont donc
@@ -158,23 +157,9 @@ async function poserReponseDeSeance(
   });
 }
 
-async function poserReponsePersonnelle(
-  uid: string,
-  questionId: string,
-  correcte: boolean,
-): Promise<void> {
-  await base.doc(`users/${uid}/reponses/${questionId}_${Date.now()}`).set({
-    questionId,
-    correcte,
-    optionsChoisies: [correcte ? 'a' : 'b'],
-    origine: 'entrainement',
-    repondueLe: new Date(),
-  });
-}
-
 /** Efface tout ce qu'un test a pu semer, y compris ce que les fonctions ont écrit. */
 async function effacer(): Promise<void> {
-  for (const collection of ['sessions', 'users', 'questionStats']) {
+  for (const collection of ['sessions', 'users']) {
     await base.recursiveDelete(base.collection(collection));
   }
 }
@@ -200,13 +185,6 @@ async function rechauffer(): Promise<void> {
     (await base.doc('sessions/rechauffe/bilan/final').get()).exists ? true : null,
   );
 
-  await getAuth(app).createUser({ uid: 'u-rechauffe' });
-  await poserReponsePersonnelle('u-rechauffe', 'q-rechauffe', true);
-  await attendre('l’agrégat de la question de réchauffe est écrit', async () =>
-    (await base.doc('questionStats/q-rechauffe').get()).exists ? true : null,
-  );
-
-  await getAuth(app).deleteUser('u-rechauffe');
   await effacer();
 }
 
@@ -449,63 +427,5 @@ describe('compterReponseSession', () => {
     await new Promise((suite) => setTimeout(suite, 5_000));
 
     expect((await base.doc('sessions/s1').get()).data()?.repondants).toBe(0);
-  });
-});
-
-/* ======================================================================== *
- * agregerReponseEntrainement                                                *
- * ======================================================================== */
-
-describe('agregerReponseEntrainement', () => {
-  afterEach(async () => {
-    for (const utilisateur of await getAuth(app).listUsers(100).then((page) => page.users)) {
-      await getAuth(app).deleteUser(utilisateur.uid);
-    }
-  });
-
-  it('agrège la réponse d’un commercial, sans aucun identifiant', async () => {
-    await getAuth(app).createUser({ uid: 'u-yanis' });
-    await poserReponsePersonnelle('u-yanis', 'q1', false);
-
-    const agregat = await attendre('l’agrégat de q1 est écrit', async () => {
-      const document = await base.doc('questionStats/q1').get();
-      return document.exists ? document.data() : null;
-    });
-
-    expect(agregat).toMatchObject({ tentatives: 1, echecs: 1 });
-    // L'agrégat ne porte que ses trois champs. Aucun uid n'y entre, jamais :
-    // c'est la seule source des statistiques, et elle est publique aux
-    // administrateurs.
-    expect(Object.keys(agregat ?? {}).sort()).toEqual(['echecs', 'majLe', 'tentatives']);
-  });
-
-  it('tient la réponse d’un administrateur hors de l’agrégat', async () => {
-    // Noémie parcourt le quiz pour relire ses explications en situation : ses
-    // réponses sont justes par construction et fausseraient le taux d'échec.
-    await getAuth(app).createUser({ uid: 'u-noemie' });
-    await getAuth(app).setCustomUserClaims('u-noemie', { admin: true });
-
-    await poserReponsePersonnelle('u-noemie', 'q1', true);
-
-    await resterVide('réponse d’un administrateur', 'questionStats/q1', 6_000);
-  });
-
-  it('cumule plusieurs réponses sur la même question', async () => {
-    await getAuth(app).createUser({ uid: 'u-yanis' });
-    await getAuth(app).createUser({ uid: 'u-lea' });
-
-    await poserReponsePersonnelle('u-yanis', 'q1', false);
-    await attendre('la première réponse est agrégée', async () => {
-      const donnees = (await base.doc('questionStats/q1').get()).data();
-      return donnees?.tentatives === 1 ? true : null;
-    });
-
-    await poserReponsePersonnelle('u-lea', 'q1', true);
-    const agregat = await attendre('la seconde réponse est agrégée', async () => {
-      const donnees = (await base.doc('questionStats/q1').get()).data();
-      return donnees?.tentatives === 2 ? donnees : null;
-    });
-
-    expect(agregat).toMatchObject({ tentatives: 2, echecs: 1 });
   });
 });

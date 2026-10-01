@@ -83,6 +83,18 @@ service cloud.firestore {
       return valeur is timestamp && valeur <= request.time;
     }
 
+    /*
+     * **Un horodatage que le client pose par `serverTimestamp()` vaut
+     * l'instant de la requête.** `horodatagePasse` laissait le client choisir
+     * n'importe quel instant passé : de quoi gagner toutes les égalités d'un
+     * classement de séance, ou se dater une « dernière activité » à sa guise.
+     * L'application n'écrit jamais autre chose que l'heure du serveur, la règle
+     * l'exige donc. `ancien` couvre la mise à jour qui le laisse tel quel.
+     */
+    function horodatageServeur(valeur, ancien) {
+      return valeur == request.time || (ancien != null && valeur == ancien);
+    }
+
     // --- Référentiel : formations ----------------------------------------
     // Lecture par tout utilisateur authentifié du domaine, écriture réservée
     // au custom claim administrateur. En production, la collection est tenue
@@ -289,16 +301,33 @@ service cloud.firestore {
     function champsUtilisateur() {
       return ['email', 'nom', 'photoURL', 'role',
               'etoiles', 'seriesTerminees', 'creeLe', 'vuLe', 'nomSession',
-              'avatar', 'presence', 'assiduite', 'recompenses'];
+              'avatar', 'presence', 'assiduite', 'recompenses',
+              'serieCloseSur', 'creditLe'];
     }
 
-    function majUtilisateurAutorisee() {
+    /*
+     * Les champs que seul le crédit d'une série terminée peut toucher.
+     *
+     * **Avant le 1er octobre 2026, n'importe quelle mise à jour du document
+     * pouvait les faire bouger** — changer son nom de séance emportait, dans la
+     * même écriture, trois étoiles, une série terminée et une assiduité
+     * arrangée. Les séries terminées et l'assiduité ne sont pas une affaire
+     * privée : l'équipe pédagogique lit les premières pour accompagner, et
+     * l'assiduité fait le podium de régularité, lisible par tout le domaine.
+     */
+    function champsDuCredit() {
+      return ['etoiles', 'seriesTerminees', 'assiduite', 'recompenses',
+              'serieCloseSur', 'creditLe'];
+    }
+
+    function majUtilisateurAutorisee(uid) {
       let avant = resource.data;
       let apres = request.resource.data;
+      let touches = apres.diff(avant).affectedKeys();
       return apres.keys().hasOnly(champsUtilisateur())
-        && apres.diff(avant).affectedKeys().hasOnly(
+        && touches.hasOnly(
              ['etoiles', 'seriesTerminees', 'vuLe', 'nomSession', 'avatar',
-              'presence', 'assiduite', 'recompenses'])
+              'presence', 'assiduite', 'recompenses', 'serieCloseSur', 'creditLe'])
         /*
          * Le dernier lieu déclaré — en salle ou en visio —, proposé d'emblée à
          * la séance suivante. Comme le nom et la couleur : un réglage qu'il
@@ -321,17 +350,46 @@ service cloud.firestore {
          * lisibilité.
          */
         && nomAffichageValide(apres.nomSession)
-        // Une série complète rapporte de zéro à trois étoiles, jamais plus,
-        // et le compteur ne redescend pas.
+        && (!touches.hasAny(['vuLe']) || apres.vuLe == request.time)
+        && (!touches.hasAny(champsDuCredit()) || creditDeSerie(uid, avant, apres));
+    }
+
+    /*
+     * **Le crédit d'une série terminée.** Il ne se déclare pas : il se gagne
+     * par une réponse.
+     *
+     * - Une écriture close une série, une seule (`seriesTerminees` + 1), et
+     *   rapporte de zéro à trois étoiles.
+     * - Elle nomme une réponse (`serieCloseSur`) **donnée depuis le crédit
+     *   précédent** : son `repondueLe`, l'heure du serveur, est postérieur à
+     *   `creditLe`, l'heure du serveur au crédit d'avant. Sans réponse
+     *   nouvelle, pas de crédit — une boucle d'écritures ne fabrique plus rien.
+     * - L'assiduité suit l'horloge du serveur, pas celle du navigateur
+     *   (`assiduiteDuJour`).
+     *
+     * **Ce que les règles ne savent pas faire**, et qui reste : compter qu'une
+     * série avait bien dix questions. Une réponse suffit à clore une série ;
+     * le pire est donc une série terminée par réponse réelle, jamais sans
+     * jouer. Le rattrapage d'une question, légitime, a la même forme.
+     *
+     * Coût : une lecture de règle par série terminée.
+     */
+    function creditDeSerie(uid, avant, apres) {
+      let chemin = cheminReponse(uid, apres.serieCloseSur);
+      return apres.seriesTerminees is int
+        && apres.seriesTerminees == avant.seriesTerminees + 1
         && apres.etoiles is int
         && apres.etoiles >= avant.etoiles
         && apres.etoiles - avant.etoiles <= 3
-        // Une écriture close au plus une série.
-        && apres.seriesTerminees is int
-        && apres.seriesTerminees >= avant.seriesTerminees
-        && apres.seriesTerminees - avant.seriesTerminees <= 1
-        && horodatagePasse(apres.vuLe)
-        && assiduiteValide(avant, apres)
+        && apres.creditLe == request.time
+        // Un identifiant de réponse : voir la borne de `derniereReponse`.
+        && apres.serieCloseSur is string
+        && apres.serieCloseSur.size() > 0
+        && apres.serieCloseSur.size() <= 160
+        && exists(chemin)
+        && get(chemin).data.repondueLe > avant.get('creditLe', timestamp.value(0))
+        && apres.keys().hasAll(['assiduite'])
+        && assiduiteDuJour(avant, apres)
         && recompensesValides(avant, apres);
     }
 
@@ -364,57 +422,147 @@ service cloud.firestore {
     /*
      * La régularité : semaine en cours, série de jours d'affilée, record.
      *
-     * **Verrouillée comme les étoiles**, et pour la même raison : ce sont des
-     * compteurs que le client écrit lui-même. Le record ne redescend jamais,
-     * la série ne saute pas de palier — elle repart à un ou avance d'un seul
-     * cran —, et la semaine ne peut pas dépasser sept entrées. Cette dernière
-     * borne est ce qui empêche le champ de grossir : c'est là qu'elle se tient,
-     * pas seulement dans le code qui l'écrit.
+     * **Le jour est celui du serveur, pas celui du navigateur.** Jusqu'au
+     * 1er octobre 2026, la règle ne vérifiait que la forme et le pas : une
+     * première écriture pouvait poser une série de cinq cents jours, et chaque
+     * écriture suivante en ajoutait un, en quelques secondes. Or l'assiduité
+     * fait le podium de régularité, lisible par tout le domaine.
      *
-     * **Ce que les règles ne garantissent pas, et qui est assumé :** c'est
-     * l'horloge du navigateur qui décide du jour. Un commercial peut donc se
-     * fabriquer une série en avançant sa montre. L'enjeu est une pastille
-     * d'assiduité ; l'alternative — horodatage serveur et déclencheur Cloud —
-     * coûterait une fonction pour une décoration.
+     * Elle ne bouge plus que dans le crédit d'une série (`creditDeSerie`), et :
      *
-     * Facultatif : les comptes ouverts avant ce lot ne portent pas le champ.
+     * - `dernierJour` est la date de Paris à l'heure du serveur. Les règles ne
+     *   connaissent pas les fuseaux : on accepte la date à UTC+1 et à UTC+2,
+     *   heure d'hiver et heure d'été. Les deux ne diffèrent qu'une heure par
+     *   jour, autour de minuit.
+     * - Le même jour, la série et le record ne bougent pas : deux séries le
+     *   même jour ne comptent qu'une fois, comme le calcule `apresUneSerie`.
+     * - Un jour nouveau, la série repart à un ou avance d'un cran — et d'un
+     *   cran seulement si moins de quatre jours séparent les deux dates : un
+     *   vendredi puis un lundi, oui ; au-delà, un jour ouvré a forcément
+     *   manqué. Le record suit la série.
+     * - La semaine ne gagne que le jour du jour.
+     * - La première fois, tout vaut un.
+     *
+     * **Ce qui reste, et qui est assumé :** les règles ne parcourent pas un
+     * calendrier. Un lundi puis un jeudi (deux jours ouvrés manqués, mais
+     * trois jours d'écart) passerait pour une série continue — un cran gagné,
+     * sur un jour réellement joué.
      */
-    function assiduiteValide(avant, apres) {
-      return !apres.keys().hasAny(['assiduite'])
-        || (apres.assiduite.keys().hasOnly(
-              ['dernierJour', 'serie', 'record', 'semaine'])
-            && apres.assiduite.keys().hasAll(
-                 ['dernierJour', 'serie', 'record', 'semaine'])
-            && apres.assiduite.dernierJour is string
-            && apres.assiduite.dernierJour.size() == 10
-            && apres.assiduite.serie is int
-            && apres.assiduite.serie >= 1
-            && apres.assiduite.record is int
-            && apres.assiduite.record >= apres.assiduite.serie
-            && apres.assiduite.semaine is list
-            && apres.assiduite.semaine.size() >= 1
-            && apres.assiduite.semaine.size() <= 7
-            // Premier passage : rien à comparer, le champ n'existait pas.
-            && (!avant.keys().hasAny(['assiduite'])
-                || (apres.assiduite.record >= avant.assiduite.record
-                    && (apres.assiduite.serie == 1
-                        || apres.assiduite.serie <= avant.assiduite.serie + 1))));
+    function deuxChiffres(n) {
+      return (n < 10 ? '0' : '') + string(n);
+    }
+
+    function clefJour(instant) {
+      return string(instant.year()) + '-' + deuxChiffres(instant.month())
+        + '-' + deuxChiffres(instant.day());
+    }
+
+    function dateDeClef(clef) {
+      return timestamp.date(int(clef[0:4]), int(clef[5:7]), int(clef[8:10]));
+    }
+
+    function formeAssiduiteValide(a) {
+      return a.keys().hasOnly(['dernierJour', 'serie', 'record', 'semaine'])
+        && a.keys().hasAll(['dernierJour', 'serie', 'record', 'semaine'])
+        && a.dernierJour is string
+        && a.dernierJour.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && a.serie is int
+        && a.serie >= 1
+        && a.record is int
+        && a.record >= a.serie
+        && a.semaine is list
+        && a.semaine.size() >= 1
+        && a.semaine.size() <= 7;
+    }
+
+    function assiduiteDuJour(avant, apres) {
+      let a = apres.assiduite;
+      return formeAssiduiteValide(a)
+        && a.dernierJour in [clefJour(request.time + duration.value(1, 'h')),
+                             clefJour(request.time + duration.value(2, 'h'))]
+        && a.semaine.hasAll([a.dernierJour])
+        && (!avant.keys().hasAny(['assiduite'])
+            ? a.serie == 1 && a.record == 1 && a.semaine.size() == 1
+            : assiduiteSuit(avant.assiduite, a));
+    }
+
+    function assiduiteSuit(p, a) {
+      return a.semaine.toSet().difference(p.semaine.toSet()).hasOnly([a.dernierJour])
+        && (a.dernierJour == p.dernierJour
+            ? a.serie == p.serie && a.record == p.record
+            : a.dernierJour > p.dernierJour
+              && (a.serie == 1
+                  || (a.serie == p.serie + 1
+                      && dateDeClef(a.dernierJour) - dateDeClef(p.dernierJour)
+                           <= duration.value(3, 'd')))
+              && a.record == (a.serie > p.record ? a.serie : p.record));
     }
 
     function champsEtat() {
-      return ['reussies', 'tentatives', 'derniereRatee', 'majLe'];
+      return ['reussies', 'tentatives', 'derniereRatee', 'majLe', 'derniereReponse'];
     }
 
     function formeEtatValide(donnees) {
       return donnees.keys().hasOnly(champsEtat())
         && donnees.keys().hasAll(champsEtat())
+        // L'identifiant d'une réponse vaut `{questionId}_{horodatage}` : jusqu'à
+        // 128 + 1 + 13 caractères. La borne des identifiants de question, 128,
+        // refuserait de répondre à une question au plus long identifiant.
+        && donnees.derniereReponse is string
+        && donnees.derniereReponse.size() > 0
+        && donnees.derniereReponse.size() <= 160
         && donnees.reussies is int
         && donnees.reussies >= 0
         && donnees.tentatives is int
         && donnees.tentatives >= 1
         && donnees.reussies <= donnees.tentatives
         && donnees.derniereRatee is bool
-        && horodatagePasse(donnees.majLe);
+        && donnees.majLe == request.time;
+    }
+
+    /*
+     * **Une réponse et son état s'écrivent ensemble, et chacun désigne
+     * l'autre.** Depuis le 1er octobre 2026, les états portent les taux
+     * d'échec de l'équipe et la maîtrise que lit l'équipe pédagogique. Un état
+     * écrit sans réponse — depuis la console d'un navigateur — fausserait
+     * donc ce que lit Noémie, pas seulement l'affichage de son auteur.
+     *
+     * Le lien se vérifie dans les deux sens, sur l'état **après** le lot
+     * (`getAfter`) :
+     *
+     * - l'état nomme sa réponse (`derniereReponse`), qui doit **naître dans
+     *   ce lot** — absente avant, présente après : une réponse ancienne ne se
+     *   rejoue pas —, porter sur la même question, et dicter le pas des
+     *   compteurs. Son verdict, lui, est recalculé par `verdictConforme`.
+     * - la réponse n'est acceptée que si l'état du même lot la nomme. Sans ce
+     *   sens-là, des réponses sans état feraient de nouveau diverger la
+     *   répartition et le taux d'une question.
+     *
+     * Coût : deux lectures de règle par réponse, en plus de celle de la
+     * question. C'est le prix d'une source qu'on ne peut pas falsifier.
+     */
+    function cheminReponse(uid, reponseId) {
+      return /databases/$(database)/documents/users/$(uid)/reponses/$(reponseId);
+    }
+
+    function cheminEtat(uid, questionId) {
+      return /databases/$(database)/documents/users/$(uid)/etats/$(questionId);
+    }
+
+    function etatSuitSaReponse(uid, questionId, reussiesAvant) {
+      let apres = request.resource.data;
+      let chemin = cheminReponse(uid, apres.derniereReponse);
+      return !exists(chemin)
+        && existsAfter(chemin)
+        && getAfter(chemin).data.questionId == questionId
+        && apres.derniereRatee == !getAfter(chemin).data.correcte
+        && apres.reussies - reussiesAvant == (getAfter(chemin).data.correcte ? 1 : 0);
+    }
+
+    function reponseNommeeParSonEtat(uid, reponseId, questionId) {
+      let chemin = cheminEtat(uid, questionId);
+      return existsAfter(chemin)
+        && getAfter(chemin).data.get('derniereReponse', '') == reponseId;
     }
 
     function majEtatAutorisee() {
@@ -473,14 +621,14 @@ service cloud.firestore {
         && donnees.correcte is bool
         && selectionValide(donnees.optionsChoisies)
         && donnees.origine in ['entrainement', 'session']
-        && horodatagePasse(donnees.repondueLe);
+        && donnees.repondueLe == request.time;
     }
 
     match /users/{uid} {
       allow get: if estProprietaire(uid);
       allow list: if false;
       allow create: if false;
-      allow update: if estProprietaire(uid) && majUtilisateurAutorisee();
+      allow update: if estProprietaire(uid) && majUtilisateurAutorisee(uid);
       allow delete: if false;
 
       // Aucune lecture croisée, administrateur compris. Les requêtes de
@@ -490,7 +638,8 @@ service cloud.firestore {
         allow read: if estProprietaire(uid);
         allow create: if estProprietaire(uid)
           && formeReponseValide(request.resource.data)
-          && verdictConforme(request.resource.data);
+          && verdictConforme(request.resource.data)
+          && reponseNommeeParSonEtat(uid, reponseId, request.resource.data.questionId);
         allow update, delete: if false;
       }
 
@@ -504,8 +653,7 @@ service cloud.firestore {
        *
        * **Aucun client n'écrit ici, pas même le propriétaire.** Un prix qu'on
        * pourrait s'attribuer ne vaudrait rien. Seule la Cloud Function écrit,
-       * hors règles, à partir des réponses de la séance. C'est le même
-       * dispositif que `questionStats`.
+       * hors règles, à partir des réponses de la séance.
        */
       match /prix/{prixId} {
         allow read: if estProprietaire(uid);
@@ -517,34 +665,31 @@ service cloud.firestore {
       // le tirage et la maîtrise ont besoin de savoir, sans relire toutes les
       // réponses. Un document par question rencontrée, jamais plus.
       //
-      // Ce que les règles garantissent : la forme, la propriété, et le fait
-      // qu'un compteur ne peut que monter, d'un pas à la fois. Ce qu'elles ne
-      // garantissent pas : que l'état corresponde aux réponses écrites — il
-      // faudrait relire l'historique à chaque écriture. La portée d'un
-      // mensonge est bornée à l'affichage du menteur : `questionStats` est
-      // écrite par la Cloud Function à partir des réponses, pas des états, et
-      // les réponses, elles, sont validées verdict compris.
+      // Ce que les règles garantissent : la forme, la propriété, qu'un
+      // compteur ne monte que d'un pas à la fois, et — depuis le 1er octobre
+      // 2026 — que chaque pas est celui d'une réponse écrite dans le même lot,
+      // verdict recalculé compris (`etatSuitSaReponse`). Un état ne peut donc
+      // plus mentir sur ce qui a été répondu : les états portent les taux de
+      // l'équipe et la maîtrise lue par l'équipe pédagogique.
       match /etats/{questionId} {
         allow read: if estProprietaire(uid);
         allow create: if estProprietaire(uid)
           && formeEtatValide(request.resource.data)
           && request.resource.data.tentatives == 1
-          && request.resource.data.reussies <= 1;
+          && etatSuitSaReponse(uid, questionId, 0);
         allow update: if estProprietaire(uid)
           && formeEtatValide(request.resource.data)
-          && majEtatAutorisee();
+          && majEtatAutorisee()
+          && etatSuitSaReponse(uid, questionId, resource.data.reussies);
         allow delete: if false;
       }
     }
 
-    // --- Statistiques agrégées -------------------------------------------
-    // Écrites exclusivement par la Cloud Function d'agrégation, qui utilise
-    // le SDK Admin et n'est pas soumise à ces règles.
-
-    match /questionStats/{questionId} {
-      allow read: if estAdmin();
-      allow write: if false;
-    }
+    // --- Statistiques ----------------------------------------------------
+    // Plus de collection d'agrégats depuis le 1er octobre 2026 : les taux
+    // d'échec se calculent côté serveur, à la lecture, sur les états des
+    // commerciaux. `questionStats` n'a plus de `match` et tombe donc sous le
+    // refus par défaut, en lecture comme en écriture.
 
     // --- État des synchronisations ---------------------------------------
     // Compte rendu de la dernière synchronisation Airtable, écrit par la route
@@ -795,7 +940,7 @@ service cloud.firestore {
         && identifiantBorne(donnees.questionId)
         && donnees.correcte is bool
         && selectionValide(donnees.optionsChoisies)
-        && horodatagePasse(donnees.repondueLe);
+        && donnees.repondueLe == request.time;
     }
 
     /*
@@ -855,7 +1000,7 @@ service cloud.firestore {
         // données privées de qui que ce soit.
         && donnees.avatar in ['bleu', 'turquoise', 'vert', 'jaune',
                               'orange', 'rose', 'violet', 'encre']
-        && horodatagePasse(donnees.rejointLe);
+        && horodatageServeur(donnees.rejointLe, resource == null ? null : resource.data.get('rejointLe', null));
     }
 
     /**
@@ -921,7 +1066,7 @@ service cloud.firestore {
         // avant d'entrer, et il la garde une fois entré.
         && donnees.avatar in ['bleu', 'turquoise', 'vert', 'jaune',
                               'orange', 'rose', 'violet', 'encre']
-        && horodatagePasse(donnees.demandeLe);
+        && horodatageServeur(donnees.demandeLe, resource == null ? null : resource.data.get('demandeLe', null));
     }
 
     /*
@@ -1026,7 +1171,7 @@ service cloud.firestore {
                in ['encours', 'pause'];
         // **Pas de réponse après la révélation.** Une fois la bonne réponse
         // affichée, répondre juste ne coûte plus rien : la réponse alimenterait
-        // la progression individuelle et `questionStats` d'un point gagné sans
+        // la progression individuelle et les taux de l'équipe d'un point gagné sans
         // l'avoir cherché. Le retardataire voit donc la correction, il ne vote
         // pas dessus. Le contrôle porte sur la session, pas sur le client : une
         // fenêtre restée ouverte ne doit pas pouvoir voter en différé.
@@ -1040,7 +1185,19 @@ service cloud.firestore {
           && formeReponseSessionValide(request.resource.data)
           && verdictConforme(request.resource.data)
           && get(/databases/$(database)/documents/sessions/$(sessionId)).data.revelee == false
-          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut == 'encours';
+          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.statut == 'encours'
+          // **La question ouverte, et elle seule.** Sans ce contrôle, un
+          // commercial pouvait, pendant n'importe quel vote, répondre à
+          // n'importe quelle question de la banque — ou à une question déjà
+          // corrigée devant la salle — et chaque réponse juste comptait au
+          // classement : le Diamant à qui le voulait. La séance est déjà lue
+          // deux lignes plus haut ; la relire ne coûte rien de plus.
+          && request.resource.data.questionId
+               == get(/databases/$(database)/documents/sessions/$(sessionId)).data
+                    .questionIds[get(/databases/$(database)/documents/sessions/$(sessionId)).data.indexCourant]
+          // **Seul un présent vote.** Un non-présent — refusé par le verrou,
+          // ou jamais entré — était classé sous « Participant ».
+          && estPresent(sessionId);
         allow update: if false;
         /*
          * **Une séance abandonnée efface ses réponses.**
@@ -1187,8 +1344,7 @@ service cloud.firestore {
        *
        * **Aucun client ne l'écrit.** Il est calculé et posé par la Cloud
        * Function quand la séance se termine, à partir des réponses. La seule
-       * façon d'être premier est de l'avoir été — comme pour `questionStats`,
-       * et pour la même raison.
+       * façon d'être premier est de l'avoir été.
        */
       /*
        * Le bilan de la séance : ce qui a été posé, et ce qui a trébuché.

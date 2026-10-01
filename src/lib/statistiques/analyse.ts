@@ -160,7 +160,7 @@ export type Resume = {
  * moyenne » et un nombre de « séries jouées ». Les deux se calculent par
  * commercial, à partir de `users/{uid}` et de ses réponses — que les règles
  * ferment à l'administrateur, sans exception. Ils sont donc remplacés par
- * deux chiffres que `questionStats` porte réellement.
+ * deux chiffres tirés des taux par question, qui sont anonymes.
  */
 export function resumer(questions: Question[], stats: StatsQuestion[]): Resume {
   const servies = new Set(questions.map((question) => question.id));

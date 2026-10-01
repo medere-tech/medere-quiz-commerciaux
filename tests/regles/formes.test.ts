@@ -9,9 +9,13 @@ import {
   HIER,
   identifiants,
   JORDAN,
+  MAINTENANT,
   NOEMIE,
   question,
+  credit,
+  repondreAvecEtat,
   reponse,
+  semerReponseRecente,
   utilisateur,
 } from './aide';
 
@@ -404,126 +408,134 @@ describe('Options et ordre d’affichage', () => {
 // --------------------------------------------------------------------------
 
 describe('Forme des réponses individuelles', () => {
-  const chemin = (suffixe: string) => `users/${JORDAN.uid}/reponses/${suffixe}`;
-
   it('une réponse conforme, au verdict exact, est acceptée', async () => {
     await semer();
     await assertSucceeds(
-      setDoc(doc(connecte(env, JORDAN), chemin('r1')), reponse({ questionId: 'q-vf' })),
+      repondreAvecEtat(connecte(env, JORDAN), JORDAN.uid, reponse({ questionId: 'q-vf' })).ecriture,
     );
   });
 
   it('une bonne réponse annoncée correcte est acceptée', async () => {
     await semer();
     await assertSucceeds(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('r2')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', optionsChoisies: ['a'], correcte: true }),
-      ),
+      ).ecriture,
     );
   });
 
   it("un QCM multiple dont l'ensemble sélectionné est exact est accepté", async () => {
     await semer();
     await assertSucceeds(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('r3')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-qcm', optionsChoisies: ['c', 'a'], correcte: true }),
-      ),
+      ).ecriture,
     );
   });
 
   it('une réponse partielle déclarée fausse est acceptée', async () => {
     await semer();
     await assertSucceeds(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('r4')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-qcm', optionsChoisies: ['a'], correcte: false }),
-      ),
+      ).ecriture,
     );
   });
 
   it('une absence de réponse déclarée fausse est acceptée', async () => {
     await semer();
     await assertSucceeds(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('r5')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', optionsChoisies: [], correcte: false }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une réponse partielle à un QCM multiple déclarée correcte', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f1')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-qcm', optionsChoisies: ['a'], correcte: true }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une sélection trop large déclarée correcte', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f2')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-qcm', optionsChoisies: ['a', 'b', 'c'], correcte: true }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une mauvaise réponse déclarée correcte', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f3')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', optionsChoisies: ['b'], correcte: true }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une réponse exacte déclarée fausse', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f4')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-qcm', optionsChoisies: ['a', 'c'], correcte: false }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une option choisie qui n’existe pas dans la question', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f5')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', optionsChoisies: ['z'], correcte: false }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une option inventée glissée dans une sélection par ailleurs exacte', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f6')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-qcm', optionsChoisies: ['a', 'c', 'z'], correcte: false }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une réponse qui référence une question inexistante', async () => {
     await semer();
     await assertFails(
-      setDoc(doc(connecte(env, JORDAN), chemin('f7')), reponse({ questionId: 'q-fantome' })),
+      repondreAvecEtat(connecte(env, JORDAN), JORDAN.uid, reponse({ questionId: 'q-fantome' })).ecriture,
     );
   });
 
   it('REFUS — une réponse qui référence une question en brouillon', async () => {
     await semer();
     await assertFails(
-      setDoc(doc(connecte(env, JORDAN), chemin('f8')), reponse({ questionId: 'q-brouillon' })),
+      repondreAvecEtat(connecte(env, JORDAN), JORDAN.uid, reponse({ questionId: 'q-brouillon' })).ecriture,
     );
   });
 
@@ -539,77 +551,84 @@ describe('Forme des réponses individuelles', () => {
   it('une réponse à une question marquée à relire est acceptée', async () => {
     await semer();
     await assertSucceeds(
-      setDoc(doc(connecte(env, JORDAN), chemin('f9')), reponse({ questionId: 'q-a-relire' })),
+      repondreAvecEtat(connecte(env, JORDAN), JORDAN.uid, reponse({ questionId: 'q-a-relire' })).ecriture,
     );
   });
 
   it('REFUS — un champ hors modèle', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f9')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', tempsDeReponse: 12 }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — un champ du modèle manquant', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f10')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         sans(reponse({ questionId: 'q-vf' }), 'origine'),
-      ),
+      ).ecriture,
     );
   });
 
   it("REFUS — un verdict qui n'est pas un booléen", async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f11')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', correcte: 'false' }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une origine inconnue', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f12')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', origine: 'import' }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une réponse horodatée dans le futur', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f13')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', repondueLe: demain() }),
-      ),
+      ).ecriture,
     );
   });
 
   it('REFUS — une option choisie deux fois', async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f14')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', optionsChoisies: ['b', 'b'] }),
-      ),
+      ).ecriture,
     );
   });
 
   it("REFUS — une sélection qui n'est pas une liste", async () => {
     await semer();
     await assertFails(
-      setDoc(
-        doc(connecte(env, JORDAN), chemin('f15')),
+      repondreAvecEtat(
+        connecte(env, JORDAN),
+        JORDAN.uid,
         reponse({ questionId: 'q-vf', optionsChoisies: 'b' }),
-      ),
+      ).ecriture,
     );
   });
 });
@@ -619,48 +638,74 @@ describe('Forme des réponses individuelles', () => {
 describe("Progression de l'utilisateur", () => {
   const chemin = `users/${JORDAN.uid}`;
 
-  it('trois étoiles gagnées en une écriture sont acceptées', async () => {
+  /*
+   * Depuis le 1er octobre 2026, étoiles, séries terminées, assiduité et
+   * récompenses ne bougent que dans le crédit d'une série, qui nomme une
+   * réponse donnée depuis le crédit précédent. Chaque refus part d'un crédit
+   * conforme et n'en fausse qu'un champ.
+   */
+  it('trois étoiles gagnées en une série sont acceptées', async () => {
     await semer();
-    await assertSucceeds(
-      updateDoc(doc(connecte(env, JORDAN), chemin), { etoiles: 7, seriesTerminees: 3 }),
-    );
+    await semerReponseRecente(env, JORDAN.uid);
+    await assertSucceeds(updateDoc(doc(connecte(env, JORDAN), chemin), credit()));
   });
 
   it('une série close sans étoile est acceptée', async () => {
     await semer();
-    await assertSucceeds(
-      updateDoc(doc(connecte(env, JORDAN), chemin), { seriesTerminees: 3, vuLe: HIER }),
+    await semerReponseRecente(env, JORDAN.uid);
+    await assertSucceeds(updateDoc(doc(connecte(env, JORDAN), chemin), credit({ etoiles: 4 })));
+  });
+
+  it('REFUS — des étoiles sans série terminée', async () => {
+    // Le défaut d'avant : n'importe quelle écriture du document pouvait en
+    // emporter trois au passage.
+    await semer();
+    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), { etoiles: 7 }));
+  });
+
+  it('REFUS — une série terminée glissée dans un changement de nom de séance', async () => {
+    await semer();
+    await semerReponseRecente(env, JORDAN.uid);
+    await assertFails(
+      updateDoc(doc(connecte(env, JORDAN), chemin), { nomSession: 'Jordan M.', seriesTerminees: 3 }),
     );
   });
 
-  it('la seule mise à jour de la dernière visite est acceptée', async () => {
+  it('REFUS — quatre étoiles gagnées en une série', async () => {
     await semer();
-    await assertSucceeds(updateDoc(doc(connecte(env, JORDAN), chemin), { vuLe: HIER }));
-  });
-
-  it('REFUS — quatre étoiles gagnées en une écriture', async () => {
-    await semer();
-    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), { etoiles: 8 }));
+    await semerReponseRecente(env, JORDAN.uid);
+    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), credit({ etoiles: 8 })));
   });
 
   it("REFUS — un total d'étoiles en baisse", async () => {
     await semer();
-    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), { etoiles: 3 }));
+    await semerReponseRecente(env, JORDAN.uid);
+    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), credit({ etoiles: 3 })));
   });
 
   it("REFUS — un total d'étoiles qui n'est pas un entier", async () => {
     await semer();
-    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), { etoiles: 5.5 }));
+    await semerReponseRecente(env, JORDAN.uid);
+    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), credit({ etoiles: 5.5 })));
   });
 
   it("REFUS — deux séries closes d'un coup", async () => {
     await semer();
-    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), { seriesTerminees: 4 }));
+    await semerReponseRecente(env, JORDAN.uid);
+    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), credit({ seriesTerminees: 4 })));
   });
 
   it('REFUS — un compteur de séries en baisse', async () => {
     await semer();
-    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), { seriesTerminees: 1 }));
+    await semerReponseRecente(env, JORDAN.uid);
+    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), credit({ seriesTerminees: 1 })));
+  });
+
+  it('REFUS — une série close sans réponse qui la justifie', async () => {
+    await semer();
+    await assertFails(
+      updateDoc(doc(connecte(env, JORDAN), chemin), credit({ serieCloseSur: 'q1_inventee' })),
+    );
   });
 
   it('REFUS — un champ hors modèle ajouté au document utilisateur', async () => {
@@ -670,8 +715,9 @@ describe("Progression de l'utilisateur", () => {
     );
   });
 
-  it('REFUS — une dernière visite datée dans le futur', async () => {
+  it('REFUS — une dernière visite qui n’est pas l’heure du serveur', async () => {
     await semer();
+    await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), { vuLe: MAINTENANT }));
     await assertFails(updateDoc(doc(connecte(env, JORDAN), chemin), { vuLe: demain() }));
   });
 });

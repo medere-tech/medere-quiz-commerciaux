@@ -24,7 +24,6 @@ import {
   marquerStatut,
   type Question,
 } from '@/lib/questions/depot';
-import { chargerStatistiques } from '@/lib/statistiques/depot';
 import type { StatsQuestion } from '@/lib/statistiques/modele';
 import {
   classer,
@@ -52,12 +51,13 @@ import { formationPrincipale } from '@/lib/formations/transverse';
  * les règles fermaient les données individuelles à l'équipe pédagogique —, il
  * est réactivé par la décision du 30 septembre 2026 (README) : l'équipe
  * pédagogique lit la maîtrise de chaque commercial, par le serveur
- * (`src/lib/serveur/maitrise-equipe.ts`). Les taux de cet écran-ci restent
- * ceux de `questionStats`, agrégés sans nom.
+ * (`src/lib/serveur/maitrise-equipe.ts`). Les taux de cet écran-ci viennent
+ * de la même lecture : la somme des états des commerciaux, agrégée sans nom.
  *
- * Les onglets de période de la maquette ne sont pas construits non plus :
- * `questionStats` est un cumul depuis la mise en service, sans découpage dans
- * le temps. Proposer « 7 jours » afficherait le total en le datant faux.
+ * Les onglets de période de la maquette ne sont pas construits non plus : un
+ * état cumule toutes les tentatives d'une question depuis la mise en service,
+ * sans découpage dans le temps. Proposer « 7 jours » afficherait le total en
+ * le datant faux.
  */
 
 const PAR_PAGE = 20;
@@ -77,7 +77,14 @@ type Chargement =
 /** Ce que le bloc « Maîtrise par commercial » affiche, et rien de plus. */
 export type MaitriseCommercial = { uid: string; nom: string; pourcentage: number };
 
-export function EcranStatistiques({ equipe }: { equipe: Promise<MaitriseCommercial[]> }) {
+export function EcranStatistiques({
+  equipe,
+  stats: statsEnCours,
+}: {
+  equipe: Promise<MaitriseCommercial[]>;
+  /** Les taux par question, lus par le serveur avec la maîtrise. */
+  stats: Promise<StatsQuestion[]>;
+}) {
   const routeur = useRouter();
   const intention = useIntentionDeNavigation();
   const [chargement, setChargement] = useState<Chargement>({ etat: 'chargement' });
@@ -120,11 +127,12 @@ export function EcranStatistiques({ equipe }: { equipe: Promise<MaitriseCommerci
       try {
         // Le filtre part dans la requête : l'écran ne parle que des questions
         // publiées, il n'a aucune raison de télécharger les brouillons. Sans
-        // tri : le classement se fait sur le taux d'échec, calculé ici.
+        // tri : le classement se fait sur le taux d'échec, calculé ici. Les
+        // taux arrivent du serveur ; la banque se lit pendant ce temps.
         const [publiees, formations, stats] = await Promise.all([
           chargerQuestionsServies(),
           chargerFormations(),
-          chargerStatistiques(),
+          statsEnCours,
         ]);
         if (vivant) {
           setChargement({
@@ -135,14 +143,14 @@ export function EcranStatistiques({ equipe }: { equipe: Promise<MaitriseCommerci
           });
         }
       } catch (erreur) {
-        if (vivant) setChargement({ etat: 'erreur', echec: echecDeLecture(erreur, 'les statistiques agrégées') });
+        if (vivant) setChargement({ etat: 'erreur', echec: echecDeLecture(erreur, 'les taux par question') });
       }
     })();
 
     return () => {
       vivant = false;
     };
-  }, []);
+  }, [statsEnCours]);
 
   const analyse = useMemo(() => {
     if (chargement.etat !== 'pret') return null;

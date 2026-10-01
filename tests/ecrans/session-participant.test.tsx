@@ -91,9 +91,15 @@ vi.mock(import('@/lib/firebase/client'), () => ({
   authentification: () => fausseAuth({ uid: 'uid-jordan', displayName: 'Jordan Bakary' }),
 }));
 
+/* Le journal des pannes : un refus d'écriture qui n'est pas « trop tard » doit
+   y être versé, pas seulement affiché. */
+const signalerPanne = vi.fn<typeof import('@/lib/journal/client').signalerPanne>();
+vi.mock(import('@/lib/journal/client'), () => ({ signalerPanne }));
+
 const { SessionParticipant } = await import('@/composants/session/SessionParticipant');
 
 beforeEach(() => {
+  signalerPanne.mockReset();
   adresse = fausseRequete();
   ecouteurSession = null;
   ecouteurQuestion = null;
@@ -390,6 +396,8 @@ describe('le vote', () => {
     repondreEnSession.mockRejectedValue(
       Object.assign(new Error('refus'), { code: 'permission-denied' }),
     );
+    // La séance relue dit pourquoi : la réponse vient d'être révélée.
+    chercherSessionParCode.mockResolvedValue(session({ revelee: true }));
 
     fireEvent.click(screen.getByText('Parodontie'));
     fireEvent.click(screen.getByRole('button', { name: /envoyer/i }));
@@ -397,6 +405,23 @@ describe('le vote', () => {
     // Le refus des règles après révélation n'est pas une panne, et l'écran ne
     // doit pas envoyer quelqu'un chercher un problème de réseau.
     expect(await screen.findByText(/trop tard|révélée|correction/i)).toBeTruthy();
+    expect(signalerPanne).not.toHaveBeenCalled();
+  });
+
+  it('ne fait pas passer pour « trop tard » un refus que la séance n’explique pas', async () => {
+    // La question est toujours ouverte et rien n'est révélé : un refus des
+    // règles est alors une incompatibilité entre l'application et les règles.
+    // Le lire « trop tard » l'aurait fait disparaître.
+    repondreEnSession.mockRejectedValue(
+      Object.assign(new Error('refus'), { code: 'permission-denied' }),
+    );
+    chercherSessionParCode.mockResolvedValue(session());
+
+    fireEvent.click(screen.getByText('Parodontie'));
+    fireEvent.click(screen.getByRole('button', { name: /envoyer/i }));
+
+    expect(await screen.findByText(/votre réponse n’est pas partie/i)).toBeTruthy();
+    expect(signalerPanne).toHaveBeenCalledWith('ecriture', expect.anything());
   });
 
   /**

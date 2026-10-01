@@ -318,17 +318,6 @@ const VERIFICATIONS: Verification[] = [
     requete: (base) => base.collection('formations').orderBy('nom'),
   },
 
-  /* --- Statistiques agrégées (lot 6) ---
-   *
-   * Lecture complète, sans filtre ni tri : le classement porte sur
-   * `echecs / tentatives`, une expression que Firestore ne sait pas trier.
-   */
-  {
-    nom: 'statistiques agrégées, lecture complète',
-    lot: 'lot 6',
-    requete: (base) => base.collection('questionStats'),
-  },
-
   /* --- Réponses d'un commercial (lot 5) ---
    *
    * Lues en entier, sans filtre : savoir si la *dernière* tentative sur une

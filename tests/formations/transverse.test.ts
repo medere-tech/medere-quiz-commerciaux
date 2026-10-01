@@ -89,7 +89,7 @@ describe('Les écrans qui ne montrent qu’une formation suivent la règle', () 
   it('les statistiques aussi', () => {
     const { fiables } = classer(
       [mixte],
-      [{ questionId: 'q1', tentatives: 50, echecs: 10, majLe: null }],
+      [{ questionId: 'q1', tentatives: 50, echecs: 10 }],
       [TRANSVERSE, PARO],
     );
 

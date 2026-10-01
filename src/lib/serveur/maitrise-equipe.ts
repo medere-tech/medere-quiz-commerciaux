@@ -12,6 +12,7 @@ import { avatarOuDefaut, type CleAvatar } from '@/lib/session/avatar';
 import { enEtatComplet, etatsDesQuestions, type EtatComplet } from '@/lib/serie/etats';
 import { avancementParFormation, maitrise, type Maitrise } from '@/lib/serie/maitrise';
 import { chargerReferentiel } from '@/lib/serveur/referentiel';
+import { agregerEtats, type StatsQuestion } from '@/lib/statistiques/modele';
 
 /**
  * Le suivi individuel, pour l'équipe pédagogique.
@@ -42,6 +43,13 @@ import { chargerReferentiel } from '@/lib/serveur/referentiel';
  * **La même maîtrise que celle du commercial**, calculée par les mêmes
  * fonctions (`maitrise`, `avancementParFormation`) sur les mêmes questions
  * servies. Ce que Noémie lit est ce que le commercial voit sur son accueil.
+ *
+ * **Les taux d'échec par question viennent d'ici aussi**, et de nulle part
+ * ailleurs : la somme des états des commerciaux suivis (`agregerEtats`). La
+ * liste des statistiques, l'écran d'une question et la composition d'une
+ * séance lisent donc le même chiffre, sur la même population que la maîtrise
+ * et que la répartition des réponses. Il ne sort de ce calcul que des totaux
+ * par question, sans identifiant.
  */
 
 export type LigneFormation = {
@@ -72,6 +80,8 @@ export type MaitriseEquipe = {
    * moitié n'a jamais ouvert une formation ne la maîtrise pas à 90 %.
    */
   parFormation: { formationId: string; nom: string; pourcentage: number; commerciaux: number }[];
+  /** Les taux d'échec par question, tirés des mêmes états. Des totaux, sans nom. */
+  parQuestion: StatsQuestion[];
 };
 
 export type LigneQuestionSuivie = {
@@ -108,9 +118,10 @@ export type ResultatsQuestion = {
   /** La formation principale, pour sa forme et son nom. */
   formation: Formation | null;
   /**
-   * Les compteurs anonymes de `questionStats` — le même chiffre que la liste
-   * des statistiques, pour qu'un clic ne change pas le taux sous les yeux.
-   * `null` tant que personne n'a répondu.
+   * La somme des états des commerciaux suivis — le même calcul que la liste
+   * des statistiques, pour qu'un clic ne change pas le taux sous les yeux, et
+   * la même population que la répartition ci-dessous. `null` tant qu'aucun
+   * commercial n'a répondu.
    */
   stats: { tentatives: number; echecs: number } | null;
   commerciaux: { uid: string; nom: string; etat: EtatComplet }[];
@@ -244,7 +255,19 @@ export async function chargerMaitriseEquipe(): Promise<MaitriseEquipe> {
     })
     .filter((ligne) => referentiel.questions.some((question) => question.formationIds.includes(ligne.formationId)));
 
-  return { commerciaux: resumes, parFormation };
+  return { commerciaux: resumes, parFormation, parQuestion: agregerEtats(etats.values()) };
+}
+
+/**
+ * Les taux d'échec par question, seuls — pour la composition d'une séance, qui
+ * n'affiche pas la maîtrise. Les mêmes lectures et le même calcul que
+ * `chargerMaitriseEquipe` : deux écrans ne peuvent pas lire deux taux.
+ */
+export async function chargerTauxQuestions(): Promise<StatsQuestion[]> {
+  await exigerAdmin();
+
+  const etats = await lesEtatsDe(await lesCommerciaux());
+  return agregerEtats(etats.values());
 }
 
 /**
@@ -325,11 +348,10 @@ export async function chargerResultatsQuestion(questionId: string): Promise<Resu
   await exigerAdmin();
 
   const base = firestoreAdmin();
-  const [commerciaux, referentiel, document, agregat] = await Promise.all([
+  const [commerciaux, referentiel, document] = await Promise.all([
     lesCommerciaux(),
     chargerReferentiel(),
     base.collection('questions').doc(questionId).get(),
-    base.collection('questionStats').doc(questionId).get(),
   ]);
   const question = referentiel.questions.find((candidate) => candidate.id === questionId);
   if (!question) return null;
@@ -344,8 +366,7 @@ export async function chargerResultatsQuestion(questionId: string): Promise<Resu
 
   const formationId = formationPrincipale(question.formationIds);
   const modifieeLe = donnees.modifieeLe as { toMillis?: () => number } | undefined;
-  const tentatives = agregat.get('tentatives');
-  const echecs = agregat.get('echecs');
+  const [stats] = agregerEtats(etats.values());
 
   return {
     questionId,
@@ -355,10 +376,7 @@ export async function chargerResultatsQuestion(questionId: string): Promise<Resu
     explication: typeof donnees.explication === 'string' ? donnees.explication : '',
     modifieeLeMs: typeof modifieeLe?.toMillis === 'function' ? modifieeLe.toMillis() : null,
     formation: referentiel.formations.find((formation) => formation.id === formationId) ?? null,
-    stats:
-      typeof tentatives === 'number' && typeof echecs === 'number' && tentatives > 0
-        ? { tentatives, echecs }
-        : null,
+    stats: stats ? { tentatives: stats.tentatives, echecs: stats.echecs } : null,
     commerciaux: commerciaux.map((commercial) => ({
       uid: commercial.uid,
       nom: commercial.nom,

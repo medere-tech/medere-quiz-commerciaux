@@ -9,6 +9,7 @@ import {
   JORDAN,
   NOEMIE,
   question,
+  repondreAvecEtat,
   reponse,
   session,
   texteDe,
@@ -259,11 +260,19 @@ describe('Plafonds — réponses individuelles', () => {
     });
   }
 
+  /*
+   * Une réponse s'écrit avec son état (voir `repondreAvecEtat`). Le suffixe
+   * reste dans l'appel pour nommer le scénario ; l'identifiant réel, lui,
+   * suit la forme de l'application — `{questionId}_{…}`.
+   */
   function ecrire(donnees: Document, suffixe: string) {
-    return setDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}/reponses/${suffixe}`), donnees);
+    void suffixe;
+    return repondreAvecEtat(connecte(env, JORDAN), JORDAN.uid, donnees).ecriture;
   }
 
   it("une réponse à une question dont l'identifiant fait 128 caractères est acceptée", async () => {
+    // Son identifiant de réponse en fait plus de 128 : c'est ce cas qui a
+    // montré que la borne de `derniereReponse` ne pouvait pas être 128.
     await semer();
     await assertSucceeds(ecrire(reponse({ questionId: texteDe(128) }), 'qid-ok'));
   });

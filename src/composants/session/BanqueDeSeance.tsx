@@ -41,15 +41,6 @@ const VUES: { valeur: Vue; libelle: string }[] = [
   { valeur: 'ratees', libelle: 'Les plus ratées' },
 ];
 
-/**
- * En dessous, un taux d'échec ne veut rien dire.
- *
- * Une question posée deux fois et ratée une fois n'est pas « à 50 % d'échec » :
- * elle n'a pas été posée assez souvent pour qu'on en tire quoi que ce soit.
- * Le filtre « les plus ratées » l'écarte plutôt que de la hisser en tête.
- */
-const TENTATIVES_FIABLES = 5;
-
 /** Ce que la banque a besoin de savoir sur une question, au-delà de l'énoncé. */
 export type AttributsQuestion = {
   /** Entier de 0 à 100, ou `null` faute de réponses assez nombreuses. */
@@ -312,6 +303,3 @@ export function jourEtMois(millisecondes: number): string {
     new Date(millisecondes),
   );
 }
-
-/** Le seuil au-dessous duquel un taux d'échec ne se calcule pas. */
-export { TENTATIVES_FIABLES };

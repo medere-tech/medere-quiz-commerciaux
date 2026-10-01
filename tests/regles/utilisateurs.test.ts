@@ -23,8 +23,11 @@ import {
   HIER,
   JORDAN,
   NOEMIE,
+  credit,
   question,
+  repondreAvecEtat,
   reponse,
+  semerReponseRecente,
   SOPHIE,
   utilisateur,
 } from './aide';
@@ -73,24 +76,19 @@ describe('Document utilisateur', () => {
       );
     });
 
+    await semerReponseRecente(env, JORDAN.uid);
     await assertSucceeds(
-      updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), {
-        etoiles: 2,
-        seriesTerminees: 1,
-        vuLe: HIER,
-      }),
+      updateDoc(
+        doc(connecte(env, JORDAN), `users/${JORDAN.uid}`),
+        credit({ etoiles: 2, seriesTerminees: 1 }),
+      ),
     );
   });
 
   it('le propriétaire met à jour sa progression', async () => {
     await semer();
-    await assertSucceeds(
-      updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), {
-        etoiles: 7,
-        seriesTerminees: 3,
-        vuLe: HIER,
-      }),
-    );
+    await semerReponseRecente(env, JORDAN.uid);
+    await assertSucceeds(updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), credit()));
   });
 
   it("REFUS — un utilisateur s'attribue le rôle administrateur dans son propre document", async () => {
@@ -145,7 +143,7 @@ describe('Réponses individuelles — isolation des scores', () => {
   it('le propriétaire enregistre et relit ses réponses', async () => {
     await semer();
     const base = connecte(env, JORDAN);
-    await assertSucceeds(setDoc(doc(base, `users/${JORDAN.uid}/reponses/r2`), reponse()));
+    await assertSucceeds(repondreAvecEtat(base, JORDAN.uid, reponse()).ecriture);
     await assertSucceeds(getDocs(collection(base, `users/${JORDAN.uid}/reponses`)));
   });
 
@@ -167,7 +165,7 @@ describe('Réponses individuelles — isolation des scores', () => {
   it("REFUS — un utilisateur écrit une réponse dans le compte d'un collègue", async () => {
     await semer();
     await assertFails(
-      setDoc(doc(connecte(env, JORDAN), `users/${SOPHIE.uid}/reponses/r9`), reponse()),
+      repondreAvecEtat(connecte(env, JORDAN), SOPHIE.uid, reponse()).ecriture,
     );
   });
 

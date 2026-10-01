@@ -93,6 +93,17 @@ async function semer(remplacements: Record<string, unknown> = {}): Promise<void>
   });
 }
 
+/**
+ * Jordan et Sophie entrent dans la séance par le vrai `rejoindre` : depuis le
+ * 1er octobre 2026, seul un présent vote. La base reste celle de Jordan.
+ */
+async function entrerTousLesDeux(): Promise<void> {
+  poserBase(connecte(env, SOPHIE));
+  await rejoindre('s1', SOPHIE.uid, 'Sophie', 'rose', 'salle');
+  poserBase(connecte(env, JORDAN));
+  await rejoindre('s1', JORDAN.uid, 'Jordan', 'orange', 'salle');
+}
+
 /** Relit sans passer par les règles : on vérifie ce qui est écrit, pas ce qui est lisible. */
 async function relire(chemin: string): Promise<Record<string, unknown> | null> {
   let donnees: Record<string, unknown> | null = null;
@@ -141,7 +152,7 @@ function millisecondes(valeur: unknown): number | null {
 describe('repondreEnSession', () => {
   beforeEach(async () => {
     await semer();
-    poserBase(connecte(env, JORDAN));
+    await entrerTousLesDeux();
   });
 
   it('écrit les trois documents', async () => {
@@ -555,7 +566,7 @@ describe('chercherSessionParCode', () => {
 describe('chargerMaReponse', () => {
   beforeEach(async () => {
     await semer();
-    poserBase(connecte(env, JORDAN));
+    await entrerTousLesDeux();
   });
 
   it('rend la sélection après un rechargement de page', async () => {

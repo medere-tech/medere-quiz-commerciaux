@@ -26,7 +26,13 @@ export const LIGNES_DE_PILE_MAX = 6;
 
 export const PILE_MAX = 1200;
 
-export const ORIGINES = ['frontiere', 'globale', 'promesse', 'ressource'] as const;
+/*
+ * `ecriture` : une écriture Firestore refusée, que l'écran a attrapée pour
+ * afficher un message. Sans cette origine, un refus de règle n'existait qu'à
+ * l'écran de celui qui le subissait — et un `catch` qui l'interprétait mal le
+ * faisait disparaître tout à fait.
+ */
+export const ORIGINES = ['frontiere', 'globale', 'promesse', 'ressource', 'ecriture'] as const;
 export type Origine = (typeof ORIGINES)[number];
 
 const ADRESSE = /[\w.+-]+@[\w-]+\.[\w.-]+/g;

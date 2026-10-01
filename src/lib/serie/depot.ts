@@ -60,9 +60,8 @@ import {
  * l'agrégat dérive (`npm run etats:reprise`).
  *
  * **Le navigateur ne les relit plus, et c'est délibéré.** Le seul chemin de
- * lecture de l'historique complet passe désormais par les scripts
- * d'administration — `scripts/reconstruire-etats.ts` et
- * `scripts/agreger-historique.ts` — qui utilisent le SDK Admin. Garder ici un
+ * lecture de l'historique complet passe désormais par le script
+ * d'administration `scripts/reconstruire-etats.ts`, qui utilise le SDK Admin. Garder ici un
  * lecteur exporté sans appelant inviterait à refaire la lecture qu'on vient
  * justement de retirer : à dix réponses par jour sur deux ans, elle rapatrie
  * cinq mille documents pour trois chiffres par question.
@@ -223,13 +222,16 @@ function enAssiduite(brut: unknown): Assiduite {
  * Une réponse par question et par tentative — l'identifiant porte l'horodatage
  * pour que deux passages sur la même question ne s'écrasent pas. L'historique
  * complet est ce qui alimente la pondération.
+ *
+ * Rend l'identifiant de la réponse écrite : le crédit de fin de série doit
+ * nommer une réponse donnée depuis le crédit précédent (`crediterSerie`).
  */
 export async function enregistrerReponse(
   uid: string,
   questionId: string,
   optionsChoisies: string[],
   correcte: boolean,
-): Promise<void> {
+): Promise<string> {
   const identifiant = `${questionId}_${Date.now()}`;
   const base = baseDeDonnees();
 
@@ -259,21 +261,32 @@ export async function enregistrerReponse(
       tentatives: increment(1),
       derniereRatee: !correcte,
       majLe: serverTimestamp(),
+      // L'état nomme sa réponse : les règles vérifient qu'elle naît dans ce
+      // lot et que les compteurs suivent son verdict.
+      derniereReponse: identifiant,
     },
     { merge: true },
   );
 
   await lot.commit();
+  return identifiant;
 }
 
 /**
  * Crédit de fin de série. Appelé une seule fois, et seulement quand la série
  * est allée à son terme : une série abandonnée ne rapporte rien, alors que ses
  * réponses, elles, sont déjà enregistrées.
+ *
+ * **Le crédit nomme sa réponse.** `serieCloseSur` désigne la dernière réponse
+ * enregistrée de la série : les règles refusent un crédit qui ne s'appuie pas
+ * sur une réponse donnée depuis le crédit précédent (`creditLe`). Sans cela,
+ * une boucle d'écritures depuis la console fabriquait des séries terminées et
+ * une assiduité que l'équipe pédagogique et le podium lisent.
  */
 export async function crediterSerie(
   uid: string,
   etoiles: number,
+  serieCloseSur: string,
   bilan: {
     /** Toutes les réponses justes : la récompense se constate ici, pas plus tard. */
     parfaite: boolean;
@@ -335,6 +348,8 @@ export async function crediterSerie(
       assiduite,
       recompenses: apres,
       vuLe: serverTimestamp(),
+      serieCloseSur,
+      creditLe: serverTimestamp(),
     });
   });
 
