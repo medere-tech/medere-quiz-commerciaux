@@ -83,8 +83,8 @@ type Passage = {
 
 /**
  * **Le seul écran qui reçoit le contenu de toutes les questions publiées**, et
- * la raison est structurelle : le tirage est pondéré par la maîtrise, qui est
- * privée et lue par le navigateur. Le serveur ne sait donc pas quelles dix
+ * la raison est structurelle : le tirage est pondéré par la maîtrise, propre à
+ * chacun et lue par le navigateur. Le serveur ne sait donc pas quelles dix
  * questions il devra servir, et ne peut pas les envoyer seules.
  *
  * L'alternative — tirer d'abord, puis aller chercher le contenu des dix — a

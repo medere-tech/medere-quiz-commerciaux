@@ -309,12 +309,12 @@ Ce n'est pas une amélioration, c'est un défaut d'accessibilité corrigé.
 
 | Écran | Page | Pourquoi |
 |---|---|---|
-| **06b · Une question et ses résultats, par commercial** | 4 | **Contredit la confidentialité des scores.** Les réponses vivent sous `users/{uid}/reponses`, sans exception administrateur ; `questionStats` ne porte aucun identifiant. 24 tests garantissent que personne ne peut voir qui a raté quoi. Cet écran est infaisable par construction, et c'est voulu. À reprendre sans nominatif — répartition, taux d'échec, évolution — ce que `questionStats` permet déjà. Ouvrir le nominatif serait une décision managériale, pas un ajustement technique. |
+| **06b · Une question et ses résultats, par commercial** | 4 | **Réactivé le 30 septembre 2026** par décision managériale (README, « Décision du 30 septembre 2026 ») : les données viennent de `src/lib/serveur/maitrise-equipe.ts`, par le serveur, sans changement de règles. *Motif de l’écart initial, conservé pour mémoire :* **Contredit la confidentialité des scores.** Les réponses vivent sous `users/{uid}/reponses`, sans exception administrateur ; `questionStats` ne porte aucun identifiant. 24 tests garantissent que personne ne peut voir qui a raté quoi. Cet écran est infaisable par construction, et c'est voulu. À reprendre sans nominatif — répartition, taux d'échec, évolution — ce que `questionStats` permet déjà. Ouvrir le nominatif serait une décision managériale, pas un ajustement technique. |
 | **00 · Rappel du jour (notification)** | 5 | Fonctionnalité absente de la demande de Noémie et de tous les lots. Chantier propre : notifications web avec permissions navigateur, ou e-mail, plus une planification serveur. Répond au vrai risque du projet — l'outil qu'on ouvre trois semaines puis plus jamais — donc à considérer, mais comme un lot en soi. |
 | **01b · Choisir sa série** | 2 | Sélection manuelle par formation, format ou priorité. Le modèle prévoit un tirage pondéré automatique (jamais vue 3, ratée 6, réussie 1,2, réussie deux fois 0,4). Un choix manuel permet d'éviter les formations mal maîtrisées, ce que la pondération cherche justement à empêcher. À arbitrer : les deux peuvent coexister, mais il faut le décider. **L'entrée « Séries » de la barre latérale du parcours a été retirée** le 10 septembre 2026 : l'arbitrage n'est pas pris, et une entrée grisée qui n'attend aucune date est un défaut de navigation, pas une annonce. À remettre dans `src/app/(parcours)/layout.tsx` si la sélection manuelle est tranchée. |
 
-| **09 · Bloc « Maîtrise par commercial »** | 3 | **Contredit la confidentialité des scores.** Sur l'écran 09, un encadré liste six commerciaux et leur pourcentage de maîtrise, et chaque ligne renvoie vers 06b. Calculer ces pourcentages exige de lire `users/{uid}` et ses réponses, que les règles ferment à l'administrateur sans exception ; `questionStats` ne porte aucun identifiant. Infaisable par construction, et voulu. **Construit à sa place :** la fragilité par formation, taux d'échec cumulé et anonyme — la même question posée à l'échelle du catalogue. Ouvrir le nominatif serait une décision managériale, pas un ajustement technique. |
-| **11 · Chiffre « % maîtrise équipe » sur chaque carte de formation** | 4 | **Contredit la confidentialité des scores, et c'est la troisième fois — même famille que les deux blocs ci-dessus.** La maquette pose deux chiffres sur chaque carte : « 24 questions » et « 92 % maîtrise équipe ». Le premier se compte. Le second est une moyenne des maîtrises individuelles : il demanderait de lire `users/{uid}` et ses réponses pour chaque commercial, que les règles ferment à l'administrateur **sans exception**, et `questionStats` ne porte aucun identifiant — il ne sait pas non plus de quelle formation relève un échec sans recouper avec la banque, mais c'est un détail : même agrégé, le chiffre viendrait de données fermées. Infaisable par construction, et voulu. **Construit à sa place :** le nombre de questions servies et le nombre de brouillons — le chiffre sur lequel Noémie peut agir, là où un taux d'équipe ne se regarde pas sans se comparer. Ouvrir le nominatif serait une décision managériale, pas un ajustement technique. |
+| **09 · Bloc « Maîtrise par commercial »** | 3 | **Réactivé le 30 septembre 2026** par décision managériale (README, « Décision du 30 septembre 2026 ») : les données viennent de `src/lib/serveur/maitrise-equipe.ts`, par le serveur, sans changement de règles. *Motif de l’écart initial, conservé pour mémoire :* **Contredit la confidentialité des scores.** Sur l'écran 09, un encadré liste six commerciaux et leur pourcentage de maîtrise, et chaque ligne renvoie vers 06b. Calculer ces pourcentages exige de lire `users/{uid}` et ses réponses, que les règles ferment à l'administrateur sans exception ; `questionStats` ne porte aucun identifiant. Infaisable par construction, et voulu. **Construit à sa place :** la fragilité par formation, taux d'échec cumulé et anonyme — la même question posée à l'échelle du catalogue. Ouvrir le nominatif serait une décision managériale, pas un ajustement technique. |
+| **11 · Chiffre « % maîtrise équipe » sur chaque carte de formation** | 4 | **Réactivé le 30 septembre 2026** par décision managériale (README, « Décision du 30 septembre 2026 ») : les données viennent de `src/lib/serveur/maitrise-equipe.ts`, par le serveur, sans changement de règles. *Motif de l’écart initial, conservé pour mémoire :* **Contredit la confidentialité des scores, et c'est la troisième fois — même famille que les deux blocs ci-dessus.** La maquette pose deux chiffres sur chaque carte : « 24 questions » et « 92 % maîtrise équipe ». Le premier se compte. Le second est une moyenne des maîtrises individuelles : il demanderait de lire `users/{uid}` et ses réponses pour chaque commercial, que les règles ferment à l'administrateur **sans exception**, et `questionStats` ne porte aucun identifiant — il ne sait pas non plus de quelle formation relève un échec sans recouper avec la banque, mais c'est un détail : même agrégé, le chiffre viendrait de données fermées. Infaisable par construction, et voulu. **Construit à sa place :** le nombre de questions servies et le nombre de brouillons — le chiffre sur lequel Noémie peut agir, là où un taux d'équipe ne se regarde pas sans se comparer. Ouvrir le nominatif serait une décision managériale, pas un ajustement technique. |
 | **09 · Onglets de période (7 jours / 30 jours)** | 3 | `questionStats` est un cumul depuis la mise en service : deux compteurs et une date de dernière écriture, sans découpage dans le temps. Afficher « 7 jours » rendrait le total présent sous une étiquette fausse. Les construire suppose que la Cloud Function écrive aussi des compteurs par période — décision de modèle, à prendre avant d'être codée. |
 | **06b · Détail d'une formation** | 3 | Programme, argumentaires, points faibles. Aucun de ces contenus n'existe dans le modèle : on stocke nom, cibles, format, modalité, durée, URL. Programme et argumentaires vivent dans les fiches PDF de Noémie, hors Airtable. « Points faibles » est calculable depuis `questionStats` si ça désigne les questions les plus ratées — à définir. |
 
@@ -355,8 +355,10 @@ Contient : direction visuelle · palette, rôles et contrastes · typographie Ai
 ```
 Use the claude_design MCP (https://api.anthropic.com/v1/design/mcp, auth via /design-login) to import this project:
 https://claude.ai/design/p/6ed08356-56e4-4a06-ab31-037cb1ea59a1?file=M%C3%A9d%C3%A9r%C3%A9+Entra%C3%AEnement+4+-+back-office.html
+
 Focus on these files (the whole project is readable):
 - `Médéré Entraînement 4 - back-office.html`
+
 Also read these files the selection imports:
 - `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/_ds_bundle.js`
 - `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/styles.css`
@@ -369,9 +371,13 @@ Also read these files the selection imports:
 - `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/spacing.css`
 - `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/typography.css`
 - `screens-admin.jsx`
+- `screens-compose.jsx`
 - `screens-extra.jsx`
+- `screens-join.jsx`
+- `screens-person.jsx`
 - `ui.jsx`
-Implement: `Médéré Entraînement 4 - back-office.html`
+
+Implement: `Médéré Entraînement 4 - back-office.html``
 ```
 
 Contient : 06 · Banque de questions · **06b · Une question et ses résultats, par commercial (EN ATTENTE)** · 08 · Import en masse · 11 · Formations.
@@ -498,27 +504,27 @@ Use the claude_design MCP (https://api.anthropic.com/v1/design/mcp, auth via /de
 https://claude.ai/design/p/6ed08356-56e4-4a06-ab31-037cb1ea59a1?file=M%C3%A9d%C3%A9r%C3%A9+Entra%C3%AEnement+3+-+reprendre%2C+approfondir%2C+animer.html
 
 Focus on these files (the whole project is readable):
-- Médéré Entraînement 3 - reprendre, approfondir, animer.html
+- `Médéré Entraînement 3 - reprendre, approfondir, animer.html`
 
 Also read these files the selection imports:
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/_ds_bundle.js
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/styles.css
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/base.css
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/colors.css
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/elevation.css
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/fonts.css
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/motion.css
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/radius.css
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/spacing.css
-- _ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/typography.css
-- screens-admin.jsx
-- screens-extra.jsx
-- screens-join.jsx
-- screens-mobile.jsx
-- screens-sales.jsx
-- ui.jsx
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/_ds_bundle.js`
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/styles.css`
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/base.css`
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/colors.css`
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/elevation.css`
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/fonts.css`
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/motion.css`
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/radius.css`
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/spacing.css`
+- `_ds/medere-design-system-94f9eab4-e181-4249-9ba0-5ae949bf8123/tokens/typography.css`
+- `screens-admin.jsx`
+- `screens-extra.jsx`
+- `screens-join.jsx`
+- `screens-mobile.jsx`
+- `screens-sales.jsx`
+- `ui.jsx`
 
-Implement: Médéré Entraînement 3 - reprendre, approfondir, animer.html
+Implement: `Médéré Entraînement 3 - reprendre, approfondir, animer.html`
 ```
 
 Contient : 05 · Questions à revoir · 09 · Statistiques · Format · Vrai ou faux · Format · Mise en situation · **06b · Détail d'une formation (EN ATTENTE)** · 10a · Accès à la session · 10b · Accès · code refusé · 10c · Session collective, côté commercial · 10d · Session collective, côté animateur.
@@ -1839,6 +1845,26 @@ nombres se posent dessus. Et **rien ne s'affiche tant que le compte n'est pas
 arrivé** — un zéro posé par défaut se lirait « cette formation n'a aucune
 question », ce qui est une tout autre nouvelle. Une formation dont l'agrégation
 échoue garde sa carte, sans chiffre.
+
+---
+
+## Le suivi d'un commercial — `screens-person.jsx`
+
+L'écran « un commercial, toutes ses questions »
+(`src/app/admin/statistiques/commerciaux/[uid]/`), dessiné après la décision
+du 30 septembre 2026 (README, section 8). On y arrive depuis le bloc
+« Maîtrise par commercial » des statistiques. Construit aux trois largeurs de
+la maquette — 1440, 1024 et 375 — et recetté au navigateur à chacune.
+
+### Les trois écarts à la maquette, et leur raison
+
+Tranchés par Déthié le 1er octobre 2026.
+
+| Écart | Pourquoi |
+|---|---|
+| **Sur téléphone, l'onglet ouvert par défaut est « Toutes », pas « Ratées »** | La maquette 375 montre « Ratées » actif et ne liste que les ratées. C'est un état de démonstration, pas un défaut d'ouverture : Noémie ouvre cet écran pour préparer un accompagnement, pas seulement pour voir les échecs, et les questions jamais vues comptent autant que les ratées. Le téléphone ouvre donc comme le bureau. |
+| **« 4 ce mois-ci » devient les jours actifs de la semaine** | Aucun compte de séries par mois n'est tenu. L'assiduité tient la semaine en cours : c'est elle qu'on affiche sous les séries terminées. Créer un compteur mensuel — un champ, ses règles, sa remise à zéro — pour une ligne d'affichage n'en vaut pas la peine. |
+| **« Juste 2 fois de suite, acquise le… » devient le nombre de bonnes réponses et la date de dernière vue** | La maîtrise retient la **dernière** tentative, ni une série de réussites ni une date d'acquisition. Le nombre de fois où la question a été juste, et quand elle a été vue en dernier, disent l'essentiel sans inventer une donnée que la base ne porte pas. |
 
 ---
 

@@ -451,9 +451,9 @@ script recalcule chaque agrégat en entier, donc il est rejouable ; c'est aussi
 ce qui interdit de le lancer en routine, un incrément arrivé entre sa lecture
 et son écriture serait perdu.
 
-**Pourquoi les réponses sont sous le document utilisateur.** C'est ce qui rend l'isolation des scores applicable par les règles de sécurité, et pas seulement par un filtre d'affichage. Noémie ne peut pas voir qui rate quoi, même en ouvrant la console Firebase. Elle voit les statistiques par question via `questionStats`, qui ne contient aucun identifiant.
+**Pourquoi les réponses sont sous le document utilisateur.** C'est ce qui rend l'isolation des scores applicable par les règles de sécurité, et pas seulement par un filtre d'affichage : aucun client ne lit les données d'un autre, administrateurs compris. `questionStats`, qui ne contient aucun identifiant, porte les statistiques par question.
 
-Cette décision peut être révisée si Noémie ou la direction demandent le nominatif. C'est alors une décision managériale explicite, à assumer comme telle, avec une évolution du modèle. Ne pas l'anticiper dans le code.
+**Le nominatif a été ouvert à l'équipe pédagogique le 30 septembre 2026**, par décision managériale explicite de Noémie et Harry — voir la section 8, « Décision du 30 septembre 2026 ». Il passe par le serveur, pas par les règles : ce qui est dit ci-dessus reste vrai pour tout client.
 
 **Pourquoi une question peut déclarer sa source.** Les fiches d'argumentaire évoluent. Une formation change de durée, un tarif d'indemnisation bouge, une contre-indication est reformulée — et la question rédigée d'après la version précédente devient fausse. Sans trace de la provenance, cette bascule est silencieuse : rien ne signale qu'une question est périmée, et surtout rien ne permet de retrouver *lesquelles* relire quand une fiche est mise à jour. Renseignés, `sourceFiche` et `sourceVersion` répondent à cette question d'une requête.
 
@@ -1149,6 +1149,20 @@ Ne sont pas touchés : `formations`, qui se reconstruit par synchronisation, et
 les comptes Firebase Authentication avec leurs custom claims — les supprimer
 ferait perdre le rôle administrateur, qui ne se réattribue pas tout seul.
 
+**`--progression` emporte aussi l'assiduité, les récompenses et le podium**
+(`classements/`). Ils étaient oubliés : un commercial serait arrivé avec la
+série de jours, les badges et le podium de la recette. La Cloud Function
+republie un podium vide dès la remise à zéro des comptes.
+
+**`--table-rase` : on repart d'une base vide, avec les comptes administrateur
+et rien d'autre.** Toutes les collections racine sont parcourues et vidées,
+sauf `formations` — le miroir d'Airtable, qui se reconstruirait à l'identique
+et sans lequel l'import refuserait chaque formation citée. Les comptes
+Authentication hors `ADMIN_EMAILS` sont supprimés ; les documents `users/` des
+administrateurs sont recréés neufs, leurs données effacées. Mot de confirmation
+distinct, `--confirmer=TABLE-RASE`, et refus de tourner si aucun administrateur
+n'a de compte.
+
 La séance `CPY68N` restée `encours` apparaît dans l'essai à blanc, signalée
 « jamais close ».
 
@@ -1777,6 +1791,105 @@ revoir », la série — lisent encore `currentUser` et retomberaient sur leur �
 « anonyme » si on les rendait trop tôt. Il faut donc semer ces écrans aussi,
 puis lever la garde, et mesurer.
 
+### Décision du 30 septembre 2026 — le suivi individuel pour l'équipe pédagogique
+
+**C'est la décision managériale explicite que ce README réservait depuis le
+lot 3.** Noémie et Harry demandent à suivre chaque commercial pour
+l'accompagner : sa maîtrise, formation par formation, et le détail question par
+question — savoir sur quoi quelqu'un bute, pas seulement dans quelle formation.
+La demande prime sur l'argument de l'outil d'évaluation (section 10), qui reste
+écrit et qui reste vrai.
+
+#### Ce qui s'ouvre, et à qui
+
+**L'équipe pédagogique, ce sont les administrateurs** : la liste tenue par
+`ADMIN_EMAILS`, et aucun autre mécanisme. Tout administrateur voit tout. Le
+bloc « Maîtrise par commercial » de l'écran 09, l'écran 06b et le chiffre
+« maîtrise équipe » des cartes de formation (écran 11), écartés au lot 3, sont
+réactivés.
+
+#### Par le serveur, pas par les règles
+
+`src/lib/serveur/maitrise-equipe.ts` lit avec le SDK Admin. **Aucune règle
+Firestore n'a changé, et aucun test d'isolation n'est tombé** : `users/{uid}`
+reste fermé à tout client autre que son propriétaire, administrateurs compris.
+C'est donc toujours **la base** qui garantit qu'aucun commercial ne lit un autre
+commercial. Ouvrir les règles aurait fait tomber trois tests (quatre avec une
+requête de groupe), et donné à tout administrateur l'historique brut depuis
+n'importe quel navigateur — plus que ce que l'écran montre.
+
+Ce que le fichier garantit, vérifié à chaque exécution par
+`tests/serveur/maitrise-equipe.test.ts` :
+
+1. **`server-only`** — il ne part jamais au navigateur.
+2. **Chaque fonction exportée commence par `await exigerAdmin()`.** Sans le
+   rôle, elle lève et rien n'est lu — vérifié dans le texte, et sur
+   l'émulateur, où l'on compte les accès à la base : zéro.
+3. **Aucune lecture de `reponses`.** Les états par question suffisent — la même
+   donnée que lit le parcours du commercial. L'option cochée et l'heure de
+   chaque réponse ne sortent pas.
+4. **Seules les routes `src/app/admin/` l'importent.**
+
+**La même maîtrise que celle du commercial** : mêmes fonctions de calcul, mêmes
+questions servies. Ce que Noémie lit est ce que le commercial voit sur son
+accueil. La maîtrise d'équipe d'une formation est la moyenne des maîtrises
+individuelles, **commerciaux qui n'ont pas encore joué comptés à zéro** — une
+équipe dont la moitié n'a jamais ouvert une formation ne la maîtrise pas à 90 %.
+
+#### Ce qui ne change pas
+
+- **Aucun commercial ne voit les scores d'un autre.** C'est la base qui le
+  tient, pas ce fichier.
+- **`questionStats` reste anonyme**, et l'écran des statistiques continue de
+  dire ce qui fait trébucher l'équipe sans nom.
+- **Le podium de régularité reste ce qu'il est** : trois noms, la régularité et
+  non la maîtrise, le rang de chacun réservé à lui seul.
+
+#### Un défaut trouvé en préparant la table rase
+
+**Un compte neuf ne pouvait enregistrer aucune série.** Les règles exigent, à
+chaque mise à jour de `users/{uid}`, un avatar de la palette et un nom de
+séance valide ; la connexion ne posait ni l'un ni l'autre, et seule l'entrée
+dans une séance collective les écrivait. Reproduit sur l'émulateur :
+`PERMISSION_DENIED`, « Property avatar is undefined ». Rejoué de bout en bout sur l'émulateur
+(`tests/depot/compte-neuf.test.ts`), avec l'ancienne forme du compte : **trois des
+sept écritures du premier jour tombaient** — les deux crédits de série et le nom
+de séance mémorisé. Les réponses, elles, passaient : un commercial neuf voyait
+sa maîtrise avancer, mais aucune série, aucune étoile, aucune récompense ne
+s'enregistrait. Rejoindre une séance posait les deux champs et « réparait » le
+compte, ce qui explique qu'aucun compte de recette ne l'ait montré. Les tests ne le voyaient pas : leur
+fixture `utilisateur()` posait les deux champs que la connexion oubliait — un
+faux qui répondait ce qui rendait le code juste.
+
+Le document d'un compte neuf est désormais construit par
+`src/lib/auth/document-utilisateur.ts`, qu'emploient la connexion, la table rase
+et le test de régression. La connexion pose aussi les deux champs sur un compte
+existant qui ne les a pas, sans toucher à ceux déjà choisis.
+
+#### Les délais, et ce qui reste non tranché
+
+La maîtrise se lit par le serveur à chaque ouverture : la page s'affiche tout
+de suite, et seuls le bloc « Maîtrise par commercial » et le chiffre
+« maîtrise équipe » l'attendent, sous `Suspense`. Mesuré le 1er octobre 2026
+sur un build de production, onglet au premier plan, trois tours partant de
+Statistiques après rechargement :
+
+| Écran | Tour 1 | Tour 2 | Tour 3 |
+|---|---|---|---|
+| Statistiques, chargement complet à froid | 1127 ms | 1177 ms | 2485 ms |
+| Suivi d'un commercial | 1661 ms | 1576 ms | 354 ms |
+| Écran 06b, une question | 2114 ms | 626 ms | 336 ms |
+| Formations, chiffre « maîtrise équipe » affiché | 1024 ms | 896 ms | 1238 ms |
+
+**Non tranché : l'écart entre ces délais et ce que coûtent les lectures.**
+Firestore, une fois la connexion ouverte, répond en 300 à 800 ms, et le flux
+serveur part à 12 ms : ni la base ni le streaming n'expliquent seuls les
+pointes à 2 s et plus, ni pourquoi le troisième tour descend à 350 ms. La piste
+la plus probable — la connexion du SDK Admin et ses caches qui chauffent d'un
+tour à l'autre — n'a pas été démontrée. Ce n'est pas bloquant tant que l'écran
+s'affiche tout de suite ; à reprendre si les délais grandissent avec dix
+commerciaux et une banque complète.
+
 ### Lot 18 — l'écran des récompenses, et l'accueil corrigé
 
 Mêmes conditions que les mesures précédentes : build de production servi sur
@@ -2001,7 +2114,7 @@ Ils ne sont pas techniques.
 
 **L'adoption.** Personne ne s'entraîne spontanément. Il faut un rituel et un sponsor côté commercial — Jordan. Sans lui, l'outil reste optionnel.
 
-**Le classement.** Un score visible par la direction transforme un outil d'apprentissage en outil d'évaluation, et les gens cessent de se tromper, donc d'apprendre. D'où le choix du privé en V1.
+**Le classement.** Un score visible par la direction transforme un outil d'apprentissage en outil d'évaluation, et les gens cessent de se tromper, donc d'apprendre. D'où le choix du privé en V1. **Révisé le 30 septembre 2026** : l'équipe pédagogique lit désormais la maîtrise de chacun, jusqu'au détail question par question, pour l'accompagner. Le risque demeure, et c'est la manière de s'en servir qui le tient : aucun classement entre commerciaux n'est publié, et aucun commercial ne voit le score d'un autre.
 
 ---
 

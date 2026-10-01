@@ -2,8 +2,9 @@ import 'server-only';
 
 import { exigerSession } from '@/lib/auth/session-serveur';
 import { firestoreAdmin } from '@/lib/firebase/admin';
-import { assiduiteVide, type Assiduite } from '@/lib/serie/assiduite';
+import { enAssiduite } from '@/lib/serie/assiduite';
 import type { EtatComplet, Progression } from '@/lib/serie/depot';
+import { enEtatComplet } from '@/lib/serie/etats';
 
 /**
  * Les données privées d'un commercial, lues au serveur.
@@ -48,19 +49,6 @@ async function monDocument() {
   return { uid: session.uid, racine: firestoreAdmin().collection('users').doc(session.uid) };
 }
 
-function enAssiduite(valeur: unknown): Assiduite {
-  if (!valeur || typeof valeur !== 'object') return assiduiteVide();
-  const brut = valeur as Record<string, unknown>;
-  return {
-    dernierJour: typeof brut.dernierJour === 'string' ? brut.dernierJour : '',
-    serie: typeof brut.serie === 'number' ? brut.serie : 0,
-    record: typeof brut.record === 'number' ? brut.record : 0,
-    semaine: Array.isArray(brut.semaine)
-      ? brut.semaine.filter((jour): jour is string => typeof jour === 'string')
-      : [],
-  };
-}
-
 function enRecompenses(valeur: unknown): Record<string, string> {
   if (!valeur || typeof valeur !== 'object') return {};
   const obtenues: Record<string, string> = {};
@@ -91,22 +79,7 @@ export async function monParcours(): Promise<{
 
   const etats = new Map<string, EtatComplet>();
   for (const etat of instantaneEtats.docs) {
-    const donnees = etat.data();
-    const reussies = typeof donnees.reussies === 'number' ? donnees.reussies : 0;
-    const tentatives = typeof donnees.tentatives === 'number' ? donnees.tentatives : 0;
-    etats.set(etat.id, {
-      id: etat.id,
-      reussies,
-      tentatives,
-      derniereRatee: donnees.derniereRatee === true,
-      dejaVue: tentatives > 0,
-      /* Le SDK Admin rend un `Timestamp` qui porte `toMillis`, comme le SDK
-         client : la forme lue par l'écran est la même des deux côtés. */
-      vueLeMs:
-        donnees.majLe && typeof donnees.majLe.toMillis === 'function'
-          ? donnees.majLe.toMillis()
-          : null,
-    });
+    etats.set(etat.id, enEtatComplet(etat.id, etat.data()));
   }
 
   const brut = document.data() ?? {};

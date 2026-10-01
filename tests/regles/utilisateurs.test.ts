@@ -9,7 +9,13 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { afterAll, afterEach, beforeAll, describe, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+
+import {
+  documentUtilisateurNeuf,
+  LONGUEUR_NOM_SESSION,
+  nomDeSessionParDefaut,
+} from '@/lib/auth/document-utilisateur';
 
 import {
   connecte,
@@ -54,6 +60,26 @@ describe('Document utilisateur', () => {
   it('le propriétaire lit son propre document', async () => {
     await semer();
     await assertSucceeds(getDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`)));
+  });
+
+  it('un compte tel que la connexion le crée enregistre sa première série', async () => {
+    // Le document vient de la fonction qu'emploie la route de connexion, pas
+    // de la fixture `utilisateur()` : c'est elle qui avait masqué le défaut,
+    // en posant un avatar et un nom de séance que la connexion n'écrivait pas.
+    await env.withSecurityRulesDisabled(async (contexte) => {
+      await setDoc(
+        doc(contexte.firestore(), `users/${JORDAN.uid}`),
+        documentUtilisateurNeuf({ email: JORDAN.email, nom: 'Jordan Martin', photoURL: '', admin: false }, HIER),
+      );
+    });
+
+    await assertSucceeds(
+      updateDoc(doc(connecte(env, JORDAN), `users/${JORDAN.uid}`), {
+        etoiles: 2,
+        seriesTerminees: 1,
+        vuLe: HIER,
+      }),
+    );
   });
 
   it('le propriétaire met à jour sa progression', async () => {
@@ -219,5 +245,22 @@ describe('Avatar', () => {
     await assertFails(
       updateDoc(doc(connecte(env, JORDAN), `users/${SOPHIE.uid}`), { avatar: 'orange' }),
     );
+  });
+});
+
+describe('Nom de séance par défaut', () => {
+  it('reprend le nom réel', () => {
+    expect(nomDeSessionParDefaut('Jordan Martin')).toBe('Jordan Martin');
+  });
+
+  it('le ramène à la borne des règles, sans caractère de contrôle', () => {
+    const nom = nomDeSessionParDefaut(`Marie-Christine\tde La Rochefoucauld-Liancourt`);
+
+    expect(nom.length).toBeLessThanOrEqual(LONGUEUR_NOM_SESSION);
+    expect(nom).not.toMatch(/[\u0000-\u001F]/);
+  });
+
+  it('ne rend jamais un nom vide', () => {
+    expect(nomDeSessionParDefaut('   ')).not.toBe('');
   });
 });

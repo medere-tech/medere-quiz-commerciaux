@@ -46,6 +46,24 @@ export function assiduiteVide(): Assiduite {
 }
 
 /**
+ * Le champ `assiduite` d'un document utilisateur lu par le SDK Admin, vers le
+ * modèle. Une seule conversion pour les deux lecteurs serveur — le parcours du
+ * commercial et son suivi par l'équipe pédagogique.
+ */
+export function enAssiduite(valeur: unknown): Assiduite {
+  if (!valeur || typeof valeur !== 'object') return assiduiteVide();
+  const brut = valeur as Record<string, unknown>;
+  return {
+    dernierJour: typeof brut.dernierJour === 'string' ? brut.dernierJour : '',
+    serie: typeof brut.serie === 'number' ? brut.serie : 0,
+    record: typeof brut.record === 'number' ? brut.record : 0,
+    semaine: Array.isArray(brut.semaine)
+      ? brut.semaine.filter((jour): jour is string => typeof jour === 'string')
+      : [],
+  };
+}
+
+/**
  * La clé du jour d'un instant, à Paris.
  *
  * Assemblée depuis `formatToParts` plutôt que depuis une locale qui rendrait
