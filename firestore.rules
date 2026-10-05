@@ -107,7 +107,12 @@ service cloud.firestore {
     function champsFormation() {
       return ['airtableId', 'numeroActionDpc', 'nom', 'cibles', 'format',
               'modalite', 'blocsCertification', 'dureeTotale', 'urlWebflow',
-              'actif', 'syncLe'];
+              'sujetId', 'actif', 'syncLe'];
+    }
+
+    // Un identifiant d'enregistrement Airtable : `rec` et quatorze caractères.
+    function identifiantAirtable(valeur) {
+      return valeur is string && valeur.matches('^rec[A-Za-z0-9]{14}$');
     }
 
     function formationValide(donnees) {
@@ -128,6 +133,9 @@ service cloud.firestore {
         && donnees.blocsCertification is list
         && sansDoublon(donnees.blocsCertification)
         && listeBornee(donnees.blocsCertification, 200)
+        // Obligatoire, quitte à valoir `null` : une fiche sans sujet est un
+        // état connu, un champ absent serait un document d'avant ce modèle.
+        && (donnees.sujetId == null || identifiantAirtable(donnees.sujetId))
         && donnees.actif is bool
         && horodatagePasse(donnees.syncLe);
     }
@@ -135,6 +143,61 @@ service cloud.firestore {
     match /formations/{formationId} {
       allow read: if domaineAutorise();
       allow create, update: if estAdmin() && formationValide(request.resource.data);
+      allow delete: if estAdmin();
+    }
+
+    // --- Référentiel : sujets --------------------------------------------
+    // Le miroir de la table Sujets d'Airtable, tenu par la synchronisation
+    // comme `formations`, et sous la même discipline. L'identifiant du
+    // document est celui de l'enregistrement.
+    function sujetValide(sujetId, donnees) {
+      return donnees.keys().hasOnly(['airtableId', 'nom', 'actif', 'syncLe'])
+        && donnees.keys().hasAll(['airtableId', 'nom', 'actif', 'syncLe'])
+        && identifiantAirtable(sujetId)
+        && donnees.airtableId == sujetId
+        && texteBorne(donnees.nom, 200)
+        && donnees.actif is bool
+        && horodatagePasse(donnees.syncLe);
+    }
+
+    match /sujets/{sujetId} {
+      allow read: if domaineAutorise();
+      allow create, update: if estAdmin() && sujetValide(sujetId, request.resource.data);
+      allow delete: if estAdmin();
+    }
+
+    // --- Présentations des sujets ----------------------------------------
+    // Le lien Drive de la présentation d'un sujet, saisi par l'équipe
+    // pédagogique dans le back-office. **À part de `sujets/`, délibérément :**
+    // la synchronisation réécrit `sujets/` par un `set` complet chaque nuit,
+    // et effacerait tout ce qu'on y saisirait.
+    //
+    // L'auteur ne se déclare pas, il se vérifie : `presentePar` est le nom
+    // que porte le jeton de celui qui écrit. Une donnée qu'on peut déduire ne
+    // se ressaisit pas — et ne se falsifie pas.
+    //
+    // Les commerciaux lisent la présentation par le serveur, avec la page du
+    // sujet : la lecture cliente est réservée au back-office.
+    function presentationValide(donnees) {
+      return donnees.keys().hasOnly(['url', 'presenteeLe', 'presentePar', 'majLe'])
+        && donnees.keys().hasAll(['url', 'presenteeLe', 'presentePar', 'majLe'])
+        && donnees.url is string
+        && donnees.url.size() <= 500
+        && donnees.url.matches('^https://(docs|drive)[.]google[.]com/.+')
+        && donnees.presenteeLe is timestamp
+        // Une présentation déjà faite : au plus aujourd'hui, à un jour près
+        // pour les fuseaux.
+        && donnees.presenteeLe <= request.time + duration.value(1, 'd')
+        && texteBorne(donnees.presentePar, 200)
+        && donnees.presentePar == request.auth.token.get('name', '')
+        && donnees.majLe == request.time;
+    }
+
+    match /presentations/{sujetId} {
+      allow read: if estAdmin();
+      allow create, update: if estAdmin()
+        && identifiantAirtable(sujetId)
+        && presentationValide(request.resource.data);
       allow delete: if estAdmin();
     }
 

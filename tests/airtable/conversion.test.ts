@@ -2,19 +2,28 @@ import { assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebas
 import { doc, setDoc } from 'firebase/firestore';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { CHAMPS, PLAFONDS, type EnregistrementAirtable } from '@/lib/airtable/contrat';
+import {
+  CHAMPS,
+  CHAMPS_SUJET,
+  PLAFONDS,
+  type EnregistrementAirtable,
+} from '@/lib/airtable/contrat';
 import {
   convertirEnregistrements,
+  convertirSujets,
   desactiveraitToutLeCatalogue,
   formationsADesactiver,
   formationsDuMiroir,
   normaliserUrl,
+  rattacherAuxSujets,
+  sujetsADesactiver,
 } from '@/lib/airtable/conversion';
 import { ID_FORMATION_TRANSVERSE } from '@/lib/formations/transverse';
 
 import { connecte, creerEnvironnement, NOEMIE } from '../regles/aide';
 
 const SYNC_LE = new Date('2026-09-02T06:00:00Z');
+const SUJET = 'recSujetParodont1';
 
 function enregistrement(
   champs: Record<string, unknown> = {},
@@ -32,6 +41,8 @@ function enregistrement(
       [CHAMPS.blocsCertification]: ['2'],
       [CHAMPS.dureeTotale]: '7 heures',
       [CHAMPS.urlWebflow]: 'https://www.medere.fr/formations/parodontie',
+      // La forme que l'API REST rend réellement : un tableau à plat d'identifiants.
+      [CHAMPS.sujet]: [SUJET],
       ...champs,
     },
   };
@@ -59,6 +70,7 @@ describe('Conversion des enregistrements Airtable', () => {
       blocsCertification: ['2'],
       dureeTotale: '7 heures',
       urlWebflow: 'https://www.medere.fr/formations/parodontie',
+      sujetId: SUJET,
       actif: true,
       syncLe: SYNC_LE,
     });
@@ -101,6 +113,7 @@ describe('Conversion des enregistrements Airtable', () => {
       modalite: '',
       dureeTotale: '',
       urlWebflow: '',
+      sujetId: null,
       // Aucun statut renseigné : la formation est écrite, mais hors catalogue.
       actif: false,
     });
@@ -496,6 +509,7 @@ describe('Accord entre la validation serveur et les règles Firestore', () => {
         blocsCertification: [],
         dureeTotale: '',
         urlWebflow: '',
+        sujetId: null,
         actif: true,
         syncLe: SYNC_LE,
       }),
@@ -544,5 +558,123 @@ describe('Formation transverse : la synchronisation ne la touche pas', () => {
     const aDesactiver = formationsADesactiver(existantes, new Set());
 
     expect(aDesactiver.map((formation) => formation.id)).toEqual(['recAAA', 'recBBB']);
+  });
+});
+
+describe('Le sujet d’une fiche', () => {
+  it('lit le lien tel que l’API REST le rend : un tableau à plat d’identifiants', () => {
+    const { formations } = convertirEnregistrements([enregistrement()], SYNC_LE);
+    expect(formations[0]?.sujetId).toBe(SUJET);
+  });
+
+  it('une fiche sans sujet est écrite, avec `null`', () => {
+    for (const valeur of [undefined, null, []]) {
+      const { formations, rejets } = convertirEnregistrements(
+        [enregistrement({ [CHAMPS.sujet]: valeur })],
+        SYNC_LE,
+      );
+      expect(rejets).toEqual([]);
+      expect(formations[0]?.sujetId).toBeNull();
+    }
+  });
+
+  it('REFUS — deux sujets pour une fiche : rejetée et signalée, jamais tranchée', () => {
+    const { formations, rejets } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.sujet]: [SUJET, 'recSujetAutre0001'] })],
+      SYNC_LE,
+    );
+    expect(formations).toEqual([]);
+    expect(rejets[0]?.raisons).toEqual(['la formation est rattachée à 2 sujets']);
+  });
+
+  it('REFUS — la forme du connecteur, qui n’est pas celle de l’API REST', () => {
+    // Le relevé du 5 octobre 2026 a vu `{ linkedRecordIds, valuesByLinkedRecordId }`
+    // par le connecteur. Si elle arrivait un jour par l'API, elle serait
+    // signalée, pas lue de travers.
+    const { formations, rejets } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.sujet]: { linkedRecordIds: [SUJET], valuesByLinkedRecordId: {} } })],
+      SYNC_LE,
+    );
+    expect(formations).toEqual([]);
+    expect(rejets[0]?.raisons).toContain(
+      "le sujet n'est pas une liste d'identifiants d'enregistrement",
+    );
+  });
+
+  it('REFUS — un lien qui n’a pas la forme d’un enregistrement', () => {
+    const { rejets } = convertirEnregistrements(
+      [enregistrement({ [CHAMPS.sujet]: ['COVID'] })],
+      SYNC_LE,
+    );
+    expect(rejets[0]?.raisons).toEqual(['le sujet ne désigne pas un enregistrement Airtable']);
+  });
+});
+
+describe('La table Sujets', () => {
+  const sujet = (id: string, nom: unknown): EnregistrementAirtable => ({
+    id,
+    fields: { [CHAMPS_SUJET.nom]: nom },
+  });
+
+  it('convertit un sujet, actif tant qu’Airtable le renvoie', () => {
+    const { sujets, rejets } = convertirSujets([sujet(SUJET, '  Parodontie  ')], SYNC_LE);
+    expect(rejets).toEqual([]);
+    expect(sujets).toEqual([{ airtableId: SUJET, nom: 'Parodontie', actif: true, syncLe: SYNC_LE }]);
+  });
+
+  it('REFUS — un nom vide ou trop long, sans emporter les autres', () => {
+    const { sujets, rejets } = convertirSujets(
+      [
+        sujet('recSujetVide00001', ''),
+        sujet('recSujetLong00001', 'a'.repeat(PLAFONDS.sujetNom + 1)),
+        sujet(SUJET, 'Parodontie'),
+      ],
+      SYNC_LE,
+    );
+    expect(sujets.map((s) => s.airtableId)).toEqual([SUJET]);
+    expect(rejets.map((r) => r.raisons[0])).toEqual([
+      'le nom du sujet est vide',
+      `le nom du sujet dépasse ${PLAFONDS.sujetNom} caractères`,
+    ]);
+  });
+
+  it('REFUS — un sujet renvoyé deux fois', () => {
+    const { sujets, rejets } = convertirSujets(
+      [sujet(SUJET, 'Parodontie'), sujet(SUJET, 'Parodontie')],
+      SYNC_LE,
+    );
+    expect(sujets).toHaveLength(1);
+    expect(rejets[0]?.raisons).toEqual(['sujet renvoyé deux fois par Airtable']);
+  });
+
+  it('une fiche dont le sujet n’a pas été lu garde sa place, sans sujet, et se signale', () => {
+    const { formations } = convertirEnregistrements(
+      [
+        enregistrement({}, 'recFicheConnue001'),
+        enregistrement({ [CHAMPS.sujet]: ['recSujetPerdu0001'] }, 'recFichePerdue001'),
+      ],
+      SYNC_LE,
+    );
+    const { sujets } = convertirSujets([sujet(SUJET, 'Parodontie')], SYNC_LE);
+
+    const resultat = rattacherAuxSujets(formations, sujets);
+
+    expect(resultat.formations.map((f) => [f.airtableId, f.sujetId])).toEqual([
+      ['recFicheConnue001', SUJET],
+      ['recFichePerdue001', null],
+    ]);
+    expect(resultat.sujetsIntrouvables).toEqual(['recFichePerdue001']);
+  });
+
+  it('désactive un sujet disparu d’Airtable, jamais ce qui est déjà inactif', () => {
+    const aDesactiver = sujetsADesactiver(
+      [
+        { id: SUJET, actif: true },
+        { id: 'recSujetParti0001', actif: true },
+        { id: 'recSujetDejaOff01', actif: false },
+      ],
+      new Set([SUJET]),
+    );
+    expect(aDesactiver.map((s) => s.id)).toEqual(['recSujetParti0001']);
   });
 });

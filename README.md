@@ -83,8 +83,22 @@ formations/{formationId}          // identifiant du document = airtableId
                                    // libelleBloc ci-dessous
   dureeTotale : string             // peut être vide
   urlWebflow : string              // peut être vide
+  sujetId : string | null          // « rec... » du sujet ; obligatoire, null sans sujet
   actif : boolean
   syncLe : timestamp
+
+sujets/{sujetId}                   // miroir de la table Sujets d'Airtable
+  airtableId : string
+  nom : string
+  actif : boolean                  // faux quand le sujet a disparu d'Airtable
+  syncLe : timestamp
+
+presentations/{sujetId}            // saisie au back-office, à part du miroir :
+                                   // la synchronisation réécrit `sujets/` chaque nuit
+  url : string                     // Google Slides ou Drive, en https
+  presenteeLe : timestamp          // date de la présentation à l'équipe
+  presentePar : string             // le nom du jeton de l'auteur, vérifié par les règles
+  majLe : timestamp
 
 questions/{questionId}
   type : 'vf' | 'qcm' | 'scenario'
@@ -695,6 +709,9 @@ Sans plafond, une seule écriture peut approcher le document maximal d'un mégao
 | `formations.urlWebflow` | 500 | une URL de fiche publique |
 | `formations.cibles` (cumul) | 500 | sept publics possibles au référentiel |
 | `formations.blocsCertification` (cumul) | 200 | quatre options au référentiel — `Bloc 1` à `Bloc 4` |
+| `sujets.nom` | 200 | un intitulé de sujet, plus court qu'un intitulé de fiche |
+| `presentations.url` | 500 | une adresse de partage Google, comme une URL de fiche |
+| `presentations.presentePar` | 200 | un nom complet |
 | `sessions.code` | 12 | il est lu à voix haute puis saisi à la main |
 | `questions.formationIds` (cumul) | 1000 | une question se rattache à quelques formations, pas à cinquante |
 | `questions.bonnesReponses` (cumul) | 1000 | sous-ensemble des options, borné par elles |
@@ -997,10 +1014,53 @@ Trois étapes, pas une : déposer le `.ttf` dans `polices-source/`, l'ajouter à
 
 ### Côté commercial
 
-`/` accueil — maîtrise globale, étoiles, avancement par formation, deux actions.
+`/` accueil — maîtrise globale, étoiles, avancement par formation, deux actions. Une ligne d'avancement rattachée à un sujet mène à la page de ce sujet.
+`/sujet/[id]` — la page d'un sujet (maquette 8) : maîtrise sur les questions de ses fiches, série restreinte au sujet (`/serie?sujet=`), présentation d'équipe, fiches du catalogue. Voir « La page d'un sujet » ci-dessous.
 `/entrainement` — série en cours, une question à la fois, correction.
 `/revoir` — questions à retravailler.
 `/session/[code]` — vue participant de la session du jeudi.
+
+### La page d'un sujet
+
+Un sujet regroupe les fiches d'un même thème — formats, modalités et publics différents. **L'avancement de l'accueil reste par formation**, c'est ce que les états mesurent ; seule la page de destination regroupe. Le modèle, la synchronisation et les faits qui ont fixé la page sont dans `docs/airtable-formations.md`.
+
+- **Ce qu'elle montre.** La maîtrise sur l'ensemble, sans doublon, des questions servies rattachées aux fiches du sujet (`maitriseDuSujet`, `src/lib/sujets/sujet.ts`) ; la série du sujet ; la présentation d'équipe ; les fiches du catalogue. L'en-tête porte l'union des publics et la forme de la première fiche par ordre d'identifiant — arbitraire, mais déterministe.
+- **Ce qui s'écarte de la maquette, validé par Déthié le 5 octobre 2026.** La maquette dessine une carte par format ; le catalogue range souvent plusieurs fiches sous un même format. La carte garde le dessin et porte en plus le titre, la modalité, le public et la durée, et le numéro d'action DPC quand il est le seul discriminant. « Hybride », que la maquette ne dessine pas, prend l'icône `layers` du jeu existant.
+- **La série d'un sujet** est le tirage habituel, restreint aux questions du sujet (`/serie?sujet=`). Un sujet de six questions donne une série de six : elle vaut ce qu'elle pèse sur dix et compte un jour d'assiduité, exactement comme le rattrapage.
+- **Un sujet sans question n'a pas d'écran.** L'accueil écarte les formations sans question, donc ne mène qu'à des sujets qui en ont. Arrivé par une adresse directe, on voit la page sans bouton de série ni maîtrise.
+- **Rendue au serveur, sans script propre.** Le sujet, ses fiches, ses seules questions (par `array-contains-any`, pas le référentiel entier) et la présentation partent avec le HTML. La présentation est fermée au navigateur par les règles : seul le back-office la lit en direct.
+- **Les lignes de l'accueil sont des liens sans préchargement à l'affichage.** Une vingtaine de lignes dans le champ feraient une vingtaine de requêtes à chaque ouverture de l'écran le plus visité ; on précharge au premier signe d'intention (`useIntentionDeNavigation`).
+- **La saisie du lien, au back-office, n'est pas dans la maquette 11.** Elle est construite avec les primitives du système — champ, bouton, méta —, au pied de la carte de chaque fiche, et dit que le lien vaut pour toutes les fiches du sujet. L'auteur n'est pas saisi : c'est le nom du jeton, et les règles le vérifient.
+
+**Mesuré le 5 octobre 2026**, sur le build de production local (`next start`), session de l'équipe pédagogique, avec douze questions de recette créées puis supprimées. Le serveur local lit Firestore à distance : les valeurs absolues ne se comparent pas à la production, les écarts entre écrans si.
+
+| Écran | Poids local au premier chargement, document compris | Requêtes locales |
+|---|---:|---:|
+| Accueil | 543 ko | 42 |
+| Page d'un sujet | 515 ko | 38 |
+| Série d'un sujet | 509 ko | 25 |
+| Série ordinaire | 509 ko | 25 |
+
+La série d'un sujet pèse exactement la série ordinaire. Chaque écran charge en plus des ressources tierces (App Check, Firebase) qui déclarent environ 348 ko. La comparaison au lot précédent par manifeste de route n'a pas été faite : elle demande de construire `main` à part.
+
+**Du clic sur une ligne de l'accueil au titre du sujet**, médianes de trois mesures, page hydratée, chaque essai dans un document neuf :
+
+| Geste | Clic → réaction | Clic → titre |
+|---|---:|---:|
+| Souris, survol 150 ms avant le clic | 15 ms | 475 ms |
+| Souris, survol 400 ms avant | 13 ms | 375 ms |
+| Doigt, contact 100 ms avant | 14 ms | 386 ms |
+| Aucun signe d'intention | 25 ms | 365 ms |
+
+Le clic n'est jamais figé une fois la page hydratée. **Le préchargement par intention coûte une requête d'arborescence partagée (213 octets) et une par sujet (environ 1,26 ko)** : survoler trois lignes de trois sujets, puis revenir sur la première, fait quatre requêtes et 4,0 ko ; le retour ne coûte rien. Rien ne part à l'affichage de l'accueil.
+
+**Un piège de mesure, à ne pas refaire.** Un premier chiffre de 449 ms de clic figé venait d'un clic scripté **avant l'hydratation**, dans un onglet en arrière-plan où Chrome la retarde : la ligne n'était encore que du HTML, et le clic une navigation complète. Mesuré dans un cadre visible, l'accueil hydrate ses lignes entre 0,6 et 1,1 s après le chargement. Et un `mouseover` synthétique ne déclenche pas l'`onMouseEnter` de React : la mesure du survol appelle le gestionnaire que React a posé, comme le fait un vrai survol.
+
+### Candidat : l'erreur d'hydratation de la série (React #418)
+
+Relevée le 5 octobre 2026 pendant la recette de la page d'un sujet, **non corrigée** : elle précède ce lot et touche la série ordinaire comme celle d'un sujet. `Serie` tire sa graine au hasard dans un état initial (`useState(graineNeuve)`) : une fois au rendu serveur, une fois au navigateur. Les deux tirages diffèrent, le texte de la première question aussi, et React signale l'écart — le journal des pannes du navigateur l'a reçu deux fois (`[globale] … Minified React error #418`).
+
+Elle était invisible tant que la base ne servait aucune question : les deux rendus affichaient le même état vide. Elle reviendra dès la première question publiée. Piste, à éprouver : semer la graine côté serveur et la passer au composant, ou ne tirer qu'après le montage.
 
 ### Côté Noémie
 

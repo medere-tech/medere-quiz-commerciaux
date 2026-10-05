@@ -35,6 +35,10 @@ export const TRACES = {
   presentation: 'M3.5 4.5h17M5 4.5v10h14v-10M12 14.5v3M8.5 20.5l3.5-3 3.5 3',
   logout: 'M10 4.5H5.5v15H10M15 8l4 4-4 4M9 12h10',
   copy: 'M8.5 8.5h11v11h-11zM15.5 8.5V4.5h-11v11h4',
+  /* Ouvre ailleurs — la présentation, la fiche publique. Page d'un sujet. */
+  external: 'M13.5 4.5h6v6M19.5 4.5L11 13M17.5 14v5.5h-13v-13H10',
+  /* La classe virtuelle, sur la carte d'une fiche. Page d'un sujet. */
+  monitor: 'M3.5 5h17v11h-17zM9 20h6M12 16v4',
   /*
    * Poignée de déplacement.
    *

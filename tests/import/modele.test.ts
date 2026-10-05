@@ -34,6 +34,7 @@ function formation(valeurs: Partial<Formation> & Pick<Formation, 'id' | 'nom'>):
     modalite: '',
     dureeTotale: '',
     urlWebflow: '',
+    sujetId: null,
     blocsCertification: [],
     actif: true,
     ...valeurs,

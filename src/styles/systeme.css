@@ -3813,3 +3813,433 @@ a:hover {
   display: block;
   margin-top: var(--space-4);
 }
+
+/* -------------------------------------------------------- page d'un sujet
+ *
+ * Maquette « Médéré Entraînement 8 » : 1440, 1024 et 375. Trois dessins, et
+ * non un seul qui rétrécit.
+ *
+ * - **Au bureau large** (1280 px et plus), l'en-tête est une carte : le titre
+ *   et les actions à gauche, la maîtrise dans un panneau de 300 px à droite ;
+ *   les fiches en colonnes, autant que de fiches, trois au plus.
+ * - **En dessous**, jusqu'au téléphone, la même carte se resserre — panneau de
+ *   240 px — et les fiches passent en lignes : la maquette 1024 les dessine
+ *   ainsi, une colonne de trois cartes y serait trop étroite pour un titre.
+ * - **Sur téléphone**, la carte disparaît : le titre se pose sur le fond, la
+ *   maîtrise prend sa propre carte, et les actions descendent dans le pied
+ *   fixe, sous le pouce.
+ */
+.retour-accueil {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  align-self: flex-start;
+  min-height: 44px;
+  margin: -14px 0 -14px -8px;
+  padding: 0 12px 0 8px;
+  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  color: var(--neutral-70);
+  text-decoration: none;
+}
+
+.sujet-entete {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-card);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-card);
+  padding: 40px 44px;
+}
+
+/* Le décor déborde du coin, toujours rogné, jamais sous le texte. */
+.sujet-decor {
+  position: absolute;
+  top: -96px;
+  right: -40px;
+  width: 220px;
+  height: 220px;
+  transform: rotate(-14deg);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.sujet-entete-grille {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 56px;
+  align-items: end;
+}
+
+.sujet-titre {
+  margin: 16px 0 0;
+  max-width: 640px;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 44px;
+  line-height: 1.1;
+  color: var(--text-heading);
+  text-wrap: pretty;
+}
+
+.sujet-actions {
+  margin-top: 36px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.sujet-note {
+  margin-top: 18px;
+  max-width: 560px;
+}
+
+.note-presentation {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--body-sm-size);
+  line-height: 1.5;
+  color: var(--neutral-70);
+}
+
+.encart-sujet {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-page);
+}
+
+.encart-sujet-titre {
+  display: block;
+  font-size: var(--body-sm-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+
+.encart-sujet-texte {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--neutral-70);
+}
+
+.sujet-maitrise {
+  padding: 24px 26px;
+  border-radius: var(--radius-xl);
+  background: var(--surface-page);
+}
+
+.maitrise-chiffre {
+  font-family: var(--font-display);
+  font-size: 56px;
+  line-height: 1;
+}
+
+.sujet-fiches {
+  margin-top: var(--space-8);
+}
+
+.grille-fiches {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(var(--colonnes, 3), minmax(0, 1fr));
+  gap: 12px;
+}
+
+.carte-fiche {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 22px 22px 20px;
+  border-radius: var(--radius-xl);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-card-sm);
+  border: 1px solid transparent;
+}
+
+/* Sans lien : bordure complète, pas d'ombre — le dessin de la maquette. */
+.carte-fiche-hors-ligne {
+  box-shadow: none;
+  border-color: var(--border-subtle);
+}
+
+.pastille-format {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--brand-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pastille-format-hors-ligne {
+  background: var(--surface-sunken);
+}
+
+.carte-fiche-corps {
+  flex: 1;
+  min-width: 0;
+}
+
+.carte-fiche-format {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1.15;
+  color: var(--text-heading);
+}
+
+.carte-fiche-titre {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--body-sm-size);
+  font-weight: var(--weight-semibold);
+  line-height: 1.4;
+  color: var(--text-heading);
+  text-wrap: pretty;
+}
+
+.carte-fiche-details {
+  display: block;
+  margin-top: 5px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.carte-fiche-lien {
+  flex: none;
+  margin-top: auto;
+}
+
+.lien-fiche,
+.fiche-hors-ligne {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+}
+
+.lien-fiche {
+  font-size: var(--body-sm-size);
+  font-weight: var(--weight-semibold);
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+
+.fiche-hors-ligne {
+  font-size: 13px;
+  color: var(--neutral-60);
+}
+
+.libelle-court {
+  display: none;
+}
+
+/* Une seule fiche : une ligne, pas une colonne étirée sur toute la largeur. */
+.grille-fiches-seule .carte-fiche {
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.grille-fiches-seule .carte-fiche-lien {
+  margin-top: 0;
+}
+
+@media (max-width: 1279px) {
+  .sujet-entete {
+    padding: 30px 32px;
+  }
+
+  .sujet-decor {
+    right: -30px;
+    width: 170px;
+    height: 170px;
+  }
+
+  .sujet-entete-grille {
+    grid-template-columns: minmax(0, 1fr) 240px;
+    gap: 36px;
+  }
+
+  .sujet-titre {
+    font-size: 34px;
+  }
+
+  .sujet-actions {
+    margin-top: 28px;
+  }
+
+  .sujet-maitrise {
+    padding: 20px 22px;
+  }
+
+  .maitrise-chiffre {
+    font-size: 40px;
+  }
+
+  /* Les fiches en lignes : la maquette 1024. */
+  .grille-fiches {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .carte-fiche {
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 20px;
+  }
+
+  .carte-fiche-lien {
+    margin-top: 0;
+  }
+}
+
+@media (max-width: 699px) {
+  /* Plus de carte : le titre sur le fond, comme la maquette 375. */
+  .sujet-entete {
+    overflow: visible;
+    padding: 0;
+    background: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .sujet-decor {
+    display: none;
+  }
+
+  /*
+   * La maîtrise vient juste sous le titre, dans sa propre carte. Le contenu
+   * n'est pas dupliqué : la colonne de gauche s'efface (`contents`) et ses
+   * enfants se rangent avec le panneau dans une seule colonne flexible.
+   */
+  .sujet-entete-grille {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .sujet-entete-grille > :first-child {
+    display: contents;
+  }
+
+  .sujet-titre {
+    order: 1;
+    margin-top: 10px;
+    font-size: 25px;
+    line-height: 1.14;
+  }
+
+  .sujet-maitrise {
+    order: 2;
+    margin-top: 16px;
+    padding: 16px 18px;
+    background: var(--surface-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .sujet-actions {
+    order: 3;
+  }
+
+  .sujet-note {
+    order: 4;
+    margin-top: 14px;
+  }
+
+  /* Vide quand la présentation existe : sa mention part dans le pied. */
+  .sujet-note:not(:has(.encart-sujet)) {
+    display: none;
+  }
+
+  .encart-sujet {
+    padding: 14px 16px;
+  }
+
+  .sujet-fiches {
+    margin-top: 22px;
+  }
+
+  .grille-fiches {
+    margin-top: 14px;
+    gap: 8px;
+  }
+
+  .carte-fiche {
+    padding: 10px 14px;
+  }
+
+  .pastille-format {
+    width: 38px;
+    height: 38px;
+  }
+
+  .carte-fiche-format {
+    font-size: 19px;
+  }
+
+  .libelle-long {
+    display: none;
+  }
+
+  .libelle-court {
+    display: inline;
+  }
+}
+
+/* Une ligne d'avancement qui mène à la page de son sujet. Le lien enveloppe
+   la carte sans en changer le dessin ; le focus clavier en suit l'arrondi. */
+.ligne-lien {
+  display: block;
+  border-radius: var(--radius-lg);
+  color: inherit;
+  text-decoration: none;
+}
+
+/* La présentation du sujet d'une fiche, au pied de sa carte (écran Formations).
+   Distinguée par le fond, pas par un filet : la règle des bordures. */
+.presentation-sujet {
+  position: relative;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.presentation-sujet-titre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--body-sm-size);
+  font-weight: var(--weight-semibold);
+  color: var(--text-heading);
+}
+
+.presentation-sujet-saisie {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.presentation-sujet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

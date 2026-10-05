@@ -1,7 +1,12 @@
 import 'server-only';
 
 import { envServeur } from '@/lib/env/serveur';
-import type { EnregistrementAirtable } from '@/lib/airtable/contrat';
+import {
+  CHAMPS,
+  CHAMPS_SUJET,
+  TABLE_SUJETS,
+  type EnregistrementAirtable,
+} from '@/lib/airtable/contrat';
 
 /**
  * Accès à l'API Airtable. **Lecture seule, strictement.**
@@ -49,17 +54,34 @@ type PageAirtable = {
   offset?: unknown;
 };
 
-async function lirePage(offset: string | undefined): Promise<{
+/** Une table lue, et les seuls champs qu'on a le droit d'en demander. */
+type Lecture = {
+  table: string;
+  /** Pour les messages d'erreur : ce que l'administrateur doit vérifier. */
+  libelle: string;
+  champs: readonly string[];
+};
+
+async function lirePage(
+  lecture: Lecture,
+  offset: string | undefined,
+): Promise<{
   enregistrements: EnregistrementAirtable[];
   suivant: string | undefined;
 }> {
-  const adresse = new URL(
-    `${RACINE}/${envServeur.airtable.baseId}/${envServeur.airtable.tableFormations}`,
-  );
+  const adresse = new URL(`${RACINE}/${envServeur.airtable.baseId}/${lecture.table}`);
   // Sans ce paramètre, la réponse est indexée par nom de champ, et un
   // renommage dans Airtable casse la synchronisation en silence.
   adresse.searchParams.set('returnFieldsByFieldId', 'true');
   adresse.searchParams.set('pageSize', String(TAILLE_PAGE));
+  /*
+   * **Seuls les champs du contrat.** Sans cette liste, Airtable renvoie toutes
+   * les colonnes de l'enregistrement : la synchronisation lisait Prix, Devis
+   * et Indemnisation depuis le premier lot, alors que le contrat dit de ne pas
+   * les lire. Ignorés à la conversion, ils transitaient quand même par le
+   * serveur. Moins on lit, moins on expose.
+   */
+  for (const champ of lecture.champs) adresse.searchParams.append('fields[]', champ);
   if (offset) adresse.searchParams.set('offset', offset);
 
   let derniereErreur: ErreurAirtable | undefined;
@@ -100,7 +122,7 @@ async function lirePage(offset: string | undefined): Promise<{
     if (!reponse.ok) {
       const detail = (await reponse.text().catch(() => '')).slice(0, 300);
       throw new ErreurAirtable(
-        messageSelonStatut(reponse.status, detail),
+        messageSelonStatut(reponse.status, detail, lecture.libelle),
         reponse.status,
       );
     }
@@ -110,7 +132,7 @@ async function lirePage(offset: string | undefined): Promise<{
     if (!Array.isArray(page.records)) {
       throw new ErreurAirtable(
         `Réponse Airtable inattendue : aucun tableau « records ». ` +
-          `Vérifiez que AIRTABLE_TABLE_FORMATIONS désigne bien la table Formations.`,
+          `Vérifiez que ${lecture.libelle} désigne bien la bonne table.`,
       );
     }
 
@@ -123,7 +145,7 @@ async function lirePage(offset: string | undefined): Promise<{
   throw derniereErreur ?? new ErreurAirtable('Airtable est resté injoignable.');
 }
 
-function messageSelonStatut(statut: number, detail: string): string {
+function messageSelonStatut(statut: number, detail: string, libelle: string): string {
   const suffixe = detail.length > 0 ? ` Détail : ${detail}` : '';
 
   if (statut === 401) {
@@ -142,7 +164,7 @@ function messageSelonStatut(statut: number, detail: string): string {
   if (statut === 404) {
     return (
       `Base ou table introuvable (404). Vérifiez AIRTABLE_BASE_ID et ` +
-      `AIRTABLE_TABLE_FORMATIONS contre docs/airtable-formations.md.${suffixe}`
+      `${libelle} contre docs/airtable-formations.md.${suffixe}`
     );
   }
   if (statut === 429) {
@@ -156,7 +178,24 @@ function messageSelonStatut(statut: number, detail: string): string {
  * enregistrements. Ne convertit rien : la conversion et la validation sont
  * dans `conversion.ts`, qui se teste sans réseau.
  */
-export async function lireFormations(): Promise<EnregistrementAirtable[]> {
+export function lireFormations(): Promise<EnregistrementAirtable[]> {
+  return lireTable({
+    table: envServeur.airtable.tableFormations,
+    libelle: 'AIRTABLE_TABLE_FORMATIONS',
+    champs: Object.values(CHAMPS),
+  });
+}
+
+/** Lit la table des sujets, avec le seul nom : le lien se lit côté formations. */
+export function lireSujets(): Promise<EnregistrementAirtable[]> {
+  return lireTable({
+    table: TABLE_SUJETS,
+    libelle: `la table Sujets (${TABLE_SUJETS})`,
+    champs: Object.values(CHAMPS_SUJET),
+  });
+}
+
+async function lireTable(lecture: Lecture): Promise<EnregistrementAirtable[]> {
   const enregistrements: EnregistrementAirtable[] = [];
   let offset: string | undefined;
   let pages = 0;
@@ -169,7 +208,7 @@ export async function lireFormations(): Promise<EnregistrementAirtable[]> {
       );
     }
 
-    const page = await lirePage(offset);
+    const page = await lirePage(lecture, offset);
     enregistrements.push(...page.enregistrements);
     offset = page.suivant;
     pages += 1;

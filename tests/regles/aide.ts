@@ -13,7 +13,14 @@ export const PROJET = 'demo-medere-quiz';
 /** Comptes utilisés par les scénarios. */
 export const JORDAN = { uid: 'uid-jordan', email: 'jordan@medere.fr' };
 export const SOPHIE = { uid: 'uid-sophie', email: 'sophie@medere.fr' };
-export const NOEMIE = { uid: 'uid-noemie', email: 'noemie@medere.fr', admin: true };
+export const NOEMIE = {
+  uid: 'uid-noemie',
+  email: 'noemie@medere.fr',
+  admin: true,
+  // La revendication `name` d'un compte Google : les règles l'exigent comme
+  // auteur d'une présentation.
+  nom: 'Noémie Vasseur',
+};
 export const EXTERNE = { uid: 'uid-externe', email: 'visiteur@gmail.com' };
 
 /** Horodatage passé, accepté par les règles. */
@@ -36,6 +43,7 @@ type Identite = {
   email: string;
   admin?: boolean;
   emailVerifie?: boolean;
+  nom?: string;
 };
 
 type Document = Record<string, unknown>;
@@ -62,6 +70,7 @@ export function connecte(env: RulesTestEnvironment, identite: Identite): Firesto
     email_verified: identite.emailVerifie ?? true,
   };
   if (identite.admin === true) jeton.admin = true;
+  if (identite.nom !== undefined) jeton.name = identite.nom;
 
   return env.authenticatedContext(identite.uid, jeton).firestore() as unknown as Firestore;
 }
@@ -197,6 +206,7 @@ export function formation(remplacements: Document = {}): Document {
     blocsCertification: ['2'],
     dureeTotale: '7 heures',
     urlWebflow: 'https://www.medere.fr/formations/parodontie',
+    sujetId: 'recSujetParodont1',
     actif: true,
     syncLe: HIER,
     ...remplacements,

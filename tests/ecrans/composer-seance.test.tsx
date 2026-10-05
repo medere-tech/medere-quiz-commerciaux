@@ -79,6 +79,7 @@ function formation(id: string, nom: string, cible: string): Formation {
     blocsCertification: ['2'],
     dureeTotale: '7 heures',
     urlWebflow: '',
+    sujetId: null,
     actif: true,
   } as Formation;
 }

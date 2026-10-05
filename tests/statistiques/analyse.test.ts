@@ -45,6 +45,7 @@ function formation(id: string, nom: string): Formation {
     modalite: '',
     dureeTotale: '',
     urlWebflow: '',
+    sujetId: null,
     blocsCertification: [],
     actif: true,
   };

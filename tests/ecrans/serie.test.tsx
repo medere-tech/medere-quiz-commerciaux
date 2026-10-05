@@ -46,6 +46,7 @@ function progressionVide(): import('@/lib/serie/depot').Progression {
   };
 }
 const pousser = vi.fn();
+const remplacer = vi.fn();
 
 /*
  * **Le faux est typé sur le vrai module.** `vi.mock(import('…'))` — la forme à
@@ -74,7 +75,7 @@ vi.mock(import('@/lib/firebase/client'), () => ({
 let adresse = fausseRequete();
 
 vi.mock(import('next/navigation'), () => ({
-  useRouter: () => fauxRouteur({ push: pousser }),
+  useRouter: () => fauxRouteur({ push: pousser, replace: remplacer }),
   usePathname: () => '/serie',
   useSearchParams: () => adresse,
 }));
@@ -115,6 +116,7 @@ const referentiel = (questions: Question[]) => ({
       blocsCertification: ['1'],
       dureeTotale: '14 heures',
       urlWebflow: '',
+      sujetId: null,
       actif: true,
       syncLe: null,
     },
@@ -460,5 +462,67 @@ describe('sans question à poser', () => {
 
     expect(await screen.findByText(/aucune question n’est publiée/i)).toBeTruthy();
     expect(screen.getByRole('link', { name: /revenir à l’accueil/i })).toBeTruthy();
+  });
+});
+
+/*
+ * La série d'un sujet, lancée depuis sa page : le tirage habituel, restreint
+ * aux questions des fiches du sujet. Un sujet de trois questions donne une
+ * série de trois, créditée comme le rattrapage — étoiles sur dix, un jour
+ * d'assiduité.
+ */
+describe('la série d’un sujet', () => {
+  const SUJET = 'recSujetParodont1';
+
+  function referentielASujets(questions: Question[]) {
+    const [fiche] = referentiel([]).formations;
+    return {
+      questions,
+      formations: [
+        { ...fiche!, id: 'f-sujet', sujetId: SUJET },
+        { ...fiche!, id: 'f-autre', sujetId: 'recSujetAutre0001' },
+      ],
+    };
+  }
+
+  it('ne tire que les questions du sujet, et relance le même sujet', async () => {
+    adresse = fausseRequete(`sujet=${SUJET}`);
+    const questions = banque(12).map((q, i) => ({
+      ...q,
+      formationIds: i < 3 ? ['f-sujet'] : ['f-autre'],
+    }));
+    const { render } = await import('@testing-library/react');
+    await act(async () => {
+      render(<Serie referentiel={referentielASujets(questions)} />);
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: /valider/i })).toBeTruthy());
+
+    for (let tour = 0; tour < 3; tour += 1) {
+      expect(enonceAffiche()).toMatch(/numéro [012] \?/);
+      fireEvent.click(screen.getByText(optionsAffichees()[0]!));
+      fireEvent.click(screen.getByRole('button', { name: /valider/i }));
+      fireEvent.click(
+        await screen.findByRole('button', {
+          name: /question suivante|continuer|suivante|terminer|bilan|résultat/i,
+        }),
+      );
+    }
+
+    // Trois questions, et la série est finie : créditée une fois, sur dix.
+    await waitFor(() => expect(crediterSerie).toHaveBeenCalledTimes(1));
+    expect(document.body.textContent).toContain('Celle-ci en comptait 3');
+
+    fireEvent.click(screen.getByRole('button', { name: /Nouvelle série/ }));
+    expect(remplacer).toHaveBeenCalledWith(`/serie?sujet=${SUJET}`, { scroll: true });
+  });
+
+  it('un sujet sans question publiée le dit, au lieu d’une série vide', async () => {
+    adresse = fausseRequete('sujet=recSujetVide00001');
+    const { render } = await import('@testing-library/react');
+    await act(async () => {
+      render(<Serie referentiel={referentielASujets(banque(5))} />);
+    });
+
+    expect(await screen.findByText('Aucune question sur ce sujet')).toBeTruthy();
   });
 });
