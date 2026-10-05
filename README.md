@@ -1240,8 +1240,14 @@ republie un podium vide dès la remise à zéro des comptes.
 
 **`--table-rase` : on repart d'une base vide, avec les comptes administrateur
 et rien d'autre.** Toutes les collections racine sont parcourues et vidées,
-sauf `formations` — le miroir d'Airtable, qui se reconstruirait à l'identique
-et sans lequel l'import refuserait chaque formation citée. Les comptes
+sauf les deux miroirs d'Airtable, qui se reconstruiraient à l'identique :
+`formations`, sans lequel l'import refuserait chaque formation citée, et
+`sujets`, sans lequel chaque formation pointerait vers un sujet inexistant et
+chaque page de sujet répondrait « introuvable ». L'essai à blanc les marque
+GARDÉE, avec la raison. **La liste est explicite** (`COLLECTIONS_GARDEES`) :
+la table rase parcourt les collections sans les nommer, si bien qu'un miroir
+ajouté sans y être inscrit partirait sans bruit — c'est ce qui était arrivé à
+`sujets`. Les comptes
 Authentication hors `ADMIN_EMAILS` sont supprimés ; les documents `users/` des
 administrateurs sont recréés neufs, leurs données effacées. Mot de confirmation
 distinct, `--confirmer=TABLE-RASE`, et refus de tourner si aucun administrateur
