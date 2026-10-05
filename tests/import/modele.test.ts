@@ -174,7 +174,7 @@ describe('exemplesDeQuestions', () => {
   it.each([
     ['1', '2'],
     ['Bloc 1', 'Bloc 2'],
-  ])('nomme le bloc « Bloc 1 », que le référentiel écrive « %s » ou une autre forme', (premier, second) => {
+  ])('écrit « Bloc 1 » quand le référentiel donne « %s »', (premier, second) => {
     // Airtable est passé de « 1 » à « Bloc 1 » en octobre 2026. `libelleBloc`
     // n'ajoute « Bloc » qu'à un nombre nu : un préfixe inconditionnel
     // écrirait « Bloc Bloc 1 » sous les yeux des commerciaux (README, section 3).
