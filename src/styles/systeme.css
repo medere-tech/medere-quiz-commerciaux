@@ -3829,6 +3829,24 @@ a:hover {
  *   maîtrise prend sa propre carte, et les actions descendent dans le pied
  *   fixe, sous le pouce.
  */
+/*
+ * Gouttières et espacements de la maquette, pas ceux de `.page-admin`.
+ *
+ * La maquette 8 pose 48 px de côté à 1440, 36 à 1024, 20 à 375 — et des
+ * marges propres entre le retour, l'en-tête et les fiches (24, puis 56 ou
+ * 44). L'écart commun de 24 px de `.page-admin` les faussait : 46 px au lieu
+ * de 22 entre la maîtrise et les fiches sur téléphone, 56 au lieu de 44 à
+ * 1024. Mesuré sur la page déployée le 5 octobre 2026, pas lu dans le CSS.
+ */
+.page-sujet {
+  gap: 0;
+  padding: 36px 48px;
+}
+
+.sujet-entete {
+  margin-top: 24px;
+}
+
 .retour-accueil {
   display: inline-flex;
   align-items: center;
@@ -3942,7 +3960,18 @@ a:hover {
 }
 
 .sujet-fiches {
-  margin-top: var(--space-8);
+  margin-top: 56px;
+}
+
+.sujet-publics {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* La jauge sous le chiffre : 18 px au bureau large, 14 au-dessous (`MasteryBlock`). */
+.maitrise-jauge {
+  margin-top: 18px;
 }
 
 .grille-fiches {
@@ -4059,6 +4088,18 @@ a:hover {
 }
 
 @media (max-width: 1279px) {
+  .page-sujet {
+    padding: 30px 36px;
+  }
+
+  .sujet-fiches {
+    margin-top: 44px;
+  }
+
+  .maitrise-jauge {
+    margin-top: 14px;
+  }
+
   .sujet-entete {
     padding: 30px 32px;
   }
@@ -4109,8 +4150,41 @@ a:hover {
 }
 
 @media (max-width: 699px) {
+  /* Vingt pixels de côté, comme la maquette et comme le pied fixe : les cartes
+     et les boutons du pied tombent sur la même largeur. Le bas reste réservé
+     au pied par `.page-admin:has(.pied-mobile)`. */
+  .page-sujet {
+    /* En haut, la zone de clic du retour (44 px, marge de -14) commence au
+       ras du contenu, sous la barre de l'application, sans la chevaucher. */
+    padding-top: 14px;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .retour-accueil {
+    font-size: 13px;
+  }
+
+  .retour-accueil svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  /* Le retour garde sa marge basse de -14 px : les publics viennent 14 px
+     plus bas, collés à sa zone de clic, comme la maquette. */
+  .sujet-publics {
+    margin-top: 14px;
+    gap: 8px;
+  }
+
+  .sujet-publics img {
+    width: 20px;
+    height: 20px;
+  }
+
   /* Plus de carte : le titre sur le fond, comme la maquette 375. */
   .sujet-entete {
+    margin-top: 0;
     overflow: visible;
     padding: 0;
     background: none;
@@ -4127,9 +4201,16 @@ a:hover {
    * n'est pas dupliqué : la colonne de gauche s'efface (`contents`) et ses
    * enfants se rangent avec le panneau dans une seule colonne flexible.
    */
+  /*
+   * `stretch`, pas l'`end` de la grille du bureau : dans une colonne, `end`
+   * pousse chaque enfant à droite et le réduit à son contenu. La carte de
+   * maîtrise faisait 212 px sur 335, le titre et les publics de même — le
+   * défaut relevé sur la page déployée.
+   */
   .sujet-entete-grille {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 0;
   }
 
@@ -4172,6 +4253,11 @@ a:hover {
 
   .sujet-fiches {
     margin-top: 22px;
+  }
+
+  .pastille-format svg {
+    width: 18px;
+    height: 18px;
   }
 
   .grille-fiches {

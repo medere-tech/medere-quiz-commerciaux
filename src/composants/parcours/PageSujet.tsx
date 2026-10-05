@@ -108,7 +108,7 @@ export function PageSujet(proprietes: ProprietesPageSujet) {
 
         <div className="sujet-entete-grille">
           <div style={{ minWidth: 0 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="sujet-publics">
               <FormeFormation fichier={forme.fichier} taille={24} />
               <Meta style={{ color: 'var(--neutral-70)' }}>
                 {publics.join(', ') || 'Public non précisé'}
@@ -180,7 +180,7 @@ function BlocMaitrise({ maitrise }: { maitrise: MaitriseSujet }) {
         </span>
         <Meta>de maîtrise</Meta>
       </span>
-      <div style={{ marginTop: 16 }}>
+      <div className="maitrise-jauge">
         <Jauge
           valeur={maitrise.pourcentage}
           hauteur={6}

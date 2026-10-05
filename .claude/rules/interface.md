@@ -77,6 +77,39 @@ Comparer la **somme des largeurs des enfants** à celle du conteneur. Trois
 commandes de 24 px et deux interstices de 4 font 80 ; une colonne déclarée à 64
 est fausse avant qu'on regarde. C'est un calcul, il tient dans une assertion.
 
+### Le défaut inverse : un élément trop étroit
+
+Ni le chevauchement ni la somme des largeurs ne voient un élément **qui ne
+remplit pas** sa place. Le 5 octobre 2026, sur la page d'un sujet à 375 px, la
+carte de maîtrise faisait 212 px sur 335, poussée à droite, le titre et les
+publics de même : la grille du bureau gardait `align-items: end` en passant en
+colonne, ce qui aligne à droite au lieu d'étirer. Aucun nœud ne se recouvrait,
+aucune somme ne débordait. Le lot était parti en croyant le style juste.
+
+La mesure : comparer chaque bloc à la **largeur utile** de son conteneur —
+largeur moins les rembourrages — et vérifier ses deux bords, pas seulement sa
+largeur.
+
+```js
+const remplit = (bloc, conteneur) => {
+  const c = conteneur.getBoundingClientRect();
+  const s = getComputedStyle(conteneur);
+  const gauche = c.left + parseFloat(s.paddingLeft);
+  const droite = c.right - parseFloat(s.paddingRight);
+  const r = bloc.getBoundingClientRect();
+  return Math.abs(r.left - gauche) < 1 && Math.abs(r.right - droite) < 1;
+};
+```
+
+Deux précautions, apprises le même jour :
+
+- **Attendre que la page ait une largeur.** La garde de session garde le
+  contenu masqué tant que l'authentification n'est pas confirmée ; dans un
+  cadre neuf, cela dépasse trois secondes, et toutes les mesures valent zéro.
+  Attendre une condition (`largeur > 0`), jamais un délai fixe.
+- **Masquer la barre de défilement du cadre** (`html { scrollbar-width: none }`)
+  : à 375 px, elle mange quinze pixels qu'un téléphone n'a pas.
+
 ### Et le reste se regarde
 
 Un collant se vérifie en défilant : mesurer sa position avant et après un
