@@ -24,16 +24,16 @@
  *      distingue un essai d'une vraie question.
  *
  *      **`--table-rase` est l'exception, et elle est voulue** : elle efface
- *      toutes les collections sauf `formations`, **questions comprises**. La
+ *      toutes les collections sauf `formations` et `sujets`, **questions comprises**. La
  *      banque repart vide, et Noémie importe la sienne sur une base propre —
  *      sans quoi ses questions se mêleraient à celles de recette.
  *
  * **Ce à quoi il ne touche pas, et pourquoi :**
  *
- *   - `formations` — le miroir Airtable. Il se reconstruit par synchronisation,
- *     et Airtable est en lecture seule : rien à effacer ici. Seule exception, la
- *     formation transverse, qui ne vient pas d'Airtable : elle se recrée par
- *     `npm run formations:transverse`.
+ *   - `formations` et `sujets` — les miroirs d'Airtable. Ils se reconstruisent
+ *     par synchronisation, et Airtable est en lecture seule : rien à effacer ici.
+ *     Seule exception, la formation transverse, qui ne vient pas d'Airtable :
+ *     elle se recrée par `npm run formations:transverse`.
  *   - Les comptes Firebase Authentication. Effacer le document `users/{uid}`
  *     remet la progression à zéro ; effacer le compte déconnecterait aussi les
  *     administrateurs et ferait perdre les custom claims, qui ne se
@@ -666,17 +666,30 @@ async function remettreAZero(db: Firestore, uids: string[]): Promise<void> {
  *     qu'emploie la connexion : un administrateur déjà connecté garde une
  *     session valable quatorze jours, et un document absent ferait refuser
  *     toutes ses écritures jusqu'à sa reconnexion.
- *   - `formations`. Ce n'est pas une donnée de l'application mais le miroir
- *     d'Airtable, qui se reconstruirait à l'identique par synchronisation. Le
- *     vider ne gagnerait rien et casserait l'import tant qu'une synchronisation
- *     n'est pas passée : chaque formation citée serait « inconnue ».
+ *   - `formations` et `sujets`. Ce ne sont pas des données de l'application
+ *     mais les miroirs d'Airtable, qui se reconstruiraient à l'identique par
+ *     synchronisation. Les vider ne gagnerait rien et casserait l'application
+ *     tant qu'une synchronisation n'est pas passée : sans `formations`, chaque
+ *     formation citée à l'import serait « inconnue » ; sans `sujets`, chaque
+ *     formation garderait un `sujetId` vers un sujet qui n'existe plus, et les
+ *     pages de sujet répondraient « introuvable ».
+ *
+ *     **Une collection qu'Airtable reconstruit se garde ici, et nulle part
+ *     ailleurs.** La table rase parcourt les collections sans les énumérer : un
+ *     miroir ajouté sans être inscrit ci-dessous partirait sans bruit. C'est ce
+ *     qui est arrivé à `sujets`, ajouté au lot de la page d'un sujet. À la
+ *     prochaine table Airtable synchronisée, l'inscrire dans la même liste.
  *
  * **Mot de confirmation distinct.** `--confirmer=TABLE-RASE`, pas `EFFACER` :
  * une commande de nettoyage partiel rejouée depuis l'historique ne doit pas
  * pouvoir devenir une table rase par une option ajoutée en bout de ligne.
  */
 const MOT_TABLE_RASE = 'TABLE-RASE';
-const COLLECTIONS_GARDEES = ['formations'];
+/** Les miroirs d'Airtable, et ce qu'on perdrait à les vider. */
+const COLLECTIONS_GARDEES = new Map<string, string>([
+  ['formations', "miroir d'Airtable"],
+  ['sujets', "miroir d'Airtable, référencé par chaque formation (sujetId)"],
+]);
 
 type PlanTableRase = {
   chemins: string[];
@@ -706,9 +719,10 @@ async function planTableRase(db: Firestore): Promise<PlanTableRase> {
   const lignes: string[] = [];
 
   for (const collection of await db.listCollections()) {
-    if (COLLECTIONS_GARDEES.includes(collection.id)) {
+    const raison = COLLECTIONS_GARDEES.get(collection.id);
+    if (raison !== undefined) {
       const nombre = (await collection.count().get()).data().count;
-      lignes.push(`  ${collection.id.padEnd(20)} GARDÉE — ${nombre} document(s), miroir d'Airtable`);
+      lignes.push(`  ${collection.id.padEnd(20)} GARDÉE — ${nombre} document(s), ${raison}`);
       continue;
     }
     const sous = await sousArbre(collection);
@@ -723,7 +737,7 @@ async function tableRase(db: Firestore, confirmation: string | undefined): Promi
   const plan = await planTableRase(db);
   const adressesListees = (process.env.ADMIN_EMAILS ?? '').split(',').filter((a) => a.trim()).length;
 
-  console.log('TABLE RASE — tout part, sauf les comptes administrateur et le miroir Airtable\n');
+  console.log("TABLE RASE — tout part, sauf les comptes administrateur et les miroirs d'Airtable\n");
   console.log('FIRESTORE');
   console.log(plan.lignes.length > 0 ? plan.lignes.join('\n') : '  (base déjà vide)');
   console.log();
@@ -807,7 +821,7 @@ async function tableRase(db: Firestore, confirmation: string | undefined): Promi
   console.log(`${plan.administrateurs.length} document(s) administrateur recréé(s).`);
 
   console.log(
-    '\nTerminé. La base ne contient plus que les comptes administrateur et `formations`.\n' +
+    '\nTerminé. La base ne contient plus que les comptes administrateur, `formations` et `sujets`.\n' +
       'Si la formation transverse manque : `npm run formations:transverse -- --faire`.',
   );
 }
@@ -973,7 +987,7 @@ async function principal(): Promise<void> {
   console.log(
     '\nTerminé.\n' +
       'Rappel : les comptes Firebase Authentication et leurs custom claims sont intacts, ' +
-      'et `formations` aussi — il se reconstruit par synchronisation Airtable, ' +
+      'et `formations` et `sujets` aussi — ils se reconstruisent par synchronisation Airtable, ' +
       'sauf la formation transverse : `npm run formations:transverse`.',
   );
 }
