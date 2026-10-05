@@ -308,6 +308,34 @@ describe('la correction', () => {
     const derniere = await enregistrerReponse.mock.results[1]!.value;
     expect(crediterSerie.mock.calls[0]![2]).toBe(derniere);
   });
+
+  it('signale un crédit refusé sous un message à lui, distinct d’une réponse refusée', async () => {
+    // `signalerPanne` dédoublonne sur l'origine, le message et le chemin. Le
+    // crédit signalait l'erreur Firebase brute, au même message qu'une réponse
+    // refusée : après un premier refus sur la page, il était écarté du journal.
+    const refus = Object.assign(new Error('Missing or insufficient permissions.'), {
+      code: 'permission-denied',
+    });
+    enregistrerReponse.mockRejectedValueOnce(refus);
+    crediterSerie.mockRejectedValue(refus);
+    await ouvrirLaSerie(banque(2));
+
+    for (let tour = 0; tour < 2; tour += 1) {
+      fireEvent.click(screen.getByText(optionsAffichees()[0]!));
+      fireEvent.click(screen.getByRole('button', { name: /valider/i }));
+      const suite = await screen.findByRole('button', {
+        name: /question suivante|continuer|suivante|terminer|bilan|résultat/i,
+      });
+      fireEvent.click(suite);
+    }
+
+    expect(await screen.findByText('Vos étoiles n’ont pas pu être enregistrées. Vos réponses, si.')).toBeTruthy();
+    const messages = signalerPanne.mock.calls.map(([, erreur]) => (erreur as Error).message);
+    expect(messages).toEqual([
+      'Missing or insufficient permissions.',
+      'Série non créditée (permission-denied) : Missing or insufficient permissions.',
+    ]);
+  });
 });
 
 /* ================================================================ quitter */

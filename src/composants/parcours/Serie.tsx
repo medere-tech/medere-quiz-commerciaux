@@ -303,8 +303,17 @@ export function Serie({
           setNouvellesRecompenses(gagnees);
         } catch (panne: unknown) {
           const code = (panne as { code?: string })?.code;
-          console.error(`Série non créditée${code ? ` (${code})` : ''}`, panne);
-          signalerPanne('ecriture', panne);
+          const contexte = `Série non créditée${code ? ` (${code})` : ''}`;
+          console.error(contexte, panne);
+          // Le contexte part dans le message, pas seulement dans la console.
+          // Sans lui, un crédit refusé portait le même message qu'une réponse
+          // refusée, et `signalerPanne`, qui dédoublonne sur l'origine, le
+          // message et le chemin, l'écartait si une réponse avait été refusée
+          // avant lui sur la page : le crédit disparaissait du journal.
+          signalerPanne(
+            'ecriture',
+            new Error(`${contexte} : ${panne instanceof Error ? panne.message : String(panne)}`),
+          );
           setErreurEcriture('Vos étoiles n’ont pas pu être enregistrées. Vos réponses, si.');
         }
       }
