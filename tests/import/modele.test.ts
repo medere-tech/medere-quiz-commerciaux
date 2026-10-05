@@ -171,6 +171,23 @@ describe('exemplesDeQuestions', () => {
     expect(analyse.question!.bonnesReponses.map((id) => analyse.question!.options[id])).toEqual(['8 h']);
   });
 
+  it.each([
+    ['1', '2'],
+    ['Bloc 1', 'Bloc 2'],
+  ])('écrit « Bloc 1 » quand le référentiel donne « %s »', (premier, second) => {
+    // Airtable est passé de « 1 » à « Bloc 1 » en octobre 2026. `libelleBloc`
+    // n'ajoute « Bloc » qu'à un nombre nu : un préfixe inconditionnel
+    // écrirait « Bloc Bloc 1 » sous les yeux des commerciaux (README, section 3).
+    const blocs = [
+      formation({ id: 'recB1', nom: 'Ménopause', numeroActionDpc: '92622525478', blocsCertification: [premier] }),
+      formation({ id: 'recB2', nom: 'Diabète', numeroActionDpc: '92622525445', blocsCertification: [second] }),
+    ];
+    const bloc = exemplesDeQuestions(blocs).find((ligne) => ligne.theme === 'Certification');
+
+    expect(bloc?.reponses).toBe('Bloc 1|Bloc 2');
+    expect(bloc?.bonnesReponses).toBe('Bloc 1');
+  });
+
   it('ne propose jamais un nombre nu, que l’import lirait comme un numéro', () => {
     for (const ligne of exemplesDeQuestions(CATALOGUE)) {
       for (const proposition of ligne.reponses.split('|').filter(Boolean)) {
