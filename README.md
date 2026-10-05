@@ -239,6 +239,25 @@ par le vrai code.
   navigateur. Les règles garantissent la cohérence du verdict, pas le mérite.
 - **Le nom de séance est libre** : prendre le prénom d'un collègue reste
   possible. C'est un choix de produit, pas une règle.
+- **Le crédit repose sur une garantie que la documentation Firestore ne
+  formule pas.** La règle exige `repondueLe > creditLe`, au sens strict : la
+  réponse qui clôt une série doit être postérieure au crédit précédent. C'est
+  juste tant qu'une écriture validée **après** une autre reçoit un horodatage
+  **strictement** supérieur. La documentation de Spanner le garantit
+  (« TrueTime and external consistency » : si T2 est validée après le retour
+  de T1, l'horodatage de T2 est supérieur). Celle de Firestore ne le dit pas
+  en ces termes, et nous ne l'avons pas mesuré en production : on suppose que
+  Firestore hérite de Spanner, sans l'avoir vérifié. Si la supposition est
+  fausse, le cas reste hors de portée d'un geste humain — il faudrait
+  répondre à la question suivante moins de dix millisecondes après le crédit.
+  Et ce n'est pas qu'une hypothèse d'école : **l'émulateur, lui, viole cette
+  garantie**. Mesuré le 5 octobre 2026, il donne parfois à une écriture
+  l'horodatage de la validation précédente, antérieur de 4 à 9 ms à son
+  propre envoi. C'est ce qui faisait tomber au hasard `compte-neuf.test.ts`
+  (CLAUDE.md, « Pièges connus »). Ne pas passer la règle à `>=` pour
+  l'arranger : une réponse et son propre crédit pourraient alors partager un
+  horodatage, et la règle laisserait recréditer une réponse déjà créditée,
+  ce qu'elle est là pour refuser.
 
 **Node 22, déclaré et vérifié.** `engines.node` vaut `22.x` à la racine comme
 dans `functions/`. Ce n'est pas une préférence : `firebase-admin` déclare
