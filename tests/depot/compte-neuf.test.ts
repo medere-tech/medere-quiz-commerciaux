@@ -100,10 +100,11 @@ describe('Une série, le premier jour', () => {
     await crediterSerie(JORDAN.uid, 1, premiere, { parfaite: false, catalogue: CATALOGUE_VIDE });
     // L'émulateur donne parfois à une écriture l'horodatage de la validation
     // précédente, de 4 à 9 ms en arrière (mesuré le 5 octobre 2026 : 17 tours
-    // sur 150 sous charge). La seconde réponse prenait alors l'heure exacte du
-    // crédit, et la règle `repondueLe > creditLe` la refusait à raison. On
-    // attend que l'horloge ait avancé, avec trois fois la marge mesurée. Ne pas
-    // relâcher la règle à la place : voir CLAUDE.md, « Pièges connus ».
+    // sur 150 dans la suite complète). La seconde réponse prenait alors
+    // l'heure exacte du crédit, et la règle `repondueLe > creditLe` la
+    // refusait à raison. On attend que l'horloge ait avancé, avec trois fois
+    // la marge mesurée. Ne pas relâcher la règle à la place : voir CLAUDE.md,
+    // « Pièges connus ».
     await new Promise((suite) => setTimeout(suite, 30));
     const seconde = await enregistrerReponse(JORDAN.uid, 'q-vf', ['b'], false);
     await assertSucceeds(

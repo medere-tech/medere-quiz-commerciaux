@@ -1,6 +1,6 @@
 'use client';
 
-import { preparerPanne, type Origine } from '@/lib/journal/redaction';
+import { preparerPanne, type Origine, type PanneSignalee } from '@/lib/journal/redaction';
 
 /**
  * Signalement des pannes survenues dans le navigateur.
@@ -28,15 +28,96 @@ import { preparerPanne, type Origine } from '@/lib/journal/redaction';
  * **Trois garde-fous contre le bavardage.** Une panne qui se répète en boucle
  * — un effet qui relance un rendu qui relance l'effet — remplirait le journal
  * en quelques secondes et noierait tout le reste, ce qui est précisément le
- * défaut qu'on répare. D'où la déduplication, le plafond par chargement, et
- * l'envoi silencieux.
+ * défaut qu'on répare. D'où la déduplication, le plafond de débit, et l'envoi
+ * silencieux. Le serveur ne limite rien : ce plafond est le seul rempart.
+ *
+ * **Le plafond est un débit, pas un quota à vie.** Il valait cinq signalements
+ * par chargement de page, toutes origines confondues. Or la séance du jeudi
+ * est un seul écran ouvert une heure devant dix personnes : cinq pannes
+ * bénignes en début de séance, et tout ce qui suivait était muet — là même où
+ * l'on a le plus besoin de voir ce qui tombe. Il vaut désormais cinq
+ * signalements **par origine** sur toute fenêtre de soixante secondes : une
+ * rafale de ressources n'étouffe plus un refus d'écriture, et le silence ne
+ * dure jamais plus d'une minute. Au pire, une boucle coûte vingt-cinq lignes
+ * par minute et par poste — on voit trop plutôt que pas assez.
+ *
+ * **Et il dit ce qu'il a retenu.** Un plafond muet laisse croire que le
+ * journal est complet, comme un `catch` qui mange l'erreur. Ce qu'il écarte
+ * est compté, et le compte part dès que la fenêtre se rouvre, ou au départ de
+ * la page s'il n'en a pas eu le temps.
  */
 
-/** Au-delà, on a compris : il se passe quelque chose, et on ne l'apprend plus. */
-const SIGNALEMENTS_MAX = 5;
+/** Signalements admis par origine sur une fenêtre glissante. */
+export const PAR_FENETRE = 5;
+export const FENETRE_MS = 60_000;
 
 const dejaVues = new Set<string>();
-let envoyes = 0;
+/** Instants des envois de la fenêtre en cours, par origine. */
+const envois = new Map<Origine, number[]>();
+/** Ce que le plafond a écarté depuis le dernier compte rendu, par origine. */
+const ecartes = new Map<Origine, number>();
+const minuteries = new Map<Origine, ReturnType<typeof setTimeout>>();
+
+/** Réserve une place dans la fenêtre de l'origine, s'il en reste une. */
+function reserver(origine: Origine): boolean {
+  const maintenant = Date.now();
+  const recents = (envois.get(origine) ?? []).filter((instant) => maintenant - instant < FENETRE_MS);
+  envois.set(origine, recents);
+  if (recents.length >= PAR_FENETRE) return false;
+  recents.push(maintenant);
+  return true;
+}
+
+/** Le compte de ce qui a été écarté, sous la forme d'un signalement ordinaire. */
+function compteRendu(origine: Origine, nombre: number) {
+  const pluriel = nombre > 1 ? 's' : '';
+  return preparerPanne({
+    origine,
+    message:
+      `${nombre} signalement${pluriel} écarté${pluriel} par le plafond ` +
+      `(${PAR_FENETRE} par minute et par origine)`,
+    chemin: window.location.pathname,
+  });
+}
+
+/**
+ * Envoie le compte des signalements écartés. `force` ignore le plafond : au
+ * départ de la page, il n'y aura pas d'autre occasion, et c'est une ligne par
+ * origine au plus.
+ */
+function rendreCompte(origine: Origine, force = false): void {
+  const nombre = ecartes.get(origine) ?? 0;
+  if (nombre === 0) return;
+  if (!force && !reserver(origine)) {
+    programmerCompteRendu(origine);
+    return;
+  }
+  ecartes.delete(origine);
+  const panne = compteRendu(origine, nombre);
+  if (panne) envoyer(panne);
+}
+
+/** Rend compte quand la plus ancienne place de la fenêtre se libère. */
+function programmerCompteRendu(origine: Origine): void {
+  if (minuteries.has(origine)) return;
+  const plusAncien = envois.get(origine)?.[0] ?? Date.now();
+  const delai = Math.max(0, plusAncien + FENETRE_MS - Date.now());
+  minuteries.set(
+    origine,
+    setTimeout(() => {
+      minuteries.delete(origine);
+      rendreCompte(origine);
+    }, delai),
+  );
+}
+
+if (typeof window !== 'undefined') {
+  // `pagehide` plutôt que `unload` : il est émis aussi quand la page part en
+  // cache de navigation, et `sendBeacon` est fait pour ce moment-là.
+  window.addEventListener('pagehide', () => {
+    for (const origine of ecartes.keys()) rendreCompte(origine, true);
+  });
+}
 
 export function signalerPanne(
   origine: Origine,
@@ -57,11 +138,23 @@ export function signalerPanne(
 
   const empreinte = `${panne.origine}|${panne.message}|${panne.chemin}`;
   if (dejaVues.has(empreinte)) return;
-  if (envoyes >= SIGNALEMENTS_MAX) return;
+
+  // Un compte en souffrance passe avant la panne qui rouvre la fenêtre : il
+  // dit ce qui manque entre la dernière ligne et celle-ci.
+  rendreCompte(panne.origine);
+
+  if (!reserver(panne.origine)) {
+    // Pas marquée comme vue : si elle revient après le plafond, elle passera.
+    ecartes.set(panne.origine, (ecartes.get(panne.origine) ?? 0) + 1);
+    programmerCompteRendu(panne.origine);
+    return;
+  }
 
   dejaVues.add(empreinte);
-  envoyes += 1;
+  envoyer(panne);
+}
 
+function envoyer(panne: PanneSignalee): void {
   const corps = JSON.stringify(panne);
 
   /*
