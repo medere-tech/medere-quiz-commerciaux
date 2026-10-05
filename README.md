@@ -76,8 +76,11 @@ formations/{formationId}          // identifiant du document = airtableId
   cibles : string[]                // sélection multiple, jamais une chaîne
   format : string                  // peut être vide
   modalite : string                // peut être vide
-  blocsCertification : string[]    // options réelles : 1 à 4. Stocké tel quel,
-                                   // aucune logique applicative ne s'y appuie
+  blocsCertification : string[]    // options réelles : « Bloc 1 » à « Bloc 4 »
+                                   // (« 1 » à « 4 » jusqu'en septembre 2026).
+                                   // Stocké tel quel, aucune logique applicative
+                                   // ne s'y appuie. Voir l'avertissement sur
+                                   // libelleBloc ci-dessous
   dureeTotale : string             // peut être vide
   urlWebflow : string              // peut être vide
   actif : boolean
@@ -140,6 +143,8 @@ sessions/{sessionId}/reponses/{uid_questionId}
 ```
 
 Le modèle `formations` est fixé par `docs/airtable-formations.md`, qui fait foi : il est relevé du schéma réel de la base. L'identifiant du document Firestore est l'identifiant d'enregistrement Airtable, ce qui rend la synchronisation idempotente — relancée deux fois, elle produit le même état.
+
+**`blocsCertification` a changé de forme sans rien casser, et c'est par chance.** Les options Airtable sont passées de `1`…`4` à `Bloc 1`…`Bloc 4` (relevé du 5 octobre 2026). Le seul endroit qui met ces valeurs en forme, `libelleBloc` (`src/lib/import/modele.ts`), n'ajoute « Bloc » qu'à un nombre nu : il avait été écrit pour des nombres, et il se trouve laisser passer tel quel ce qui n'en est pas un. Personne ne l'a conçu pour les deux formes, et aucun test ne garde la nouvelle. Si quelqu'un le simplifie un jour en préfixe inconditionnel, les libellés deviendront « Bloc Bloc 1 » — dans les propositions de réponse générées par l'import, donc sous les yeux des commerciaux.
 
 **Pourquoi un résumé par question en plus des réponses.** Le tirage et la
 maîtrise ne s'intéressent qu'à trois chiffres par question : combien de
@@ -670,7 +675,7 @@ Sans plafond, une seule écriture peut approcher le document maximal d'un mégao
 | `formations.format`, `formations.modalite`, `formations.dureeTotale` | 60 | libellés courts, issus de sélections Airtable |
 | `formations.urlWebflow` | 500 | une URL de fiche publique |
 | `formations.cibles` (cumul) | 500 | sept publics possibles au référentiel |
-| `formations.blocsCertification` (cumul) | 200 | quatre options au référentiel — `1` à `4` |
+| `formations.blocsCertification` (cumul) | 200 | quatre options au référentiel — `Bloc 1` à `Bloc 4` |
 | `sessions.code` | 12 | il est lu à voix haute puis saisi à la main |
 | `questions.formationIds` (cumul) | 1000 | une question se rattache à quelques formations, pas à cinquante |
 | `questions.bonnesReponses` (cumul) | 1000 | sous-ensemble des options, borné par elles |
