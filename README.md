@@ -1253,6 +1253,17 @@ administrateurs sont recréés neufs, leurs données effacées. Mot de confirmat
 distinct, `--confirmer=TABLE-RASE`, et refus de tourner si aucun administrateur
 n'a de compte.
 
+**Ce qu'une table rase emporte et qu'on ne retrouve pas : les présentations.**
+`presentations` est une saisie de l'équipe pédagogique — le lien Drive et la
+date de chaque sujet —, pas un miroir : aucune synchronisation ne la
+reconstruit. La table rase l'efface comme `questions`, et c'est voulu. Celle
+du 5 octobre 2026 était la dernière avant la mise en service. **Si une table
+rase devait se reproduire après que Noémie a saisi des présentations, elles
+partiraient.** Ce n'est pas un défaut, c'est le prix d'une table rase — mais
+il faut le savoir avant de la lancer. L'essai à blanc en donne le nombre, à la
+ligne `presentations` ; relever les liens avant de confirmer, ou les ressaisir
+ensuite.
+
 La séance `CPY68N` restée `encours` apparaît dans l'essai à blanc, signalée
 « jamais close ».
 
