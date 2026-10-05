@@ -4,16 +4,19 @@ import { FieldValue, Timestamp, type DocumentReference } from 'firebase-admin/fi
 
 import {
   convertirEnregistrements,
+  convertirSujets,
   desactiveraitToutLeCatalogue,
   formationsADesactiver,
   formationsDuMiroir,
+  rattacherAuxSujets,
+  sujetsADesactiver,
   type FormationEnregistree,
   type Rejet,
 } from '@/lib/airtable/conversion';
-import { lireFormations } from '@/lib/airtable/client';
+import { lireFormations, lireSujets } from '@/lib/airtable/client';
 import { firestoreAdmin } from '@/lib/firebase/admin';
 import { DOCUMENT_ETAT_SYNCHRONISATION } from '@/lib/formations/chemins';
-import type { Formation } from '@/lib/airtable/contrat';
+import type { Formation, Sujet } from '@/lib/airtable/contrat';
 
 /**
  * Synchronisation du référentiel des formations, d'Airtable vers Firestore.
@@ -34,6 +37,13 @@ import type { Formation } from '@/lib/airtable/contrat';
  */
 
 const COLLECTION = 'formations';
+/*
+ * Le miroir de la table Sujets. Écrit ici, et seulement ici, par un `set`
+ * complet chaque nuit : rien de ce que l'équipe saisit ne doit y vivre. La
+ * présentation d'un sujet est donc rangée à part, sous `presentations/`, que
+ * la synchronisation ne touche jamais.
+ */
+const COLLECTION_SUJETS = 'sujets';
 // Même chemin côté navigateur, où l'écran Formations relit ce compte rendu.
 const DOCUMENT_ETAT = DOCUMENT_ETAT_SYNCHRONISATION;
 
@@ -69,6 +79,10 @@ export type RapportSynchronisation = {
   statutsInconnus: string[];
   statutsAbsentsNombre: number;
   statutsAbsents: string[];
+  sujetsLus: number;
+  sujetsDesactives: number;
+  /** Fiches dont le sujet n'a pas été lu : écrites sans sujet. */
+  sujetsIntrouvables: string[];
   ignoree?: boolean;
   motif?: string;
 };
@@ -104,6 +118,9 @@ export async function synchroniserFormations(
         statutsInconnus: [],
         statutsAbsentsNombre: 0,
         statutsAbsents: [],
+        sujetsLus: 0,
+        sujetsDesactives: 0,
+        sujetsIntrouvables: [],
         ignoree: true,
         motif:
           `Une synchronisation a déjà eu lieu il y a moins de ${minutes} minutes. ` +
@@ -114,12 +131,18 @@ export async function synchroniserFormations(
 
   const syncLe = new Date();
   const enregistrements = await lireFormations();
-  const { formations, rejets, statutsInconnus, statutsAbsents } = convertirEnregistrements(
-    enregistrements,
-    syncLe,
-  );
+  const conversion = convertirEnregistrements(enregistrements, syncLe);
+  const { statutsInconnus, statutsAbsents } = conversion;
 
-  const existantes = await base.collection(COLLECTION).get();
+  const enregistrementsSujets = await lireSujets();
+  const { sujets, rejets: rejetsSujets } = convertirSujets(enregistrementsSujets, syncLe);
+  const { formations, sujetsIntrouvables } = rattacherAuxSujets(conversion.formations, sujets);
+  const rejets = [...conversion.rejets, ...rejetsSujets];
+
+  const [existantes, sujetsExistants] = await Promise.all([
+    base.collection(COLLECTION).get(),
+    base.collection(COLLECTION_SUJETS).select('actif').get(),
+  ]);
   const identifiantsExistants = new Set(existantes.docs.map((document) => document.id));
   const enregistrees: (FormationEnregistree & { ref: DocumentReference })[] = existantes.docs.map(
     (document) => ({
@@ -148,6 +171,26 @@ export async function synchroniserFormations(
         (rejets.length > 0
           ? ` ${rejets.length} enregistrement(s) ont par ailleurs été rejetés.`
           : ''),
+    );
+  }
+
+  /*
+   * Le même garde-fou pour les sujets, et pour une raison de plus : une table
+   * Sujets lue vide ne désactiverait pas seulement les sujets, elle laisserait
+   * chaque fiche sans sujet — toutes les pages de sujet disparaîtraient d'un
+   * coup, sans qu'aucune fiche n'ait changé dans Airtable.
+   */
+  const sujetsEnregistres = sujetsExistants.docs.map((document) => ({
+    id: document.id,
+    actif: document.get('actif'),
+    ref: document.ref,
+  }));
+  if (desactiveraitToutLeCatalogue(sujets.length, sujetsEnregistres.length)) {
+    throw new ErreurSynchronisation(
+      `Airtable n'a renvoyé aucun sujet exploitable alors que ` +
+        `${sujetsEnregistres.length} sont enregistrés. La synchronisation est ` +
+        `interrompue sans rien modifier : toutes les fiches perdraient leur sujet. ` +
+        `Vérifiez la table Sujets, puis relancez.`,
     );
   }
 
@@ -188,6 +231,22 @@ export async function synchroniserFormations(
     await executerSiPlein();
   }
 
+  for (const sujet of sujets) {
+    lot.set(base.collection(COLLECTION_SUJETS).doc(sujet.airtableId), enDocumentSujet(sujet));
+    compteur += 1;
+    await executerSiPlein();
+  }
+
+  const sujetsVus = new Set(sujets.map((sujet) => sujet.airtableId));
+  let sujetsDesactives = 0;
+
+  for (const document of sujetsADesactiver(sujetsEnregistres, sujetsVus)) {
+    lot.update(document.ref, { actif: false, syncLe: FieldValue.serverTimestamp() });
+    sujetsDesactives += 1;
+    compteur += 1;
+    await executerSiPlein();
+  }
+
   if (compteur > 0) await lot.commit();
 
   const rapport: RapportSynchronisation = {
@@ -202,6 +261,9 @@ export async function synchroniserFormations(
     statutsInconnus,
     statutsAbsentsNombre: statutsAbsents.length,
     statutsAbsents,
+    sujetsLus: enregistrementsSujets.length,
+    sujetsDesactives,
+    sujetsIntrouvables,
   };
 
   await base.doc(DOCUMENT_ETAT).set({
@@ -217,6 +279,9 @@ export async function synchroniserFormations(
     statutsInconnus,
     statutsAbsentsNombre: statutsAbsents.length,
     statutsAbsents: statutsAbsents.slice(0, 50),
+    sujetsLus: rapport.sujetsLus,
+    sujetsDesactives,
+    sujetsIntrouvables: sujetsIntrouvables.slice(0, 50),
   });
 
   return rapport;
@@ -233,7 +298,17 @@ function enDocument(formation: Formation): Record<string, unknown> {
     blocsCertification: formation.blocsCertification,
     dureeTotale: formation.dureeTotale,
     urlWebflow: formation.urlWebflow,
+    sujetId: formation.sujetId,
     actif: formation.actif,
     syncLe: Timestamp.fromDate(formation.syncLe),
+  };
+}
+
+function enDocumentSujet(sujet: Sujet): Record<string, unknown> {
+  return {
+    airtableId: sujet.airtableId,
+    nom: sujet.nom,
+    actif: sujet.actif,
+    syncLe: Timestamp.fromDate(sujet.syncLe),
   };
 }

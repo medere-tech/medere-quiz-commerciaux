@@ -78,6 +78,7 @@ const FORMATION = {
   blocsCertification: ['1'],
   dureeTotale: '14 heures',
   urlWebflow: '',
+  sujetId: null,
   actif: true,
   syncLe: null,
 };
@@ -174,5 +175,33 @@ describe('On a joué', () => {
     await monter(banque(15));
 
     expect(texte()).toMatch(/À reprendre/);
+  });
+});
+
+describe('Avancement par formation — l’accès à la page du sujet', () => {
+  async function monterAvec(formation: Omit<typeof FORMATION, 'sujetId'> & { sujetId: string | null }) {
+    const { render } = await import('@testing-library/react');
+    await act(async () => {
+      render(
+        <Accueil
+          prenom="Jordan"
+          referentiel={{ questions: banque(3), formations: [formation] }}
+        />,
+      );
+    });
+    await waitFor(() => expect(screen.getByText(formation.nom)).toBeTruthy());
+  }
+
+  it('une ligne rattachée à un sujet mène à la page de ce sujet', async () => {
+    await monterAvec({ ...FORMATION, sujetId: 'recSujetUrgences1' });
+
+    const lien = screen.getByText(FORMATION.nom).closest('a');
+    expect(lien?.getAttribute('href')).toBe('/sujet/recSujetUrgences1');
+  });
+
+  it('une ligne sans sujet reste une ligne : aucune page à ouvrir', async () => {
+    await monterAvec(FORMATION);
+
+    expect(screen.getByText(FORMATION.nom).closest('a')).toBeNull();
   });
 });

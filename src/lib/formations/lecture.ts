@@ -17,6 +17,8 @@ export type Formation = {
   dureeTotale: string;
   urlWebflow: string;
   blocsCertification: string[];
+  /** L'identifiant de son sujet, ou `null` : la page d'un sujet en dépend. */
+  sujetId: string | null;
   actif: boolean;
 };
 
@@ -33,6 +35,7 @@ export function enFormation(identifiant: string, donnees: Record<string, unknown
     blocsCertification: Array.isArray(donnees.blocsCertification)
       ? (donnees.blocsCertification as string[])
       : [],
+    sujetId: typeof donnees.sujetId === 'string' && donnees.sujetId.length > 0 ? donnees.sujetId : null,
     actif: donnees.actif === true,
   };
 }

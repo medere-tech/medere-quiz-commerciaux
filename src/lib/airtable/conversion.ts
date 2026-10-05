@@ -1,10 +1,13 @@
 import {
   CHAMPS,
+  CHAMPS_SUJET,
+  IDENTIFIANT_AIRTABLE,
   PLAFONDS,
   STATUT_ACTIF,
   STATUTS_CONNUS,
   type EnregistrementAirtable,
   type Formation,
+  type Sujet,
 } from '@/lib/airtable/contrat';
 import { estFormationTransverse } from '@/lib/formations/transverse';
 
@@ -83,6 +86,28 @@ function cumul(liste: string[]): number {
 }
 
 /**
+ * Le lien vers le sujet : un identifiant `rec…`, ou rien.
+ *
+ * L'API le rend en tableau, même réglé sur un seul enregistrement. Deux
+ * sujets pour une fiche est une anomalie de saisie — la page d'un sujet ne
+ * saurait pas où ranger la fiche —, et elle se rejette comme les autres :
+ * signalée, jamais tranchée en silence au profit du premier venu.
+ */
+function lienSujet(valeur: unknown): { sujetId: string | null } | { raison: string } {
+  if (valeur === undefined || valeur === null) return { sujetId: null };
+  if (!Array.isArray(valeur) || !valeur.every((element) => typeof element === 'string')) {
+    return { raison: "le sujet n'est pas une liste d'identifiants d'enregistrement" };
+  }
+  if (valeur.length === 0) return { sujetId: null };
+  if (valeur.length > 1) return { raison: `la formation est rattachée à ${valeur.length} sujets` };
+  const sujetId = (valeur[0] as string).trim();
+  if (!IDENTIFIANT_AIRTABLE.test(sujetId)) {
+    return { raison: "le sujet ne désigne pas un enregistrement Airtable" };
+  }
+  return { sujetId };
+}
+
+/**
  * Convertit un enregistrement. Renvoie la formation, ou la liste des raisons
  * qui la rendent inexploitable.
  */
@@ -106,6 +131,7 @@ function convertir(
   const statutSource = chaine(champs[CHAMPS.statutSource]) ?? '';
   const cibles = listeDeChaines(champs[CHAMPS.cibles]);
   const blocsCertification = listeDeChaines(champs[CHAMPS.blocsCertification]);
+  const sujet = lienSujet(champs[CHAMPS.sujet]);
 
   // Identité : sans ces trois-là, l'enregistrement n'est pas exploitable.
   if (airtableId.length === 0) raisons.push("l'identifiant d'enregistrement est absent");
@@ -152,7 +178,9 @@ function convertir(
     );
   }
 
-  if (raisons.length > 0) {
+  if ('raison' in sujet) raisons.push(sujet.raison);
+
+  if (raisons.length > 0 || 'raison' in sujet) {
     return { raisons, nom: typeof nom === 'string' ? nom : '' };
   }
 
@@ -168,6 +196,7 @@ function convertir(
       blocsCertification: blocsCertification as string[],
       dureeTotale: dureeTotale as string,
       urlWebflow: urlWebflow as string,
+      sujetId: sujet.sujetId,
       // Liste blanche : seul « Active » met la formation au catalogue.
       actif: statutSource.toLowerCase() === STATUT_ACTIF,
       syncLe,
@@ -272,4 +301,89 @@ export function convertirEnregistrements(
     statutsInconnus: [...statutsInconnus],
     statutsAbsents,
   };
+}
+
+export type ResultatConversionSujets = {
+  sujets: Sujet[];
+  rejets: Rejet[];
+};
+
+/**
+ * Les sujets, sous la même discipline que les formations : un nom vide ou
+ * trop long est rejeté et signalé, sans emporter les autres.
+ */
+export function convertirSujets(
+  enregistrements: readonly EnregistrementAirtable[],
+  syncLe: Date,
+): ResultatConversionSujets {
+  const sujets: Sujet[] = [];
+  const rejets: Rejet[] = [];
+  const vus = new Set<string>();
+
+  for (const enregistrement of enregistrements) {
+    const airtableId = enregistrement.id?.trim() ?? '';
+    const nom = chaine(enregistrement.fields[CHAMPS_SUJET.nom]);
+    const raisons: string[] = [];
+
+    if (!IDENTIFIANT_AIRTABLE.test(airtableId)) {
+      raisons.push("l'identifiant du sujet n'est pas un identifiant d'enregistrement");
+    }
+    if (nom === null) raisons.push("le nom du sujet n'est pas un texte");
+    else if (nom.length === 0) raisons.push('le nom du sujet est vide');
+    else if (nom.length > PLAFONDS.sujetNom) {
+      raisons.push(`le nom du sujet dépasse ${PLAFONDS.sujetNom} caractères`);
+    }
+    if (raisons.length === 0 && vus.has(airtableId)) {
+      raisons.push('sujet renvoyé deux fois par Airtable');
+    }
+
+    if (raisons.length > 0) {
+      rejets.push({
+        airtableId: airtableId || '(sans identifiant)',
+        nom: `Sujet : ${typeof nom === 'string' ? nom : ''}`,
+        raisons,
+      });
+      continue;
+    }
+
+    vus.add(airtableId);
+    sujets.push({ airtableId, nom: nom as string, actif: true, syncLe });
+  }
+
+  return { sujets, rejets };
+}
+
+/**
+ * Le rapprochement des deux tables, fait ici et pas dans Airtable.
+ *
+ * Une fiche dont le sujet n'a pas été lu — rejeté, ou absent de la table —
+ * garde sa place au catalogue, mais sans sujet : un lien vers une page qui
+ * n'existe pas serait pire que pas de lien. Elle est nommée au compte rendu,
+ * pour que l'écart se corrige dans Airtable.
+ */
+export function rattacherAuxSujets(
+  formations: readonly Formation[],
+  sujets: readonly Sujet[],
+): { formations: Formation[]; sujetsIntrouvables: string[] } {
+  const connus = new Set(sujets.map((sujet) => sujet.airtableId));
+  const sujetsIntrouvables: string[] = [];
+
+  const rattachees = formations.map((formation) => {
+    if (formation.sujetId === null || connus.has(formation.sujetId)) return formation;
+    sujetsIntrouvables.push(formation.airtableId);
+    return { ...formation, sujetId: null };
+  });
+
+  return { formations: rattachees, sujetsIntrouvables };
+}
+
+/** Ce que la synchronisation sait d'un document déjà présent dans `sujets`. */
+export type SujetEnregistre = { id: string; actif: unknown };
+
+/** Les sujets disparus d'Airtable : désactivés, jamais supprimés. */
+export function sujetsADesactiver<T extends SujetEnregistre>(
+  existants: readonly T[],
+  vusDansAirtable: ReadonlySet<string>,
+): T[] {
+  return existants.filter((sujet) => !vusDansAirtable.has(sujet.id) && sujet.actif !== false);
 }

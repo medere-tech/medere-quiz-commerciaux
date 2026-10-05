@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import Link from 'next/link';
 import type { Route } from 'next';
 
 import { Bouton, Carte, Meta, TitreSection } from '@/composants/ds/primitives';
@@ -23,6 +24,7 @@ import { avancementParFormation, maitrise } from '@/lib/serie/maitrise';
 import { libelleSeuilsEtoiles } from '@/lib/serie/verdict';
 import { LIBELLE_PONDERATION, TAILLE_SERIE } from '@/lib/serie/tirage';
 import { ID_FORMATION_TRANSVERSE, PUBLIC_FORMATION_TRANSVERSE } from '@/lib/formations/transverse';
+import { useIntentionDeNavigation } from '@/lib/navigation/intention';
 
 /**
  * 01 · Accueil.
@@ -49,6 +51,7 @@ export function Accueil({
   parcours?: ParcoursSeme;
 }) {
   const chargement = useDonneesParcours(referentiel, parcours);
+  const intention = useIntentionDeNavigation();
 
   const calculs = useMemo(() => {
     if (chargement.etat !== 'pret') return null;
@@ -344,7 +347,7 @@ export function Accueil({
           >
             {avancements.map(({ formation, maitrise: part }) => {
               const identite = identiteVisuelle(formation);
-              return (
+              const ligne = (
                 <Carte
                   key={formation.id}
                   rayon="var(--radius-lg)"
@@ -399,6 +402,32 @@ export function Accueil({
                     </Meta>
                   </span>
                 </Carte>
+              );
+
+              /*
+               * **Une ligne mène à la page de son sujet.** L'avancement reste
+               * par formation — c'est ce que les états mesurent —, seule la
+               * page de destination regroupe. Une fiche sans sujet, la
+               * transverse comprise, n'a pas de page : sa ligne reste inerte.
+               *
+               * Un vrai lien, mais **sans préchargement à l'affichage** : une
+               * vingtaine de lignes dans le champ feraient une vingtaine de
+               * requêtes à chaque ouverture de l'écran le plus visité. On
+               * précharge au premier signe d'intention, comme les listes du
+               * back-office ; le clic n'attend pas pour autant.
+               */
+              if (!formation.sujetId) return ligne;
+              const route = `/sujet/${formation.sujetId}` as Route;
+              return (
+                <Link
+                  key={formation.id}
+                  href={route}
+                  prefetch={false}
+                  className="ligne-lien"
+                  {...intention(route)}
+                >
+                  {ligne}
+                </Link>
               );
             })}
           </div>

@@ -20,7 +20,9 @@ export type NomPicto =
   | 'distinction'
   | 'suivi'
   | 'soin'
-  | 'dentaire';
+  | 'dentaire'
+  // `book-flip-page` du jeu livré : la page d'un sujet sans présentation.
+  | 'livre';
 
 export function Picto({
   nom,

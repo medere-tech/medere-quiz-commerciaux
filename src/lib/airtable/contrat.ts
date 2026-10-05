@@ -20,7 +20,34 @@ export const CHAMPS = {
   blocsCertification: 'fldSzpTM9bOG4pp66',
   dureeTotale: 'fldSNZuA8JL91b3wA',
   urlWebflow: 'fld9C15oF7RVDEVyO',
+  /*
+   * Le lien vers la table Sujets. L'API REST le rend en tableau à plat
+   * d'identifiants — `["rec…"]` —, vérifié le 5 octobre 2026. Airtable le
+   * règle sur un seul enregistrement, mais le type reste une liste.
+   *
+   * « Nom du sujet » (`fldWnTXMH3bsdUQbx`, une recherche) n'est volontairement
+   * pas lu : il recopie le nom à travers ce lien, et sa forme change selon
+   * l'outil qui le lit. Le nom vient de la table Sujets, sa source.
+   */
+  sujet: 'fldzkVLwScvgvDmlq',
 } as const;
+
+/**
+ * La table Sujets : un sujet regroupe les fiches d'un même thème, qui
+ * diffèrent par le format, la modalité ou le public.
+ *
+ * **Son identifiant est écrit ici, pas dans l'environnement**, à la différence
+ * de la table Formations : un identifiant de table est immuable, et une
+ * variable de plus serait une variable de plus à oublier sur Vercel.
+ */
+export const TABLE_SUJETS = 'tblCtvmk1cpRhCJwB';
+
+export const CHAMPS_SUJET = {
+  nom: 'fld6Lg70o4ngQ5uBk',
+} as const;
+
+/** La forme d'un identifiant d'enregistrement Airtable. */
+export const IDENTIFIANT_AIRTABLE = /^rec[A-Za-z0-9]{14}$/;
 
 /**
  * Seul statut qui met une formation au catalogue.
@@ -61,6 +88,7 @@ export const PLAFONDS = {
   urlWebflow: 500,
   ciblesCumul: 500,
   blocsCertificationCumul: 200,
+  sujetNom: 200,
 } as const;
 
 /** Enregistrement tel que l'API le renvoie avec `returnFieldsByFieldId=true`. */
@@ -81,6 +109,16 @@ export type Formation = {
   blocsCertification: string[];
   dureeTotale: string;
   urlWebflow: string;
+  /** L'identifiant `rec…` de son sujet, ou `null` : une fiche peut n'en avoir aucun. */
+  sujetId: string | null;
+  actif: boolean;
+  syncLe: Date;
+};
+
+/** Sujet tel qu'il est écrit dans Firestore, sous `sujets/{airtableId}`. */
+export type Sujet = {
+  airtableId: string;
+  nom: string;
   actif: boolean;
   syncLe: Date;
 };

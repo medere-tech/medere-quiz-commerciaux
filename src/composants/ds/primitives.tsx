@@ -83,6 +83,12 @@ type ProprietesBouton = ButtonHTMLAttributes<HTMLButtonElement> &
      * existe pour les trois sections.
      */
     href?: Route;
+    /**
+     * Adresse hors de l'application, ouverte dans un nouvel onglet : la
+     * présentation d'un sujet, sur Google Drive. Même dessin que le bouton,
+     * mais une ancre simple — Next n'a rien à précharger ailleurs.
+     */
+    externe?: string;
   };
 
 /** Styles communs aux deux rendus : le dessin ne dépend pas de la balise. */
@@ -132,6 +138,7 @@ export function Bouton({
   iconeDroite,
   disabled = false,
   href,
+  externe,
   style,
   ...reste
 }: ProprietesBouton) {
@@ -171,6 +178,24 @@ export function Bouton({
     onMouseDown: () => setAppui(true),
     onMouseUp: () => setAppui(false),
   };
+
+  if (externe && !disabled) {
+    const proprietesLien = { ...reste, type: undefined };
+    return (
+      <a
+        {...(proprietesLien as AnchorHTMLAttributes<HTMLAnchorElement>)}
+        {...gestes}
+        style={apparence}
+        href={externe}
+        target="_blank"
+        // `noreferrer` : l'adresse de l'outil n'a rien à faire dans les
+        // journaux de Google.
+        rel="noopener noreferrer"
+      >
+        {contenu}
+      </a>
+    );
+  }
 
   // Un lien ne se désactive pas : quand l'action est indisponible, on rend un
   // bouton inerte, qui l'annonce correctement au lecteur d'écran.

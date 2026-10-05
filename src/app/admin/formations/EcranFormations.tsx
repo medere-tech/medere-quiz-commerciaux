@@ -33,6 +33,12 @@ import { echecDeLecture, type EchecDeLecture } from '@/lib/firebase/erreurs';
 import { entierBorne, useParametresUrl } from '@/lib/navigation/parametres-url';
 import { ChargerPlus } from '@/composants/admin/ChargerPlus';
 import { FrontiereDeBloc } from '@/composants/admin/FrontiereDeBloc';
+import { PresentationSujet } from '@/composants/admin/PresentationSujet';
+import {
+  chargerNomsDeSujets,
+  chargerPresentations,
+  type Presentation,
+} from '@/lib/sujets/depot';
 import { Collage } from '@/composants/session/Collage';
 import { Picto } from '@/composants/ds/Picto';
 import {
@@ -423,6 +429,10 @@ export function EcranFormations({
   const [servies, setServies] = useState<Map<string, number>>(new Map());
   const [brouillons, setBrouillons] = useState<Map<string, number>>(new Map());
   const [brouillonsTotal, setBrouillonsTotal] = useState<number | null>(null);
+  const [nomsSujets, setNomsSujets] = useState<Map<string, string>>(new Map());
+  const [presentations, setPresentations] = useState<Map<string, Presentation>>(new Map());
+  /** Sujets déjà lus, présentation trouvée ou non : on ne les redemande pas. */
+  const [sujetsLus, setSujetsLus] = useState<Set<string>>(new Set());
 
   function charger() {
     setRechargements((precedents) => precedents + 1);
@@ -639,6 +649,52 @@ export function EcranFormations({
   if (comptesPour !== rechargements) {
     setComptesPour(rechargements);
     setServies(new Map());
+    setNomsSujets(new Map());
+    setPresentations(new Map());
+    setSujetsLus(new Set());
+  }
+
+  /*
+   * **Le sujet de chaque fiche, et sa présentation.** Même discipline que les
+   * comptes : on ne lit que les sujets pas encore lus, en une seule vague —
+   * un lot de trente par collection —, et rien ne s'écrit dans un écran
+   * qu'on a quitté. Un échec ne bloque rien : la carte ne montre pas le bloc.
+   */
+  const aLireSujets = [
+    ...new Set(
+      visibles
+        .map((formation) => formation.sujetId)
+        .filter((id): id is string => id !== null && !sujetsLus.has(id)),
+    ),
+  ];
+  const clefSujets = aLireSujets.join(',');
+
+  useEffect(() => {
+    if (clefSujets === '') return;
+    const controleur = new AbortController();
+    const ids = clefSujets.split(',');
+
+    Promise.all([chargerNomsDeSujets(ids), chargerPresentations(ids)])
+      .then(([noms, lues]) => {
+        if (controleur.signal.aborted) return;
+        setNomsSujets((precedents) => new Map([...precedents, ...noms]));
+        setPresentations((precedentes) => new Map([...precedentes, ...lues]));
+        setSujetsLus((precedents) => new Set([...precedents, ...ids]));
+      })
+      .catch((panne: unknown) => {
+        console.error('Sujets et présentations indisponibles', panne);
+      });
+
+    return () => controleur.abort();
+  }, [clefSujets]);
+
+  function presentationModifiee(sujetId: string, presentation: Presentation | null) {
+    setPresentations((precedentes) => {
+      const suivantes = new Map(precedentes);
+      if (presentation) suivantes.set(sujetId, presentation);
+      else suivantes.delete(sujetId);
+      return suivantes;
+    });
   }
 
   /* Les brouillons, eux, se lisent une fois pour toute la banque : ils sont le
@@ -986,6 +1042,15 @@ export function EcranFormations({
                     </a>
                   )}
                 </div>
+
+                {formation.sujetId && sujetsLus.has(formation.sujetId) && (
+                  <PresentationSujet
+                    sujetId={formation.sujetId}
+                    nomSujet={nomsSujets.get(formation.sujetId)}
+                    presentation={presentations.get(formation.sujetId)}
+                    onModifiee={presentationModifiee}
+                  />
+                )}
               </Carte>
             );
           })}

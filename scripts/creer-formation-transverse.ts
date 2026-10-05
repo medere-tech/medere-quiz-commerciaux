@@ -67,6 +67,9 @@ function documentTransverse(): Record<string, unknown> {
     blocsCertification: [],
     dureeTotale: '',
     urlWebflow: '',
+    // Elle ne relève d'aucun sujet : elle n'a pas de page, et sa ligne
+    // d'avancement ne mène nulle part.
+    sujetId: null,
     actif: true,
     transverse: true,
     syncLe: FieldValue.serverTimestamp(),

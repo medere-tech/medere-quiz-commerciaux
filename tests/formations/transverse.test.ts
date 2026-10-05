@@ -38,6 +38,7 @@ function formation(id: string, nom: string, cibles: string[] = []): Formation {
     modalite: '',
     dureeTotale: '',
     urlWebflow: '',
+    sujetId: null,
     blocsCertification: [],
     actif: true,
   };

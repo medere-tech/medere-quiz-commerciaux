@@ -33,6 +33,7 @@ import { crediterSerie, enregistrerReponse } from '@/lib/serie/depot';
 import { signalerPanne } from '@/lib/journal/client';
 import { mesurerCatalogue, RECOMPENSES } from '@/lib/serie/recompenses';
 import { avancementParFormation } from '@/lib/serie/maitrise';
+import { questionsDuSujet } from '@/lib/sujets/sujet';
 import {
   LIBELLE_PONDERATION,
   TAILLE_SERIE,
@@ -123,6 +124,13 @@ export function Serie({
    * juste vaut 100 %, et dix clics vaudraient dix séries.
    */
   const revision = requete.get('question') ?? null;
+  /*
+   * **La série d'un sujet**, lancée depuis sa page. Le tirage est le même —
+   * pondéré, sans remise —, restreint aux questions des fiches du sujet. Un
+   * sujet de six questions donne une série de six : elle vaut ce qu'elle pèse
+   * sur dix, et compte un jour d'assiduité, exactement comme le rattrapage.
+   */
+  const sujet = requete.get('sujet') ?? null;
 
   const chargement = useDonneesParcours(referentiel, parcours);
 
@@ -166,11 +174,22 @@ export function Serie({
         : [];
     }
     const hasard = generateurAleatoire(graine);
-    const etats = chargement.donnees.etats;
+    let etats = chargement.donnees.etats;
+    if (sujet !== null) {
+      const fiches = new Set(
+        chargement.donnees.formations
+          .filter((formation) => formation.sujetId === sujet)
+          .map((formation) => formation.id),
+      );
+      const duSujet = new Set(
+        questionsDuSujet(chargement.donnees.questions, fiches).map((question) => question.id),
+      );
+      etats = etats.filter((etat) => duSujet.has(etat.id));
+    }
     return rattrapage
       ? tirerRattrapage(etats, TAILLE_SERIE, hasard)
       : tirerSerie(etats, TAILLE_SERIE, hasard);
-  }, [chargement, graine, rattrapage, revision]);
+  }, [chargement, graine, rattrapage, revision, sujet]);
 
   /** Repartir pour une série : tout est remis à zéro, y compris le crédit. */
   const recommencer = useCallback(
@@ -184,11 +203,16 @@ export function Serie({
       setErreurEcriture(undefined);
       setGraine(graineNeuve());
       routeur.replace(
-        (mode === 'rattrapage' ? '/serie?mode=rattrapage' : '/serie') as Route,
+        (mode === 'rattrapage'
+          ? '/serie?mode=rattrapage'
+          : // « Nouvelle série » après une série de sujet : le même sujet.
+            sujet !== null
+            ? `/serie?sujet=${encodeURIComponent(sujet)}`
+            : '/serie') as Route,
         { scroll: true },
       );
     },
-    [routeur],
+    [routeur, sujet],
   );
 
   const question = ordre ? parIdentifiant.get(ordre[position] ?? '') : undefined;
@@ -411,14 +435,18 @@ export function Serie({
               ? 'Cette question n’est plus disponible'
               : rattrapage
                 ? 'Rien à rattraper'
-                : 'Aucune question disponible'
+                : sujet !== null
+                  ? 'Aucune question sur ce sujet'
+                  : 'Aucune question disponible'
           }
           texte={
             revision !== null
               ? 'Elle a pu être retirée depuis l’ouverture de votre liste.'
               : rattrapage
                 ? 'Toutes vos dernières tentatives sont justes. Lancez une série ordinaire pour continuer.'
-                : 'Aucune question n’est publiée pour l’instant. L’entraînement s’ouvrira dès qu’il y en aura.'
+                : sujet !== null
+                  ? 'Ses questions ne sont pas encore publiées. Lancez une série ordinaire depuis l’accueil.'
+                  : 'Aucune question n’est publiée pour l’instant. L’entraînement s’ouvrira dès qu’il y en aura.'
           }
           actions={
             <Bouton variante="secondaire" href={ROUTE_ACCUEIL}>
